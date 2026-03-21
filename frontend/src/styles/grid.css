@@ -21,6 +21,11 @@
   --tab-border: #dadce0;
   --status-bg: #f8f9fa;
   --status-text: #5f6368;
+  --context-menu-bg: #ffffff;
+  --context-menu-hover: #f0f0f0;
+  --context-menu-text: #202124;
+  --context-menu-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --danger-color: #d93025;
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
     'Helvetica Neue', Arial, sans-serif;
 }
@@ -45,6 +50,11 @@
     --tab-border: #3c4043;
     --status-bg: #292a2d;
     --status-text: #9aa0a6;
+    --context-menu-bg: #333639;
+    --context-menu-hover: #3c4043;
+    --context-menu-text: #e8eaed;
+    --context-menu-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --danger-color: #f28b82;
   }
 }
 
@@ -86,7 +96,7 @@ body,
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 4px 8px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--toolbar-border);
@@ -107,6 +117,7 @@ body,
   font-size: 14px;
   cursor: pointer;
   font-family: var(--font-family);
+  transition: background 0.1s;
 }
 
 .toolbar-btn:hover {
@@ -118,11 +129,96 @@ body,
   color: var(--selection-border);
 }
 
+.toolbar-btn-wide {
+  width: auto;
+  min-width: 36px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
 .toolbar-separator {
   width: 1px;
   height: 20px;
   background: var(--toolbar-border);
   margin: 0 4px;
+}
+
+.toolbar-brand {
+  font-size: 11px;
+  color: var(--header-text);
+  margin-left: auto;
+}
+
+/* Toolbar dropdown menus */
+.toolbar-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  box-shadow: var(--context-menu-shadow);
+  padding: 4px 0;
+  min-width: 60px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.toolbar-dropdown-item {
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--context-menu-text);
+}
+
+.toolbar-dropdown-item:hover {
+  background: var(--context-menu-hover);
+}
+
+.toolbar-dropdown-item.active {
+  color: var(--selection-border);
+  font-weight: 600;
+}
+
+/* Color picker grid */
+.toolbar-color-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  box-shadow: var(--context-menu-shadow);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(10, 20px);
+  gap: 2px;
+  width: auto;
+}
+
+.toolbar-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  cursor: pointer;
+  border: 1px solid var(--grid-border);
+  transition: transform 0.1s;
+}
+
+.toolbar-color-swatch:hover {
+  transform: scale(1.2);
+  z-index: 1;
+}
+
+.toolbar-color-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cell-bg);
+  color: var(--danger-color);
+  font-weight: bold;
 }
 
 /* -----------------------------------------------------------------------
@@ -152,6 +248,38 @@ body,
   color: var(--cell-text);
   background: var(--header-bg);
   text-align: center;
+  cursor: pointer;
+}
+
+.formula-bar-name-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  background: var(--cell-bg);
+  text-align: center;
+}
+
+.formula-bar-fx {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 100%;
+  border-right: 1px solid var(--formula-bar-border);
+}
+
+.formula-bar-fx-icon {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--header-text);
+  font-weight: 500;
 }
 
 .formula-bar-input {
@@ -171,137 +299,42 @@ body,
 }
 
 /* -----------------------------------------------------------------------
-   Grid
+   Virtual Grid (Canvas-based)
    ----------------------------------------------------------------------- */
 
-.grid-container {
+.virtual-grid-container {
   flex: 1;
-  overflow: auto;
   position: relative;
-}
-
-.grid-table {
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-/* Corner cell (top-left) */
-.grid-corner {
-  width: 46px;
-  min-width: 46px;
-  height: 25px;
-  background: var(--header-bg);
-  border-right: 1px solid var(--grid-border-dark);
-  border-bottom: 1px solid var(--grid-border-dark);
-  position: sticky;
-  top: 0;
-  left: 0;
-  z-index: 3;
-}
-
-/* Column headers (A, B, C, ...) */
-.grid-col-header {
-  height: 25px;
-  min-width: 100px;
-  width: 100px;
-  background: var(--header-bg);
-  border-right: 1px solid var(--grid-border);
-  border-bottom: 1px solid var(--grid-border-dark);
-  text-align: center;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--header-text);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  cursor: default;
-}
-
-.grid-col-header.selected {
-  background: var(--selection-bg);
-  color: var(--selection-border);
-  font-weight: 600;
-}
-
-/* Row numbers */
-.grid-row-number {
-  width: 46px;
-  min-width: 46px;
-  background: var(--header-bg);
-  border-right: 1px solid var(--grid-border-dark);
-  border-bottom: 1px solid var(--grid-border);
-  text-align: center;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--header-text);
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  cursor: default;
-}
-
-.grid-row-number.selected {
-  background: var(--selection-bg);
-  color: var(--selection-border);
-  font-weight: 600;
-}
-
-/* Data cells */
-.grid-cell {
-  height: 25px;
-  min-width: 100px;
-  width: 100px;
-  padding: 0 4px;
-  border-right: 1px solid var(--grid-border);
-  border-bottom: 1px solid var(--grid-border);
-  background: var(--cell-bg);
-  color: var(--cell-text);
-  font-size: 13px;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   cursor: cell;
-  line-height: 25px;
 }
 
-.grid-cell.selected {
-  outline: 2px solid var(--selection-border);
-  outline-offset: -1px;
-  z-index: 1;
-  position: relative;
-}
-
-.grid-cell.in-range {
-  background: var(--selection-bg);
-}
-
-.grid-cell.editing {
-  padding: 0;
-  outline: 2px solid var(--selection-border);
-  outline-offset: -1px;
-  z-index: 1;
-  position: relative;
-}
-
-.grid-cell-input {
+.virtual-grid-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+}
+
+/* -----------------------------------------------------------------------
+   Cell Editor (textarea overlay on canvas)
+   ----------------------------------------------------------------------- */
+
+.cell-editor-textarea {
   padding: 0 4px;
-  border: none;
+  border: 2px solid var(--selection-border);
   outline: none;
   font-size: 13px;
   font-family: var(--font-family);
   color: var(--cell-text);
   background: var(--cell-bg);
   line-height: 25px;
-}
-
-.grid-cell .bold {
-  font-weight: 600;
-}
-
-.grid-cell .italic {
-  font-style: italic;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* -----------------------------------------------------------------------
@@ -315,7 +348,23 @@ body,
   background: var(--tab-bg);
   min-height: 30px;
   flex-shrink: 0;
+  position: relative;
+}
+
+.sheet-tabs-list {
+  display: flex;
+  align-items: stretch;
   overflow-x: auto;
+  flex: 1;
+}
+
+.sheet-tabs-list::-webkit-scrollbar {
+  height: 3px;
+}
+
+.sheet-tabs-list::-webkit-scrollbar-thumb {
+  background: var(--grid-border-dark);
+  border-radius: 2px;
 }
 
 .sheet-tab {
@@ -329,6 +378,7 @@ body,
   white-space: nowrap;
   background: var(--tab-bg);
   transition: background 0.1s;
+  min-width: 60px;
 }
 
 .sheet-tab:hover {
@@ -340,6 +390,20 @@ body,
   color: var(--cell-text);
   font-weight: 500;
   border-bottom: 2px solid var(--selection-border);
+}
+
+.sheet-tab-rename-input {
+  width: 80px;
+  padding: 2px 4px;
+  border: 1px solid var(--selection-border);
+  border-radius: 2px;
+  outline: none;
+  font-size: 12px;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  background: var(--cell-bg);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .sheet-tab-add {
@@ -363,6 +427,45 @@ body,
   color: var(--cell-text);
 }
 
+/* Context Menu */
+.sheet-tab-context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  box-shadow: var(--context-menu-shadow);
+  padding: 4px 0;
+  min-width: 150px;
+}
+
+.context-menu-item {
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--context-menu-text);
+}
+
+.context-menu-item:hover {
+  background: var(--context-menu-hover);
+}
+
+.context-menu-item.destructive {
+  color: var(--danger-color);
+}
+
+.context-menu-item.disabled {
+  color: var(--header-text);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--toolbar-border);
+  margin: 4px 0;
+}
+
 /* -----------------------------------------------------------------------
    Status Bar
    ----------------------------------------------------------------------- */
@@ -381,8 +484,98 @@ body,
 }
 
 .status-bar-left,
+.status-bar-center,
 .status-bar-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+}
+
+.status-bar-left {
+  min-width: 200px;
+}
+
+.status-bar-center {
+  flex: 1;
+  justify-content: center;
+}
+
+.status-bar-right {
+  min-width: 150px;
+  justify-content: flex-end;
+}
+
+.status-mode {
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.status-mode.editing {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+}
+
+.status-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-selection-summary {
+  font-weight: 500;
+  color: var(--cell-text);
+}
+
+.status-zoom-label {
+  font-size: 10px;
+  min-width: 30px;
+  text-align: right;
+}
+
+.status-zoom-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--grid-border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.status-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--header-text);
+  cursor: pointer;
+}
+
+/* -----------------------------------------------------------------------
+   Scrollbar styling
+   ----------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--grid-border-dark);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--header-text);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
