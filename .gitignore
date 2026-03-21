@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.parcel-cache/
+
+# Tauri
+src-tauri/target/
+frontend/node_modules/
+frontend/dist/
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.dmg
+*.app
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Temp
+/tmp/
+*.tmp
+
+# Claude settings (keep agents and skills)
+.claude/settings*
