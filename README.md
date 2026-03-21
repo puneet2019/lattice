@@ -8,13 +8,27 @@ AI-native macOS spreadsheet with built-in MCP server.
 
 ## Features
 
-- Full spreadsheet engine — 400+ Excel-compatible formulas, multi-sheet, undo/redo
-- Built-in MCP server — AI agents (Claude Desktop, Claude Code) can read, write, and analyze spreadsheets via 40+ tools
-- Dual MCP transports — stdio (local) and streamable HTTP (networked/multi-agent)
+- Full spreadsheet engine — 70+ Excel-compatible formulas, multi-sheet, undo/redo
+- Built-in MCP server — AI agents (Claude Desktop, Claude Code) can read, write, and analyze spreadsheets via 22+ tools
 - Native macOS app — ~15MB, distributed as a `.dmg`, no Electron
 - Cloud sync compatible — single-file `.xlsx` format works with Google Drive, Dropbox, iCloud
-- Live bidirectional sync — MCP writes appear instantly in the GUI
-- Fast Rust core — recalculate 100k formulas in milliseconds
+- Fast Rust core — formula evaluation, dependency graph with cycle detection, topological recalculation
+
+---
+
+## Current Status
+
+**Phase 1 MVP — In Progress**
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Core Engine | Done | 70+ formulas, dependency graph, sort, filter, clipboard, merge cells, undo/redo |
+| MCP Server | Done | JSON-RPC 2.0, 22 tools (cell, sheet, data, analysis, chart, file ops), resources, prompts |
+| File I/O | Done | xlsx read/write (calamine + rust_xlsxwriter), CSV, JSON export, format detection |
+| Frontend | WIP | Toolbar, FormulaBar, SheetTabs, StatusBar done; Canvas grid in progress |
+| Tauri App | Done | macOS menu bar, IPC commands (cell, sheet, file, edit, format, data) |
+| MCP stdio | WIP | Transport exists, CLI wiring in progress |
+| Tests | Passing | 293 tests across 5 crates, 0 warnings |
 
 ---
 
@@ -64,7 +78,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 claude mcp add lattice /Applications/Lattice.app/Contents/MacOS/lattice --args --mcp-stdio
 ```
 
-Once connected, Claude can call tools like `read_range`, `write_cell`, `create_chart`, `describe_data`, and 36 others directly against your open spreadsheet.
+Once connected, Claude can call tools like `read_range`, `write_cell`, `describe_data`, `sort_range`, `create_chart`, and others directly against your open spreadsheet.
 
 ---
 
@@ -77,14 +91,12 @@ macOS App (.dmg)
     Rust backend
       lattice-core      Spreadsheet engine (formula eval, cell storage, dependency graph)
       lattice-io        File I/O — calamine (.xlsx read) + rust_xlsxwriter (.xlsx write) + CSV
-      lattice-mcp       MCP server — stdio + streamable HTTP transports, 40+ tools
+      lattice-mcp       MCP server — 22+ tools, resources, prompts
       lattice-charts    SVG chart generation
       lattice-analysis  Statistical and financial analysis
 ```
 
 The Rust backend is the single source of truth. Frontend communicates via Tauri `invoke()`. MCP and GUI share state through `Arc<RwLock<Workbook>>` with a tokio broadcast channel event bus for live sync.
-
-When launched with `--mcp-stdio`, Lattice checks for a running GUI instance via Unix socket. If found, MCP commands proxy to the live app so changes appear in real time. If not, it runs headless for scripted file manipulation.
 
 ---
 
