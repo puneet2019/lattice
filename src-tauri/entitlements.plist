@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for WKWebView / Tauri webview -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Required for loading local resources in WKWebView -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Required for Tauri macOS private API -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Network access for MCP HTTP transport -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- File access for reading/writing .lattice/.xlsx files -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

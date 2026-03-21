@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/nicedoc-tauri-docs/refs/tags/tauri-v2.6.0/packages/api-json-schemas/schemas/config.schema.json",
   "productName": "Lattice",
-  "identifier": "com.lattice.app",
+  "identifier": "com.lattice-app",
   "version": "0.1.0",
   "build": {
     "frontendDist": "../frontend/dist",
