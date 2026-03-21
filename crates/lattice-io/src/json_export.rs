@@ -1,9 +1,9 @@
 //! JSON export for Lattice workbooks.
 //!
-//! Exports a workbook as a JSON string for MCP data exchange.
+//! Exports a workbook (or a specific range) as a JSON string for MCP data
+//! exchange.
 
 use serde::Serialize;
-use serde_json;
 
 use lattice_core::{CellValue, Workbook};
 
@@ -113,6 +113,38 @@ pub fn export_json(workbook: &Workbook) -> Result<String> {
     Ok(json)
 }
 
+/// Export a specific range from a sheet as a JSON array of arrays.
+///
+/// Returns a JSON string like `[[1, "hello"], [2, "world"]]`.
+/// Useful for MCP range-specific data exchange.
+pub fn export_range_json(
+    workbook: &Workbook,
+    sheet_name: &str,
+    start_row: u32,
+    start_col: u32,
+    end_row: u32,
+    end_col: u32,
+) -> Result<String> {
+    let sheet = workbook.get_sheet(sheet_name).map_err(IoError::Core)?;
+
+    let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
+
+    for row in start_row..=end_row {
+        let mut row_data = Vec::new();
+        for col in start_col..=end_col {
+            let json_val = match sheet.get_cell(row, col) {
+                Some(cell) => cell_value_to_json(&cell.value).unwrap_or(serde_json::Value::Null),
+                None => serde_json::Value::Null,
+            };
+            row_data.push(json_val);
+        }
+        rows.push(row_data);
+    }
+
+    let json = serde_json::to_string_pretty(&rows)?;
+    Ok(json)
+}
+
 /// Convert a `CellValue` to a `serde_json::Value`.
 fn cell_value_to_json(value: &CellValue) -> Option<serde_json::Value> {
     match value {
@@ -160,5 +192,50 @@ mod tests {
         assert_eq!(parsed["sheets"][0]["name"], "Sheet1");
         assert_eq!(parsed["sheets"][0]["rows"][0][0]["value"], 1.0);
         assert_eq!(parsed["sheets"][0]["rows"][0][1]["value"], "hello");
+    }
+
+    #[test]
+    fn test_export_range_json() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Number(2.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(3.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 1, CellValue::Number(4.0)).unwrap();
+
+        // Export only the first row.
+        let json = export_range_json(&wb, "Sheet1", 0, 0, 0, 1).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed[0][0], 1.0);
+        assert_eq!(parsed[0][1], 2.0);
+        // Should only have one row.
+        assert!(parsed.as_array().unwrap().len() == 1);
+    }
+
+    #[test]
+    fn test_export_json_empty_workbook() {
+        let wb = Workbook::new();
+        let json = export_json(&wb).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["sheets"][0]["used_range"]["rows"], 0);
+        assert_eq!(parsed["sheets"][0]["used_range"]["cols"], 0);
+    }
+
+    #[test]
+    fn test_export_json_with_formula() {
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        let cell = lattice_core::Cell {
+            value: CellValue::Number(3.0),
+            formula: Some("SUM(A1:A2)".to_string()),
+            format: Default::default(),
+            style_id: 0,
+            comment: None,
+        };
+        sheet.set_cell(0, 0, cell);
+
+        let json = export_json(&wb).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["sheets"][0]["rows"][0][0]["formula"], "SUM(A1:A2)");
+        assert_eq!(parsed["sheets"][0]["rows"][0][0]["value"], 3.0);
     }
 }
