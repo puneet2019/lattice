@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, onMount, onCleanup, Show } from 'solid-js';
+import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
 import { getCell, getRange, setCell } from '../../bridge/tauri';
@@ -32,6 +32,8 @@ const COLORS = {
 
 export interface VirtualGridProps {
   activeSheet: string;
+  /** Increment to trigger a data refresh (e.g. after formula bar commit). */
+  refreshTrigger?: number;
   onSelectionChange: (row: number, col: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
@@ -735,6 +737,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Initial data fetch + formula bar sync
     fetchVisibleData();
     selectCell(0, 0);
+  });
+
+  // Re-fetch data when active sheet changes or external edits occur
+  createEffect(() => {
+    // Access props to subscribe to reactive changes
+    void props.activeSheet;
+    void props.refreshTrigger;
+    // Invalidate and refetch
+    lastFetchKey = '';
+    fetchVisibleData();
   });
 
   return (
