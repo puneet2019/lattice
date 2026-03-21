@@ -1,0 +1,9 @@
+[package]
+name = "lattice-charts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }

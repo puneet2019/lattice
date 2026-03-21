@@ -1,0 +1,1 @@
+//! Area chart configuration — stub.

@@ -1,0 +1,8 @@
+[package]
+name = "lattice-analysis"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+serde = { workspace = true }
