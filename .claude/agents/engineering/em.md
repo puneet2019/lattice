@@ -175,6 +175,13 @@ Unresolved Issues (PARTIAL/FAILED features):
 - mcp-read-cell: Edge case with merged cell ranges returns incorrect coordinates
 ```
 
+## Commit & Agent Discipline
+- **Small commits only** — each commit <400 lines, one logical unit. Break large features into sub-tasks with separate commits.
+- **Use project agents** — always route work to the right specialized agent (sde-core, sde-frontend, sde-mcp, sde-io, qa-engineer). Never use generic agents.
+- **Use project skills** — `/build`, `/test`, `/lint`, `/pr-check` instead of ad-hoc shell commands.
+- **Agents commit incrementally** — instruct each agent to commit after each milestone, not dump everything at the end.
+- **Clean up worktrees** — ensure worktrees are merged and removed after work completes.
+
 ## Reference Files
 
 - `docs/PLAN.md` — Phase breakdown and feature list

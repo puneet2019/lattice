@@ -167,6 +167,11 @@ When you receive feedback from a previous QA round:
 - If the same issue keeps coming back, try a fundamentally different approach
 - If stuck after 3 attempts, describe the blocker clearly in your report
 
+## Commit Discipline
+- **Small commits only** — each commit <400 lines, one logical unit (one tool group, one transport, one resource)
+- Commit after each milestone, not at the end of all work
+- Use conventional commit format: `feat(mcp): add cell operation tools`
+
 ## Reference Files
 
 - `docs/PLAN.md` — MCP tool design (Section 4)

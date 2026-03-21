@@ -49,9 +49,19 @@ Scopes: core, mcp, io, charts, analysis, frontend, tauri, devops
 - No folder-based storage, no lock files, no temp files in the sync directory
 - Conflict resolution: last-write-wins for cloud sync (future: CRDT for real-time collab)
 
+## Agent & Workflow Discipline
+- **Always use project-specific agents** from `.claude/agents/` for domain work — never generic agents when a specialized one exists (sde-core for engine work, sde-frontend for UI, sde-mcp for MCP, sde-io for file I/O, qa-engineer for testing, etc.)
+- **Always use project skills** (`/build`, `/test`, `/lint`, `/pr-check`, etc.) instead of ad-hoc shell commands
+- **Small commits only** — each commit must be a single logical unit, <400 lines changed. Break large features into incremental pieces.
+- **No monolithic blobs** — if a task would produce >400 lines, split it into sub-tasks with separate commits. The project should grow incrementally, not in massive drops.
+- **Agents must commit incrementally** — when an agent works on a feature, it should commit after each logical milestone, not dump everything at the end.
+- **Worktree hygiene** — clean up worktrees after merging. Never leave orphaned worktrees.
+
 ## Do NOT
 - Introduce any Electron or heavy JS framework dependencies
 - Add GC languages (Java, Go, Python) to the runtime critical path
 - Break MCP backward compatibility without a migration path
 - Store secrets, API keys, or credentials in any project file
 - Create tags or releases without explicit approval
+- Run generic/general-purpose agents when a project-specific agent exists for the task
+- Create commits larger than 400 lines without splitting into logical sub-commits

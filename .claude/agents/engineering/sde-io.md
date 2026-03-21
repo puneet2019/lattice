@@ -153,6 +153,11 @@ When you receive feedback from a previous QA round:
 - Keep a `tests/fixtures/` directory with sample files from each source
 - Test cloud sync behavior: save to Google Drive folder, modify on another device, detect conflict
 
+## Commit Discipline
+- **Small commits only** — each commit <400 lines, one logical unit (one file format, one reader/writer)
+- Commit after each milestone, not at the end of all work
+- Use conventional commit format: `feat(io): add xlsx reader with calamine`
+
 ## Reference Files
 
 - `docs/PLAN.md` — File format requirements

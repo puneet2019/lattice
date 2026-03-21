@@ -172,6 +172,11 @@ fn test_formula_matches_google_sheets() {
 - Report what you tried during exploratory testing even if everything passed — this becomes documentation
 - If you can't effectively test the feature (e.g., requires running Tauri), say so clearly rather than giving a false APPROVED
 
+## Commit Discipline
+- **Small commits only** — each commit <400 lines, one logical unit
+- Commit test additions separately from implementation fixes
+- Use conventional commit format: `test(core): add formula evaluator edge case tests`
+
 ## Test File Locations
 
 ```

@@ -146,6 +146,11 @@ When you receive feedback from a previous QA round:
 
 - Reference `docs/REFERENCES.md` for Handsontable, Univer, AG Grid rendering patterns
 
+## Commit Discipline
+- **Small commits only** — each commit <400 lines, one logical unit (one component, one hook, one style change)
+- Commit after each milestone, not at the end of all work
+- Use conventional commit format: `feat(frontend): add virtual grid canvas renderer`
+
 ## Reference Files
 
 - `docs/PLAN.md` — UI features by phase

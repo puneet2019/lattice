@@ -160,6 +160,12 @@ When you receive feedback from a previous QA round:
 - Performance matters: benchmark any operation that touches >1000 cells
 - Coordinate with `sde-mcp` on the API surface (every feature you add must be MCP-accessible)
 
+## Commit Discipline
+- **Small commits only** — each commit <400 lines, one logical unit (one module, one feature, one fix)
+- Commit after each milestone, not at the end of all work
+- Use conventional commit format: `feat(core): add cell dependency graph`
+- Never dump thousands of lines in a single commit — break into incremental pieces
+
 ## Reference Files
 
 - `docs/PLAN.md` — Feature list by phase
