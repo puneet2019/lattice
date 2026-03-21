@@ -5,6 +5,7 @@ pub mod cell_ops;
 pub mod chart_ops;
 pub mod data_ops;
 pub mod file_ops;
+pub mod formula_ops;
 pub mod sheet_ops;
 
 use serde::{Deserialize, Serialize};
@@ -78,6 +79,11 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Formula operations
+        for tool in formula_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         // File operations
         for tool in file_ops::tool_definitions() {
             reg.register(tool);
@@ -98,6 +104,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(data_ops::tool_definitions());
     all.extend(analysis::tool_definitions());
     all.extend(chart_ops::tool_definitions());
+    all.extend(formula_ops::tool_definitions());
     all.extend(file_ops::tool_definitions());
     all
 }
