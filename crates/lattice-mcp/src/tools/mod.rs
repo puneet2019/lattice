@@ -63,26 +63,41 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
-        // Data operations (stubs)
+        // Data operations
         for tool in data_ops::tool_definitions() {
             reg.register(tool);
         }
 
-        // Analysis (stubs)
+        // Analysis
         for tool in analysis::tool_definitions() {
             reg.register(tool);
         }
 
-        // Chart operations (stubs)
+        // Chart operations
         for tool in chart_ops::tool_definitions() {
             reg.register(tool);
         }
 
-        // File operations (stubs)
+        // File operations
         for tool in file_ops::tool_definitions() {
             reg.register(tool);
         }
 
         reg
     }
+}
+
+/// Return all tool definitions from every module.
+///
+/// This is a convenience function for callers that need a flat list of all tools
+/// without constructing a `ToolRegistry`.
+pub fn tool_definitions() -> Vec<ToolDef> {
+    let mut all = Vec::new();
+    all.extend(cell_ops::tool_definitions());
+    all.extend(sheet_ops::tool_definitions());
+    all.extend(data_ops::tool_definitions());
+    all.extend(analysis::tool_definitions());
+    all.extend(chart_ops::tool_definitions());
+    all.extend(file_ops::tool_definitions());
+    all
 }
