@@ -1,6 +1,8 @@
 import type { Component } from 'solid-js';
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
+import type { CellData } from '../../bridge/tauri';
+import { getRange } from '../../bridge/tauri';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,6 +23,7 @@ const COLORS = {
   selectionBorder: '#1a73e8',
   selectionBg: 'rgba(26, 115, 232, 0.08)',
   cornerBg: '#f8f9fa',
+  cellText: '#202124',
 };
 
 // ---------------------------------------------------------------------------
@@ -58,6 +61,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
 
+  // Cell data cache: maps "row:col" to CellData
+  const cellCache = new Map<string, CellData>();
+  let lastFetchKey = ''; // tracks last fetched range to avoid duplicate calls
+
   // -----------------------------------------------------------------------
   // Viewport helpers
   // -----------------------------------------------------------------------
@@ -91,6 +98,39 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   };
 
   // -----------------------------------------------------------------------
+  // Data fetching
+  // -----------------------------------------------------------------------
+
+  async function fetchVisibleData() {
+    const startRow = firstVisibleRow();
+    const startCol = firstVisibleCol();
+    const endRow = startRow + visibleRowCount() - 1;
+    const endCol = startCol + visibleColCount() - 1;
+
+    const fetchKey = `${props.activeSheet}:${startRow}:${startCol}:${endRow}:${endCol}`;
+    if (fetchKey === lastFetchKey) return;
+    lastFetchKey = fetchKey;
+
+    try {
+      const data = await getRange(props.activeSheet, startRow, startCol, endRow, endCol);
+      for (let r = 0; r < data.length; r++) {
+        for (let c = 0; c < data[r].length; c++) {
+          const cell = data[r][c];
+          const key = `${startRow + r}:${startCol + c}`;
+          if (cell) {
+            cellCache.set(key, cell);
+          } else {
+            cellCache.delete(key);
+          }
+        }
+      }
+      draw();
+    } catch {
+      // Tauri not available (browser dev mode) -- draw without data.
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Drawing
   // -----------------------------------------------------------------------
 
@@ -118,6 +158,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
     drawSelection(ctx, sx, sy);
+    drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
     drawColumnHeaders(ctx, sx, startCol, colCount, w);
     drawRowNumbers(ctx, sy, startRow, rowCount, h);
     drawCorner(ctx);
@@ -176,6 +217,47 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.lineWidth = 2;
     ctx.strokeRect(cx, cy, DEFAULT_COL_WIDTH, ROW_HEIGHT);
     ctx.lineWidth = 1;
+  }
+
+  function drawCellData(
+    ctx: CanvasRenderingContext2D,
+    sx: number,
+    sy: number,
+    startCol: number,
+    startRow: number,
+    colCount: number,
+    rowCount: number,
+  ) {
+    const PADDING = 4;
+    ctx.textBaseline = 'middle';
+
+    for (let r = 0; r < rowCount; r++) {
+      const row = startRow + r;
+      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
+      for (let c = 0; c < colCount; c++) {
+        const col = startCol + c;
+        const cell = cellCache.get(`${row}:${col}`);
+        if (!cell || !cell.value) continue;
+
+        const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
+
+        // Determine font style
+        const fontWeight = cell.bold ? 'bold' : 'normal';
+        const fontStyle = cell.italic ? 'italic' : 'normal';
+        ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+        ctx.fillStyle = COLORS.cellText;
+
+        // Right-align numbers, left-align strings
+        const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
+        if (isNumber) {
+          ctx.textAlign = 'right';
+          ctx.fillText(cell.value, x + DEFAULT_COL_WIDTH - PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+        } else {
+          ctx.textAlign = 'left';
+          ctx.fillText(cell.value, x + PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+        }
+      }
+    }
   }
 
   function drawGridLines(
@@ -435,6 +517,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     setScrollX(Math.max(0, Math.min(maxX, scrollX() + e.deltaX)));
     setScrollY(Math.max(0, Math.min(maxY, scrollY() + e.deltaY)));
     scheduleDraw();
+    fetchVisibleData();
   }
 
   // -----------------------------------------------------------------------
@@ -458,6 +541,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     updateSize();
     containerRef.focus();
+
+    // Initial data fetch
+    fetchVisibleData();
   });
 
   return (
