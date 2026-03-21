@@ -9,7 +9,8 @@ use lattice_core::Workbook;
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, data_ops, file_ops, sheet_ops,
+    analysis, cell_ops, chart_ops, data_ops, file_ops, format_ops, formula_ops,
+    sheet_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -44,6 +45,42 @@ impl McpServer {
     /// Create a new MCP server with a default empty workbook.
     pub fn new_default() -> Self {
         Self::new(Arc::new(RwLock::new(Workbook::new())))
+    }
+
+    /// Run the MCP server over stdio (stdin/stdout).
+    ///
+    /// Reads newline-delimited JSON-RPC 2.0 messages from stdin, processes
+    /// each one, and writes responses to stdout. Logs go to stderr.
+    /// The loop runs until EOF on stdin.
+    pub async fn run_stdio(&mut self) -> std::io::Result<()> {
+        use crate::transport::Transport;
+        use crate::transport::stdio::StdioTransport;
+
+        let mut transport = StdioTransport::new();
+
+        eprintln!("lattice: MCP server starting on stdio");
+
+        loop {
+            let message = match transport.read_message().await? {
+                Some(msg) => msg,
+                None => {
+                    // EOF — client disconnected.
+                    eprintln!("lattice: stdin closed, shutting down MCP server");
+                    break;
+                }
+            };
+
+            // Skip empty lines.
+            if message.is_empty() {
+                continue;
+            }
+
+            if let Some(response) = self.handle_message(&message).await {
+                transport.write_message(&response).await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Handle an incoming JSON-RPC 2.0 message and return a response.
@@ -246,6 +283,42 @@ impl McpServer {
                 analysis::handle_trend_analysis(&wb, arguments)
             }
 
+            // ── Format operations ─────────────────────────────────────────
+            "get_cell_format" => {
+                let wb = self.workbook.read().await;
+                format_ops::handle_get_cell_format(&wb, arguments)
+            }
+            "set_cell_format" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_set_cell_format(&mut wb, arguments)
+            }
+            "merge_cells" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_merge_cells(&mut wb, arguments)
+            }
+            "unmerge_cells" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_unmerge_cells(&mut wb, arguments)
+            }
+
+            // ── Formula operations ────────────────────────────────────────
+            "evaluate_formula" => {
+                let wb = self.workbook.read().await;
+                formula_ops::handle_evaluate_formula(&wb, arguments)
+            }
+            "get_formula" => {
+                let wb = self.workbook.read().await;
+                formula_ops::handle_get_formula(&wb, arguments)
+            }
+            "insert_formula" => {
+                let mut wb = self.workbook.write().await;
+                formula_ops::handle_insert_formula(&mut wb, arguments)
+            }
+            "bulk_formula" => {
+                let mut wb = self.workbook.write().await;
+                formula_ops::handle_bulk_formula(&mut wb, arguments)
+            }
+
             // ── Chart operations ─────────────────────────────────────────
             "create_chart" => chart_ops::handle_create_chart(arguments),
             "list_charts" => chart_ops::handle_list_charts(arguments),
@@ -320,10 +393,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 20+ tools (format_ops and formula_ops not yet implemented).
+        // We should have 28+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 20,
-            "Expected at least 20 tools, got {}",
+            tools.len() >= 28,
+            "Expected at least 28 tools, got {}",
             tools.len()
         );
 
@@ -336,7 +409,16 @@ mod tests {
         assert!(tool_names.contains(&"sort_range"));
         assert!(tool_names.contains(&"deduplicate"));
         assert!(tool_names.contains(&"transpose"));
-        // format_ops and formula_ops tools not yet implemented
+        // formula_ops tools
+        assert!(tool_names.contains(&"evaluate_formula"));
+        assert!(tool_names.contains(&"get_formula"));
+        assert!(tool_names.contains(&"insert_formula"));
+        assert!(tool_names.contains(&"bulk_formula"));
+        // format_ops tools
+        assert!(tool_names.contains(&"get_cell_format"));
+        assert!(tool_names.contains(&"set_cell_format"));
+        assert!(tool_names.contains(&"merge_cells"));
+        assert!(tool_names.contains(&"unmerge_cells"));
         assert!(tool_names.contains(&"describe_data"));
         assert!(tool_names.contains(&"correlate"));
         assert!(tool_names.contains(&"trend_analysis"));
@@ -439,19 +521,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_call_evaluate_formula() {
-        // evaluate_formula tool is not yet implemented (formula_ops module pending).
-        // Calling it should return a JSON-RPC error since it's not in the registry.
         let mut server = McpServer::new_default();
+
+        // Set up data for the formula to reference.
+        {
+            let mut wb = server.workbook.write().await;
+            wb.set_cell("Sheet1", 0, 0, lattice_core::CellValue::Number(10.0))
+                .unwrap();
+            wb.set_cell("Sheet1", 1, 0, lattice_core::CellValue::Number(20.0))
+                .unwrap();
+        }
 
         let response = server
             .handle_message(
-                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"evaluate_formula","arguments":{"formula":"SUM(A1:A2)"}}}"#,
+                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"evaluate_formula","arguments":{"sheet":"Sheet1","formula":"SUM(A1:A2)"}}}"#,
             )
             .await
             .unwrap();
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(parsed["error"]["code"], -32602);
+        assert_eq!(parsed["result"]["isError"], false);
+
+        // Parse the text content to verify the result.
+        let text = parsed["result"]["content"][0]["text"].as_str().unwrap();
+        let result_val: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(result_val["result"], 30.0);
+        assert_eq!(result_val["result_type"], "number");
     }
 
     #[tokio::test]
