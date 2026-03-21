@@ -1,8 +1,8 @@
 import type { Component } from 'solid-js';
-import { createSignal, onMount, onCleanup } from 'solid-js';
+import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
-import { getRange } from '../../bridge/tauri';
+import { getRange, setCell } from '../../bridge/tauri';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,6 +64,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Cell data cache: maps "row:col" to CellData
   const cellCache = new Map<string, CellData>();
   let lastFetchKey = ''; // tracks last fetched range to avoid duplicate calls
+
+  // Editing state
+  const [editing, setEditing] = createSignal(false);
+  const [editValue, setEditValue] = createSignal('');
+  let editorRef: HTMLInputElement | undefined;
 
   // -----------------------------------------------------------------------
   // Viewport helpers
@@ -128,6 +133,109 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } catch {
       // Tauri not available (browser dev mode) -- draw without data.
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Editing
+  // -----------------------------------------------------------------------
+
+  function startEditing(clearContent: boolean) {
+    const row = selectedRow();
+    const col = selectedCol();
+    const cell = cellCache.get(`${row}:${col}`);
+    const content = clearContent ? '' : (cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+    setEditValue(content);
+    setEditing(true);
+    props.onModeChange('Edit');
+    props.onContentChange(content);
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.focus();
+        if (!clearContent) {
+          editorRef.setSelectionRange(content.length, content.length);
+        }
+      }
+    });
+  }
+
+  async function commitEdit(moveRow: number, moveCol: number) {
+    const row = selectedRow();
+    const col = selectedCol();
+    const value = editValue();
+
+    setEditing(false);
+    props.onModeChange('Ready');
+
+    // Write to backend
+    let formula: string | undefined;
+    if (value.startsWith('=')) {
+      formula = value.slice(1);
+    }
+    try {
+      await setCell(props.activeSheet, row, col, value, formula);
+    } catch {
+      // Tauri not available in browser dev mode.
+    }
+
+    props.onCellCommit(row, col, value);
+    props.onContentChange(value);
+
+    // Invalidate cache and refetch
+    lastFetchKey = '';
+    fetchVisibleData();
+
+    // Move selection
+    const newRow = Math.max(0, Math.min(TOTAL_ROWS - 1, row + moveRow));
+    const newCol = Math.max(0, Math.min(TOTAL_COLS - 1, col + moveCol));
+    setSelectedRow(newRow);
+    setSelectedCol(newCol);
+    setRangeAnchor(null);
+    setRangeEnd(null);
+    props.onSelectionChange(newRow, newCol);
+    ensureCellVisible(newRow, newCol);
+    draw();
+
+    // Refocus the container so keyboard works again
+    containerRef?.focus();
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    props.onModeChange('Ready');
+    containerRef?.focus();
+    draw();
+  }
+
+  function handleEditorInput(value: string) {
+    setEditValue(value);
+    props.onContentChange(value);
+  }
+
+  function handleEditorKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitEdit(e.shiftKey ? -1 : 1, 0);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      commitEdit(0, e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  }
+
+  /** Calculate editor position in CSS pixels relative to the container. */
+  function editorStyle() {
+    const x = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - scrollX();
+    const y = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - scrollY();
+    return {
+      position: 'absolute' as const,
+      left: `${x}px`,
+      top: `${y}px`,
+      width: `${DEFAULT_COL_WIDTH}px`,
+      height: `${ROW_HEIGHT}px`,
+      'z-index': '10',
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -409,9 +517,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return { row, col };
   }
 
+  let lastClickTime = 0;
+  let lastClickRow = -1;
+  let lastClickCol = -1;
+
   function handleMouseDown(e: MouseEvent) {
+    if (editing()) return; // let the editor handle clicks
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
+
+    const now = Date.now();
+    const isDoubleClick =
+      now - lastClickTime < 400 &&
+      hit.row === lastClickRow &&
+      hit.col === lastClickCol;
+    lastClickTime = now;
+    lastClickRow = hit.row;
+    lastClickCol = hit.col;
 
     if (e.shiftKey) {
       if (!rangeAnchor()) {
@@ -424,6 +546,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setRangeAnchor(null);
       setRangeEnd(null);
       props.onSelectionChange(hit.row, hit.col);
+
+      if (isDoubleClick) {
+        startEditing(false);
+        return;
+      }
     }
     draw();
   }
@@ -452,6 +579,52 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (editing()) return; // editor handles its own keys
+
+    // F2 enters edit mode without clearing
+    if (e.key === 'F2') {
+      e.preventDefault();
+      startEditing(false);
+      return;
+    }
+
+    // Delete/Backspace clears cell content
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      setCell(props.activeSheet, selectedRow(), selectedCol(), '').catch(() => {});
+      lastFetchKey = '';
+      fetchVisibleData();
+      return;
+    }
+
+    // Typing a printable character starts edit mode (clearing old content)
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      startEditing(true);
+      // Let the character be typed into the editor
+      setEditValue(e.key);
+      props.onContentChange(e.key);
+      return;
+    }
+
+    // Keyboard shortcuts
+    if (e.metaKey || e.ctrlKey) {
+      if (e.key === 'b') {
+        e.preventDefault();
+        props.onBoldToggle();
+        return;
+      }
+      if (e.key === 'i') {
+        e.preventDefault();
+        props.onItalicToggle();
+        return;
+      }
+      if (e.key === 'u') {
+        e.preventDefault();
+        props.onUnderlineToggle();
+        return;
+      }
+    }
+
     let row = selectedRow();
     let col = selectedCol();
     let handled = false;
@@ -557,6 +730,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       style={{ outline: 'none' }}
     >
       <canvas ref={canvasRef} class="virtual-grid-canvas" />
+      <Show when={editing()}>
+        <input
+          ref={editorRef}
+          class="cell-editor-textarea"
+          value={editValue()}
+          onInput={(e) => handleEditorInput(e.currentTarget.value)}
+          onKeyDown={handleEditorKeyDown}
+          onBlur={() => {
+            if (editing()) {
+              commitEdit(0, 0);
+            }
+          }}
+          style={editorStyle()}
+        />
+      </Show>
     </div>
   );
 };
