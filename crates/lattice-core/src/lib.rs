@@ -19,10 +19,13 @@ pub mod workbook;
 
 // Re-export key types at the crate root for ergonomic imports.
 pub use cell::{Cell, CellError, CellValue};
+pub use clipboard::{ClipboardContent, PasteMode};
 pub use error::{LatticeError, Result};
+pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use format::{CellFormat, HAlign, VAlign};
 pub use formula::FormulaEngine;
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
-pub use sheet::Sheet;
+pub use sheet::{MergedRegion, Sheet};
+pub use sort::{SortDirection, SortKey};
 pub use workbook::Workbook;
