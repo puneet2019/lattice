@@ -2,7 +2,7 @@
 
 AI-native macOS spreadsheet with built-in MCP server.
 
-[![CI](https://github.com/puneetmahajan/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/puneetmahajan/lattice/actions/workflows/ci.yml)
+[![CI](https://github.com/puneet2019/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/puneet2019/lattice/actions/workflows/ci.yml)
 
 ---
 
