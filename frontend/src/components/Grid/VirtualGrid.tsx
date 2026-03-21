@@ -142,7 +142,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function selectCell(row: number, col: number) {
-    selectCell(row, col);
+    props.onSelectionChange(row, col);
     // Fetch cell data for formula bar display
     getCell(props.activeSheet, row, col)
       .then((cell) => {
