@@ -302,4 +302,161 @@ fn cell_value_type_name(cv: &CellValue) -> &'static str {
     }
 }
 
-// Tests are in a separate commit to keep commit size under 400 lines.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_evaluate_formula_sum() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0)).unwrap();
+
+        let result = handle_evaluate_formula(
+            &wb,
+            json!({"sheet": "Sheet1", "formula": "SUM(A1:A2)"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["result"], 30.0);
+        assert_eq!(result["result_type"], "number");
+    }
+
+    #[test]
+    fn test_evaluate_formula_simple_arithmetic() {
+        let wb = Workbook::new();
+        let result = handle_evaluate_formula(
+            &wb,
+            json!({"sheet": "Sheet1", "formula": "2+3"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["result"], 5.0);
+    }
+
+    #[test]
+    fn test_evaluate_formula_invalid_sheet() {
+        let wb = Workbook::new();
+        let result = handle_evaluate_formula(
+            &wb,
+            json!({"sheet": "NoSuch", "formula": "1+1"}),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_formula_with_formula() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        if let Some(cell) = sheet.get_cell_mut(0, 0) {
+            cell.formula = Some("SUM(B1:B5)".to_string());
+        }
+
+        let result = handle_get_formula(
+            &wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["formula"], "SUM(B1:B5)");
+        assert_eq!(result["value"], 42.0);
+    }
+
+    #[test]
+    fn test_get_formula_no_formula() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+
+        let result = handle_get_formula(
+            &wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert!(result["formula"].is_null());
+        assert_eq!(result["value"], 42.0);
+    }
+
+    #[test]
+    fn test_get_formula_empty_cell() {
+        let wb = Workbook::new();
+        let result = handle_get_formula(
+            &wb,
+            json!({"sheet": "Sheet1", "cell_ref": "Z99"}),
+        )
+        .unwrap();
+
+        assert!(result["formula"].is_null());
+        assert!(result["value"].is_null());
+    }
+
+    #[test]
+    fn test_insert_formula() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0)).unwrap();
+
+        let result = handle_insert_formula(
+            &mut wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A3", "formula": "SUM(A1:A2)"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["result"], 30.0);
+        assert_eq!(result["formula"], "SUM(A1:A2)");
+
+        // Verify the cell was actually written.
+        let cell = wb.get_cell("Sheet1", 2, 0).unwrap().unwrap();
+        assert_eq!(cell.value, CellValue::Number(30.0));
+        assert_eq!(cell.formula, Some("SUM(A1:A2)".to_string()));
+    }
+
+    #[test]
+    fn test_bulk_formula_all_succeed() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(5.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(10.0)).unwrap();
+
+        let result = handle_bulk_formula(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "operations": [
+                    {"cell_ref": "B1", "formula": "A1*2"},
+                    {"cell_ref": "B2", "formula": "A2*3"}
+                ]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["succeeded"], 2);
+        assert_eq!(result["failed"], 0);
+        assert_eq!(result["results"][0]["result"], 10.0);
+        assert_eq!(result["results"][1]["result"], 30.0);
+    }
+
+    #[test]
+    fn test_bulk_formula_with_error() {
+        let mut wb = Workbook::new();
+
+        let result = handle_bulk_formula(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "operations": [
+                    {"cell_ref": "A1", "formula": "1+1"},
+                    {"cell_ref": "INVALID", "formula": "2+2"}
+                ]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], false);
+        assert_eq!(result["succeeded"], 1);
+        assert_eq!(result["failed"], 1);
+    }
+}
