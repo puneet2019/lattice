@@ -1,0 +1,388 @@
+/* -----------------------------------------------------------------------
+   Lattice — Spreadsheet Grid Styles
+   macOS-native appearance using system fonts and neutral colours.
+   ----------------------------------------------------------------------- */
+
+:root {
+  --grid-border: #e0e0e0;
+  --grid-border-dark: #d0d0d0;
+  --header-bg: #f8f9fa;
+  --header-text: #5f6368;
+  --cell-bg: #ffffff;
+  --cell-text: #202124;
+  --selection-border: #1a73e8;
+  --selection-bg: rgba(26, 115, 232, 0.08);
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #dadce0;
+  --formula-bar-bg: #ffffff;
+  --formula-bar-border: #dadce0;
+  --tab-bg: #f0f0f0;
+  --tab-active-bg: #ffffff;
+  --tab-border: #dadce0;
+  --status-bg: #f8f9fa;
+  --status-text: #5f6368;
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --grid-border: #3c4043;
+    --grid-border-dark: #5f6368;
+    --header-bg: #292a2d;
+    --header-text: #9aa0a6;
+    --cell-bg: #202124;
+    --cell-text: #e8eaed;
+    --selection-border: #8ab4f8;
+    --selection-bg: rgba(138, 180, 248, 0.12);
+    --toolbar-bg: #292a2d;
+    --toolbar-border: #3c4043;
+    --formula-bar-bg: #292a2d;
+    --formula-bar-border: #3c4043;
+    --tab-bg: #292a2d;
+    --tab-active-bg: #202124;
+    --tab-border: #3c4043;
+    --status-bg: #292a2d;
+    --status-text: #9aa0a6;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  font-size: 13px;
+  color: var(--cell-text);
+  background: var(--cell-bg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* -----------------------------------------------------------------------
+   App Layout
+   ----------------------------------------------------------------------- */
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* -----------------------------------------------------------------------
+   Toolbar
+   ----------------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  min-height: 36px;
+  flex-shrink: 0;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cell-text);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.toolbar-btn:hover {
+  background: var(--selection-bg);
+}
+
+.toolbar-btn.active {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--toolbar-border);
+  margin: 0 4px;
+}
+
+/* -----------------------------------------------------------------------
+   Formula Bar
+   ----------------------------------------------------------------------- */
+
+.formula-bar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--formula-bar-border);
+  background: var(--formula-bar-bg);
+  min-height: 28px;
+  flex-shrink: 0;
+}
+
+.formula-bar-cell-ref {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  min-width: 80px;
+  height: 100%;
+  padding: 0 8px;
+  border-right: 1px solid var(--formula-bar-border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cell-text);
+  background: var(--header-bg);
+  text-align: center;
+}
+
+.formula-bar-input {
+  flex: 1;
+  height: 100%;
+  padding: 4px 8px;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  background: var(--formula-bar-bg);
+}
+
+.formula-bar-input:focus {
+  background: var(--cell-bg);
+}
+
+/* -----------------------------------------------------------------------
+   Grid
+   ----------------------------------------------------------------------- */
+
+.grid-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+.grid-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Corner cell (top-left) */
+.grid-corner {
+  width: 46px;
+  min-width: 46px;
+  height: 25px;
+  background: var(--header-bg);
+  border-right: 1px solid var(--grid-border-dark);
+  border-bottom: 1px solid var(--grid-border-dark);
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+}
+
+/* Column headers (A, B, C, ...) */
+.grid-col-header {
+  height: 25px;
+  min-width: 100px;
+  width: 100px;
+  background: var(--header-bg);
+  border-right: 1px solid var(--grid-border);
+  border-bottom: 1px solid var(--grid-border-dark);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--header-text);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  cursor: default;
+}
+
+.grid-col-header.selected {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+  font-weight: 600;
+}
+
+/* Row numbers */
+.grid-row-number {
+  width: 46px;
+  min-width: 46px;
+  background: var(--header-bg);
+  border-right: 1px solid var(--grid-border-dark);
+  border-bottom: 1px solid var(--grid-border);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--header-text);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  cursor: default;
+}
+
+.grid-row-number.selected {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+  font-weight: 600;
+}
+
+/* Data cells */
+.grid-cell {
+  height: 25px;
+  min-width: 100px;
+  width: 100px;
+  padding: 0 4px;
+  border-right: 1px solid var(--grid-border);
+  border-bottom: 1px solid var(--grid-border);
+  background: var(--cell-bg);
+  color: var(--cell-text);
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: cell;
+  line-height: 25px;
+}
+
+.grid-cell.selected {
+  outline: 2px solid var(--selection-border);
+  outline-offset: -1px;
+  z-index: 1;
+  position: relative;
+}
+
+.grid-cell.in-range {
+  background: var(--selection-bg);
+}
+
+.grid-cell.editing {
+  padding: 0;
+  outline: 2px solid var(--selection-border);
+  outline-offset: -1px;
+  z-index: 1;
+  position: relative;
+}
+
+.grid-cell-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  background: var(--cell-bg);
+  line-height: 25px;
+}
+
+.grid-cell .bold {
+  font-weight: 600;
+}
+
+.grid-cell .italic {
+  font-style: italic;
+}
+
+/* -----------------------------------------------------------------------
+   Sheet Tabs
+   ----------------------------------------------------------------------- */
+
+.sheet-tabs {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid var(--tab-border);
+  background: var(--tab-bg);
+  min-height: 30px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.sheet-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-right: 1px solid var(--tab-border);
+  font-size: 12px;
+  color: var(--header-text);
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--tab-bg);
+  transition: background 0.1s;
+}
+
+.sheet-tab:hover {
+  background: var(--header-bg);
+}
+
+.sheet-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--cell-text);
+  font-weight: 500;
+  border-bottom: 2px solid var(--selection-border);
+}
+
+.sheet-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  border-right: 1px solid var(--tab-border);
+  font-size: 16px;
+  color: var(--header-text);
+  cursor: pointer;
+  background: transparent;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+}
+
+.sheet-tab-add:hover {
+  background: var(--header-bg);
+  color: var(--cell-text);
+}
+
+/* -----------------------------------------------------------------------
+   Status Bar
+   ----------------------------------------------------------------------- */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--status-bg);
+  border-top: 1px solid var(--tab-border);
+  min-height: 24px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--status-text);
+}
+
+.status-bar-left,
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

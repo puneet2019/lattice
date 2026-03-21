@@ -1,0 +1,21 @@
+[package]
+name = "lattice-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+lattice-core = { path = "../crates/lattice-core" }
+lattice-io = { path = "../crates/lattice-io" }
+lattice-mcp = { path = "../crates/lattice-mcp" }
+lattice-charts = { path = "../crates/lattice-charts" }
+lattice-analysis = { path = "../crates/lattice-analysis" }
