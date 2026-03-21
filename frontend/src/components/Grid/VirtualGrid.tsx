@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
-import { getRange, setCell } from '../../bridge/tauri';
+import { getCell, getRange, setCell } from '../../bridge/tauri';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -136,6 +136,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   // -----------------------------------------------------------------------
+  // Selection change with formula bar sync
+  // -----------------------------------------------------------------------
+
+  function selectCell(row: number, col: number) {
+    selectCell(row, col);
+    // Fetch cell data for formula bar display
+    getCell(props.activeSheet, row, col)
+      .then((cell) => {
+        const content = cell?.formula ? `=${cell.formula}` : cell?.value ?? '';
+        props.onContentChange(content);
+      })
+      .catch(() => {
+        props.onContentChange('');
+      });
+  }
+
+  // -----------------------------------------------------------------------
   // Editing
   // -----------------------------------------------------------------------
 
@@ -191,7 +208,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     setSelectedCol(newCol);
     setRangeAnchor(null);
     setRangeEnd(null);
-    props.onSelectionChange(newRow, newCol);
+    selectCell(newRow, newCol);
     ensureCellVisible(newRow, newCol);
     draw();
 
@@ -545,7 +562,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setSelectedCol(hit.col);
       setRangeAnchor(null);
       setRangeEnd(null);
-      props.onSelectionChange(hit.row, hit.col);
+      selectCell(hit.row, hit.col);
 
       if (isDoubleClick) {
         startEditing(false);
@@ -663,7 +680,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setSelectedCol(col);
       setRangeAnchor(null);
       setRangeEnd(null);
-      props.onSelectionChange(row, col);
+      selectCell(row, col);
       ensureCellVisible(row, col);
       draw();
     }
@@ -715,8 +732,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     updateSize();
     containerRef.focus();
 
-    // Initial data fetch
+    // Initial data fetch + formula bar sync
     fetchVisibleData();
+    selectCell(0, 0);
   });
 
   return (
