@@ -1891,6 +1891,7 @@ name = "lattice-mcp"
 version = "0.1.0"
 dependencies = [
  "lattice-core",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

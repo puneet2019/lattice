@@ -8,8 +8,9 @@ use tokio::sync::RwLock;
 use lattice_core::Workbook;
 
 use crate::tools::ToolRegistry;
-use crate::tools::cell_ops;
-use crate::tools::sheet_ops;
+use crate::tools::{
+    analysis, cell_ops, chart_ops, data_ops, file_ops, sheet_ops,
+};
 
 /// The MCP protocol version we implement.
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -84,8 +85,12 @@ impl McpServer {
             "tools/list" => self.handle_tools_list(),
             "tools/call" => self.handle_tools_call(params).await,
             "resources/list" => crate::resources::handle_list_resources(),
-            "resources/read" => crate::resources::handle_read_resource(params),
+            "resources/read" => {
+                let wb = self.workbook.read().await;
+                crate::resources::handle_read_resource(params, &wb)
+            }
             "prompts/list" => crate::prompts::handle_list_prompts(),
+            "prompts/get" => crate::prompts::handle_get_prompt(params),
             "" => Err((-32600, "Invalid Request: missing method".to_string())),
             _ => Err((-32601, format!("Method not found: {}", method))),
         };
@@ -168,7 +173,7 @@ impl McpServer {
 
         // Dispatch to the appropriate handler.
         let result = match name {
-            // Cell operations (need workbook access)
+            // ── Cell operations ──────────────────────────────────────────
             "read_cell" => {
                 let wb = self.workbook.read().await;
                 cell_ops::handle_read_cell(&wb, arguments)
@@ -186,7 +191,7 @@ impl McpServer {
                 cell_ops::handle_write_range(&mut wb, arguments)
             }
 
-            // Sheet operations
+            // ── Sheet operations ─────────────────────────────────────────
             "list_sheets" => {
                 let wb = self.workbook.read().await;
                 sheet_ops::handle_list_sheets(&wb)
@@ -204,7 +209,63 @@ impl McpServer {
                 sheet_ops::handle_delete_sheet(&mut wb, arguments)
             }
 
-            // Stub tools — return "not yet implemented"
+            // ── Data operations ──────────────────────────────────────────
+            "clear_range" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_clear_range(&mut wb, arguments)
+            }
+            "find_replace" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_find_replace(&mut wb, arguments)
+            }
+            "sort_range" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_sort_range(&mut wb, arguments)
+            }
+            "deduplicate" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_deduplicate(&mut wb, arguments)
+            }
+            "transpose" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_transpose(&mut wb, arguments)
+            }
+
+
+            // ── Analysis operations ──────────────────────────────────────
+            "describe_data" => {
+                let wb = self.workbook.read().await;
+                analysis::handle_describe_data(&wb, arguments)
+            }
+            "correlate" => {
+                let wb = self.workbook.read().await;
+                analysis::handle_correlate(&wb, arguments)
+            }
+            "trend_analysis" => {
+                let wb = self.workbook.read().await;
+                analysis::handle_trend_analysis(&wb, arguments)
+            }
+
+            // ── Chart operations ─────────────────────────────────────────
+            "create_chart" => chart_ops::handle_create_chart(arguments),
+            "list_charts" => chart_ops::handle_list_charts(arguments),
+            "delete_chart" => chart_ops::handle_delete_chart(arguments),
+
+            // ── File operations ──────────────────────────────────────────
+            "get_workbook_info" => {
+                let wb = self.workbook.read().await;
+                file_ops::handle_get_workbook_info(&wb)
+            }
+            "export_json" => {
+                let wb = self.workbook.read().await;
+                file_ops::handle_export_json(&wb, arguments)
+            }
+            "export_csv" => {
+                let wb = self.workbook.read().await;
+                file_ops::handle_export_csv(&wb, arguments)
+            }
+
+            // Catch-all for registered but unimplemented tools.
             _ => Err(format!("Tool '{}' is not yet implemented", name)),
         };
 
@@ -244,6 +305,7 @@ mod tests {
         let parsed: Value = serde_json::from_str(&response).unwrap();
         assert_eq!(parsed["result"]["protocolVersion"], PROTOCOL_VERSION);
         assert!(parsed["result"]["capabilities"]["tools"].is_object());
+        assert!(parsed["result"]["capabilities"]["prompts"].is_object());
         assert_eq!(parsed["id"], 1);
     }
 
@@ -258,11 +320,39 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        assert!(!tools.is_empty());
+        // We should have 30+ tools now.
+        assert!(
+            tools.len() >= 30,
+            "Expected at least 30 tools, got {}",
+            tools.len()
+        );
 
-        // Check that read_cell is present.
-        let has_read_cell = tools.iter().any(|t| t["name"] == "read_cell");
-        assert!(has_read_cell, "read_cell tool should be registered");
+        // Verify key tools are present.
+        let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(tool_names.contains(&"read_cell"));
+        assert!(tool_names.contains(&"write_cell"));
+        assert!(tool_names.contains(&"clear_range"));
+        assert!(tool_names.contains(&"find_replace"));
+        assert!(tool_names.contains(&"sort_range"));
+        assert!(tool_names.contains(&"deduplicate"));
+        assert!(tool_names.contains(&"transpose"));
+        assert!(tool_names.contains(&"get_cell_format"));
+        assert!(tool_names.contains(&"set_cell_format"));
+        assert!(tool_names.contains(&"evaluate_formula"));
+        assert!(tool_names.contains(&"insert_formula"));
+        assert!(tool_names.contains(&"get_formula"));
+        assert!(tool_names.contains(&"bulk_formula"));
+        assert!(tool_names.contains(&"describe_data"));
+        assert!(tool_names.contains(&"correlate"));
+        assert!(tool_names.contains(&"trend_analysis"));
+        assert!(tool_names.contains(&"create_chart"));
+        assert!(tool_names.contains(&"list_charts"));
+        assert!(tool_names.contains(&"delete_chart"));
+        assert!(tool_names.contains(&"get_workbook_info"));
+        assert!(tool_names.contains(&"export_json"));
+        assert!(tool_names.contains(&"export_csv"));
+        assert!(tool_names.contains(&"merge_cells"));
+        assert!(tool_names.contains(&"unmerge_cells"));
     }
 
     #[tokio::test]
@@ -288,11 +378,195 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_tools_call_clear_range() {
+        let mut server = McpServer::new_default();
+
+        {
+            let mut wb = server.workbook.write().await;
+            wb.set_cell("Sheet1", 0, 0, lattice_core::CellValue::Number(1.0))
+                .unwrap();
+            wb.set_cell("Sheet1", 0, 1, lattice_core::CellValue::Number(2.0))
+                .unwrap();
+        }
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"clear_range","arguments":{"sheet":"Sheet1","range":"A1:B1"}}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["result"]["isError"], false);
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_describe_data() {
+        let mut server = McpServer::new_default();
+
+        {
+            let mut wb = server.workbook.write().await;
+            for i in 0..5 {
+                wb.set_cell(
+                    "Sheet1",
+                    i,
+                    0,
+                    lattice_core::CellValue::Number((i + 1) as f64),
+                )
+                .unwrap();
+            }
+        }
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"describe_data","arguments":{"sheet":"Sheet1","range":"A1:A5"}}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["result"]["isError"], false);
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_get_workbook_info() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_workbook_info","arguments":{}}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["result"]["isError"], false);
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_evaluate_formula() {
+        let mut server = McpServer::new_default();
+
+        {
+            let mut wb = server.workbook.write().await;
+            wb.set_cell("Sheet1", 0, 0, lattice_core::CellValue::Number(10.0))
+                .unwrap();
+            wb.set_cell("Sheet1", 1, 0, lattice_core::CellValue::Number(20.0))
+                .unwrap();
+        }
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"evaluate_formula","arguments":{"formula":"SUM(A1:A2)"}}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["result"]["isError"], false);
+    }
+
+    #[tokio::test]
+    async fn test_resources_read_workbook_info() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":8,"method":"resources/read","params":{"uri":"lattice://workbook/info"}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert!(parsed["result"]["contents"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_resources_read_sheet_data() {
+        let mut server = McpServer::new_default();
+
+        {
+            let mut wb = server.workbook.write().await;
+            wb.set_cell("Sheet1", 0, 0, lattice_core::CellValue::Number(42.0))
+                .unwrap();
+        }
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":9,"method":"resources/read","params":{"uri":"lattice://sheet/Sheet1/data"}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert!(parsed["result"]["contents"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_resources_read_sheet_summary() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"lattice://sheet/Sheet1/summary"}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert!(parsed["result"]["contents"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_prompts_list() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(r#"{"jsonrpc":"2.0","id":11,"method":"prompts/list","params":{}}"#)
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        let prompts = parsed["result"]["prompts"].as_array().unwrap();
+        assert_eq!(prompts.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_prompts_get() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":12,"method":"prompts/get","params":{"name":"analyze-portfolio"}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert!(parsed["result"]["messages"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_prompts_get_unknown() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":13,"method":"prompts/get","params":{"name":"nonexistent"}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert!(parsed["error"].is_object());
+    }
+
+    #[tokio::test]
     async fn test_unknown_method() {
         let mut server = McpServer::new_default();
 
         let response = server
-            .handle_message(r#"{"jsonrpc":"2.0","id":4,"method":"nonexistent","params":{}}"#)
+            .handle_message(r#"{"jsonrpc":"2.0","id":14,"method":"nonexistent","params":{}}"#)
             .await
             .unwrap();
 
@@ -320,5 +594,20 @@ mod tests {
             .await;
 
         assert!(response.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_tool() {
+        let mut server = McpServer::new_default();
+
+        let response = server
+            .handle_message(
+                r#"{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}"#,
+            )
+            .await
+            .unwrap();
+
+        let parsed: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(parsed["error"]["code"], -32602);
     }
 }
