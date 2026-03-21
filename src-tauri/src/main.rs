@@ -90,19 +90,32 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Cell commands
             commands::cell::get_cell,
             commands::cell::set_cell,
             commands::cell::get_range,
+            // Sheet commands
             commands::sheet::list_sheets,
             commands::sheet::add_sheet,
             commands::sheet::rename_sheet,
             commands::sheet::delete_sheet,
             commands::sheet::set_active_sheet,
+            // File commands
             commands::file::open_file,
             commands::file::save_file,
             commands::file::new_workbook,
+            // Edit commands
             commands::edit::undo,
             commands::edit::redo,
+            // Format commands
+            commands::format::format_cells,
+            // Data commands
+            commands::data::find_in_sheet,
+            commands::data::duplicate_sheet,
+            commands::data::insert_rows,
+            commands::data::delete_rows,
+            commands::data::insert_cols,
+            commands::data::delete_cols,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");

@@ -21,6 +21,17 @@ export interface WorkbookInfo {
   active_sheet: string;
 }
 
+/** Format options for format_cells command. */
+export interface FormatOptions {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  font_size?: number;
+  font_color?: string;
+  bg_color?: string;
+  h_align?: 'left' | 'center' | 'right';
+}
+
 // ---------------------------------------------------------------------------
 // Cell commands
 // ---------------------------------------------------------------------------
@@ -60,6 +71,81 @@ export async function getRange(
 }
 
 // ---------------------------------------------------------------------------
+// Format commands
+// ---------------------------------------------------------------------------
+
+export async function formatCells(
+  sheet: string,
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+  format: FormatOptions,
+): Promise<void> {
+  return invoke('format_cells', {
+    sheet,
+    startRow,
+    startCol,
+    endRow,
+    endCol,
+    format,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Row/Column manipulation
+// ---------------------------------------------------------------------------
+
+export async function insertRows(
+  sheet: string,
+  row: number,
+  count: number,
+): Promise<void> {
+  return invoke('insert_rows', { sheet, row, count });
+}
+
+export async function deleteRows(
+  sheet: string,
+  row: number,
+  count: number,
+): Promise<void> {
+  return invoke('delete_rows', { sheet, row, count });
+}
+
+export async function insertCols(
+  sheet: string,
+  col: number,
+  count: number,
+): Promise<void> {
+  return invoke('insert_cols', { sheet, col, count });
+}
+
+export async function deleteCols(
+  sheet: string,
+  col: number,
+  count: number,
+): Promise<void> {
+  return invoke('delete_cols', { sheet, col, count });
+}
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export interface FindResult {
+  row: number;
+  col: number;
+  value: string;
+}
+
+export async function findInSheet(
+  sheet: string,
+  query: string,
+): Promise<FindResult[]> {
+  return invoke('find_in_sheet', { sheet, query });
+}
+
+// ---------------------------------------------------------------------------
 // Sheet commands
 // ---------------------------------------------------------------------------
 
@@ -84,6 +170,13 @@ export async function deleteSheet(name: string): Promise<void> {
 
 export async function setActiveSheet(name: string): Promise<void> {
   return invoke('set_active_sheet', { name });
+}
+
+export async function duplicateSheet(
+  source: string,
+  newName: string,
+): Promise<void> {
+  return invoke('duplicate_sheet', { source, newName });
 }
 
 // ---------------------------------------------------------------------------
