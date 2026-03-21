@@ -333,4 +333,173 @@ fn parse_range_cells(range: &str) -> std::result::Result<Vec<(u32, u32)>, String
     Ok(cells)
 }
 
-// Tests are in a separate commit to keep commit size under 400 lines.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lattice_core::CellValue;
+
+    #[test]
+    fn test_get_cell_format_default() {
+        let wb = Workbook::new();
+        let result = handle_get_cell_format(
+            &wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["format"]["bold"], false);
+        assert_eq!(result["format"]["italic"], false);
+        assert_eq!(result["format"]["font_size"], 11.0);
+        assert_eq!(result["format"]["font_color"], "#000000");
+        assert_eq!(result["format"]["h_align"], "left");
+        assert_eq!(result["format"]["v_align"], "bottom");
+    }
+
+    #[test]
+    fn test_get_cell_format_custom() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        if let Some(cell) = sheet.get_cell_mut(0, 0) {
+            cell.format.bold = true;
+            cell.format.font_size = 14.0;
+            cell.format.bg_color = Some("#FFFF00".to_string());
+        }
+
+        let result = handle_get_cell_format(
+            &wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["format"]["bold"], true);
+        assert_eq!(result["format"]["font_size"], 14.0);
+        assert_eq!(result["format"]["bg_color"], "#FFFF00");
+    }
+
+    #[test]
+    fn test_set_cell_format_single() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+
+        let result = handle_set_cell_format(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "cell_ref": "A1",
+                "bold": true,
+                "font_size": 16.0,
+                "h_align": "center"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["cells_formatted"], 1);
+
+        let cell = wb.get_cell("Sheet1", 0, 0).unwrap().unwrap();
+        assert!(cell.format.bold);
+        assert_eq!(cell.format.font_size, 16.0);
+        assert_eq!(cell.format.h_align, HAlign::Center);
+        // Unchanged properties should remain at defaults.
+        assert!(!cell.format.italic);
+    }
+
+    #[test]
+    fn test_set_cell_format_range() {
+        let mut wb = Workbook::new();
+
+        let result = handle_set_cell_format(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "cell_ref": "A1:B2",
+                "bold": true
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["cells_formatted"], 4);
+
+        // All four cells should be bold.
+        for row in 0..=1 {
+            for col in 0..=1 {
+                let cell = wb.get_cell("Sheet1", row, col).unwrap().unwrap();
+                assert!(cell.format.bold);
+            }
+        }
+    }
+
+    #[test]
+    fn test_merge_cells() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("main".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Text("cleared".into())).unwrap();
+
+        let result = handle_merge_cells(
+            &mut wb,
+            json!({"sheet": "Sheet1", "range": "A1:B2"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+
+        let sheet = wb.get_sheet("Sheet1").unwrap();
+        assert_eq!(sheet.merged_regions().len(), 1);
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("main".into())
+        );
+        assert!(sheet.get_cell(0, 1).is_none());
+    }
+
+    #[test]
+    fn test_unmerge_cells() {
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        sheet.merge_cells(0, 0, 1, 1).unwrap();
+        assert_eq!(sheet.merged_regions().len(), 1);
+
+        let result = handle_unmerge_cells(
+            &mut wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["was_merged"], true);
+        let sheet = wb.get_sheet("Sheet1").unwrap();
+        assert_eq!(sheet.merged_regions().len(), 0);
+    }
+
+    #[test]
+    fn test_unmerge_not_merged() {
+        let mut wb = Workbook::new();
+
+        let result = handle_unmerge_cells(
+            &mut wb,
+            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["was_merged"], false);
+    }
+
+    #[test]
+    fn test_set_cell_format_invalid_alignment() {
+        let mut wb = Workbook::new();
+
+        let result = handle_set_cell_format(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "cell_ref": "A1",
+                "h_align": "invalid"
+            }),
+        );
+
+        assert!(result.is_err());
+    }
+}
