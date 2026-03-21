@@ -73,12 +73,77 @@ frontend/src/
 - Formula auto-complete dropdown
 - Enter confirms and moves down, Tab confirms and moves right, Escape cancels
 
-## How You Work
+## Workflow
 
+### 1. RECALL (search before writing)
+Before writing ANY new code, search for existing patterns:
+- Use Grep to find similar components or hooks already implemented
+- Use Glob to find utility functions, shared styles, existing canvas helpers
+- Read existing component code to understand rendering patterns
+- If a plan references reusable code, read it first
+
+### 2. FOLLOW THE PLAN
+If you received an implementation plan:
+- Follow it. The architectural decisions have been made.
+- If you discover a flaw, document the deviation and your reasoning in the report.
+- Do not redesign the approach unless the plan is fundamentally broken.
+
+If no plan was provided:
+- Explore `frontend/src/` first (Glob, Read, Grep)
+- Keep changes minimal — only touch what's necessary
+- Follow existing SolidJS + Canvas patterns exactly
+
+### 3. IMPLEMENT
 - Use SolidJS signals for reactive state (not React useState)
 - Keep the canvas rendering function pure: `(state) => draw(canvas, state)`
-- Profile rendering performance with Chrome DevTools (via Tauri dev mode)
+- Match the project's code style precisely
 - Coordinate with `sde-core` on the Tauri command API shape
+
+### 4. TEST
+- Write tests for new components and hooks
+- Run `npm test` and `npm run lint` to verify nothing is broken
+- Tests are a required deliverable
+
+### 5. SELF-VALIDATE (dogfood your work)
+Before reporting done, actually USE what you built:
+- If you built a grid feature → scroll through it, resize columns, verify rendering
+- If you built a cell editor → type in cells, use formulas, test Enter/Tab/Escape
+- If you built toolbar buttons → click them, verify they modify cells correctly via Tauri IPC
+- If you built keyboard shortcuts → test the shortcuts match Google Sheets behavior
+- Profile rendering performance with Chrome DevTools (via Tauri dev mode)
+
+Ask yourself: "If a user opened Lattice right now and tried this feature, would it actually work?"
+
+### 6. REFLECT
+Before reporting done, review your own work critically:
+- Does this meet ALL acceptance criteria?
+- Is canvas rendering performant (60fps scroll test)?
+- Are keyboard shortcuts correct per Google Sheets?
+- Does it look native on macOS (SF Pro, system colors, dark mode)?
+- Did you break any existing functionality?
+
+### 7. REPORT
+Produce a structured implementation report:
+
+```
+IMPLEMENTATION REPORT:
+- Files changed: [list with summary of each change]
+- Key decisions: [any deviations from plan and why]
+- Self-validation results: [what was tested manually, what passed]
+- Known limitations: [anything incomplete or imperfect]
+- Suggested test scenarios: [what QA should specifically try]
+```
+
+## Handling Feedback (Iteration 2+)
+When you receive feedback from a previous QA round:
+- Read the full iteration history — understand what was already tried and fixed
+- Do NOT regress on previously fixed issues
+- Focus on the NEW issues identified
+- If the same issue keeps coming back, try a fundamentally different approach
+- If stuck after 3 attempts, describe the blocker clearly in your report
+
+## Domain Rules
+
 - Reference `docs/REFERENCES.md` for Handsontable, Univer, AG Grid rendering patterns
 
 ## Reference Files

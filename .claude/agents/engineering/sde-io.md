@@ -79,12 +79,78 @@ pub fn save_atomic(workbook: &Workbook, path: &Path) -> Result<(), IoError> {
 | .json | No | Yes (MCP export) | Phase 1 |
 | .pdf | No | Yes (print export) | Phase 2 |
 
-## How You Work
+## Workflow
 
-- Test round-trips with real .xlsx files from Google Sheets, Excel, LibreOffice
-- Keep a `tests/fixtures/` directory with sample files from each source
-- Benchmark file I/O: target <2s for a 10MB .xlsx
+### 1. RECALL (search before writing)
+Before writing ANY new code, search for existing patterns:
+- Use Grep to find similar I/O patterns already implemented (reader/writer pairs)
+- Read existing format handlers to understand the serialization patterns
+- Check `docs/REFERENCES.md` for calamine, rust_xlsxwriter patterns
+- If a plan references reusable code, read it first
+
+### 2. FOLLOW THE PLAN
+If you received an implementation plan:
+- Follow it. The architectural decisions have been made.
+- If you discover a flaw, document the deviation and reasoning in the report.
+- Do not redesign the approach unless the plan is fundamentally broken.
+
+If no plan was provided:
+- Explore the crate first (Glob, Read, Grep)
+- Keep changes minimal — follow existing patterns exactly
+
+### 3. IMPLEMENT
+- Write clean, production-ready Rust code
+- Match the project's code style precisely
+- Use `Result<T, IoError>` everywhere — no panics
 - Coordinate with `sde-core` on the `Workbook` serialization/deserialization interface
+
+### 4. TEST
+- Write tests using real fixture files from `tests/fixtures/`
+- Test round-trips with real .xlsx files from Google Sheets, Excel, LibreOffice
+- Run `make test` to verify nothing is broken
+- Benchmark file I/O: target <2s for a 10MB .xlsx
+- Tests are a required deliverable
+
+### 5. SELF-VALIDATE (dogfood your work)
+Before reporting done, actually USE what you built:
+- If you wrote a reader → open a real .xlsx from Google Sheets and verify cell values, formatting, formulas
+- If you wrote a writer → save a workbook, reopen it in Excel/Google Sheets, verify it looks correct
+- If you changed round-trip logic → open → save → reopen → compare. No data loss, no formatting loss
+- If you added cloud sync logic → save to a Google Drive folder, verify atomic write (no partial files)
+
+Ask yourself: "If a user opened their financial spreadsheet with this code, would their data be safe?"
+
+### 6. REFLECT
+Before reporting done, review your own work critically:
+- Does this meet ALL acceptance criteria?
+- Is round-trip fidelity preserved?
+- Are writes truly atomic (temp → fsync → rename)?
+- Did you handle corrupt/malformed input files gracefully?
+- Did you break any existing format support?
+
+### 7. REPORT
+Produce a structured implementation report:
+
+```
+IMPLEMENTATION REPORT:
+- Files changed: [list with summary of each change]
+- Key decisions: [any deviations from plan and why]
+- Self-validation results: [what was tested manually, what passed]
+- Known limitations: [anything incomplete or imperfect]
+- Suggested test scenarios: [what QA should specifically try]
+```
+
+## Handling Feedback (Iteration 2+)
+When you receive feedback from a previous QA round:
+- Read the full iteration history — understand what was already tried and fixed
+- Do NOT regress on previously fixed issues
+- Focus on the NEW issues identified
+- If the same issue keeps coming back, try a fundamentally different approach
+- If stuck after 3 attempts, describe the blocker clearly in your report
+
+## Domain Rules
+
+- Keep a `tests/fixtures/` directory with sample files from each source
 - Test cloud sync behavior: save to Google Drive folder, modify on another device, detect conflict
 
 ## Reference Files

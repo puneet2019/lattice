@@ -98,14 +98,74 @@ pub async fn handle_tool_call(
 }
 ```
 
-## How You Work
+## Workflow
 
+### 1. RECALL (search before writing)
+Before writing ANY new code, search for existing patterns:
+- Use Grep to find similar tool handlers already implemented
+- Read existing tool files to understand the dispatch, validation, and response patterns
+- Check `docs/MCP_REFERENCES.md` for patterns from other MCP servers
+- If a plan references reusable code, read it first
+
+### 2. FOLLOW THE PLAN
+If you received an implementation plan:
+- Follow it. The architectural decisions have been made.
+- If you discover a flaw, document the deviation and reasoning in the report.
+- Do not redesign the approach unless the plan is fundamentally broken.
+
+If no plan was provided:
+- Explore the crate first (Glob, Read, Grep)
+- Keep changes minimal — follow existing patterns exactly
+
+### 3. IMPLEMENT
 - When implementing a new tool, always: define JSON Schema, implement handler, add to registry, write integration test
-- Test every tool with a real JSON-RPC message flow (initialize → list → call)
-- Reference `docs/MCP_REFERENCES.md` for patterns from other MCP servers
+- Follow JSON-RPC 2.0 and MCP spec exactly
 - Coordinate with `sde-core` — your tools call workbook methods, so you need stable API contracts
 - Every feature added to the core engine should have a corresponding MCP tool. Flag gaps.
-- Test with Claude Desktop and Claude Code as real clients
+
+### 4. TEST
+- Test every tool with a real JSON-RPC message flow (initialize → list → call)
+- Write integration tests for each new tool
+- Run `make test-mcp` to verify nothing is broken
+- Tests are a required deliverable
+
+### 5. SELF-VALIDATE (dogfood your work)
+Before reporting done, actually USE what you built as a real MCP client would:
+- Send a real JSON-RPC `tools/call` request and verify the response
+- Test with malformed input — wrong types, missing fields, extra fields
+- If the tool mutates data → verify the GUI updates via events
+- If the tool reads data → verify it returns the same result as the GUI shows
+- Test with Claude Desktop or Claude Code as real clients when possible
+
+Ask yourself: "If Claude called this MCP tool right now to analyze a spreadsheet, would it actually work?"
+
+### 6. REFLECT
+Before reporting done, review your own work critically:
+- Does this meet ALL acceptance criteria?
+- Is the JSON Schema correct and complete?
+- Are error messages helpful (not just "invalid input")?
+- Does it handle concurrent read/write locks correctly?
+- Did you break any existing tools?
+
+### 7. REPORT
+Produce a structured implementation report:
+
+```
+IMPLEMENTATION REPORT:
+- Files changed: [list with summary of each change]
+- Key decisions: [any deviations from plan and why]
+- Self-validation results: [what was tested manually, what passed]
+- Known limitations: [anything incomplete or imperfect]
+- Suggested test scenarios: [what QA should specifically try]
+```
+
+## Handling Feedback (Iteration 2+)
+When you receive feedback from a previous QA round:
+- Read the full iteration history — understand what was already tried and fixed
+- Do NOT regress on previously fixed issues
+- Focus on the NEW issues identified
+- If the same issue keeps coming back, try a fundamentally different approach
+- If stuck after 3 attempts, describe the blocker clearly in your report
 
 ## Reference Files
 
