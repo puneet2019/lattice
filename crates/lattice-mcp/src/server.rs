@@ -9,7 +9,8 @@ use lattice_core::Workbook;
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, data_ops, file_ops, formula_ops, sheet_ops,
+    analysis, cell_ops, chart_ops, data_ops, file_ops, format_ops, formula_ops,
+    sheet_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -246,6 +247,24 @@ impl McpServer {
                 analysis::handle_trend_analysis(&wb, arguments)
             }
 
+            // ── Format operations ─────────────────────────────────────────
+            "get_cell_format" => {
+                let wb = self.workbook.read().await;
+                format_ops::handle_get_cell_format(&wb, arguments)
+            }
+            "set_cell_format" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_set_cell_format(&mut wb, arguments)
+            }
+            "merge_cells" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_merge_cells(&mut wb, arguments)
+            }
+            "unmerge_cells" => {
+                let mut wb = self.workbook.write().await;
+                format_ops::handle_unmerge_cells(&mut wb, arguments)
+            }
+
             // ── Formula operations ────────────────────────────────────────
             "evaluate_formula" => {
                 let wb = self.workbook.read().await;
@@ -338,10 +357,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 24+ tools (format_ops not yet implemented).
+        // We should have 28+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 24,
-            "Expected at least 24 tools, got {}",
+            tools.len() >= 28,
+            "Expected at least 28 tools, got {}",
             tools.len()
         );
 
@@ -359,7 +378,11 @@ mod tests {
         assert!(tool_names.contains(&"get_formula"));
         assert!(tool_names.contains(&"insert_formula"));
         assert!(tool_names.contains(&"bulk_formula"));
-        // format_ops tools not yet implemented
+        // format_ops tools
+        assert!(tool_names.contains(&"get_cell_format"));
+        assert!(tool_names.contains(&"set_cell_format"));
+        assert!(tool_names.contains(&"merge_cells"));
+        assert!(tool_names.contains(&"unmerge_cells"));
         assert!(tool_names.contains(&"describe_data"));
         assert!(tool_names.contains(&"correlate"));
         assert!(tool_names.contains(&"trend_analysis"));
