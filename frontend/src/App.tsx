@@ -40,6 +40,7 @@ const App: Component = () => {
   const [mode, setMode] = createSignal<'Ready' | 'Edit'>('Ready');
   const [selectionSummary] = createSignal('');
   const [zoom, setZoom] = createSignal(1.0);
+  const [refreshTrigger, setRefreshTrigger] = createSignal(0);
   const [boldActive, setBoldActive] = createSignal(false);
   const [italicActive, setItalicActive] = createSignal(false);
   const [underlineActive, setUnderlineActive] = createSignal(false);
@@ -138,6 +139,7 @@ const App: Component = () => {
       // Ignore in browser dev mode.
     }
     setFormulaContent(value);
+    setRefreshTrigger((n) => n + 1);
   };
 
   const handleFormulaCancel = () => {
@@ -256,6 +258,7 @@ const App: Component = () => {
       />
       <VirtualGrid
         activeSheet={activeSheetName()}
+        refreshTrigger={refreshTrigger()}
         onSelectionChange={handleSelectionChange}
         onContentChange={handleContentChange}
         onCellCommit={handleCellCommit}
