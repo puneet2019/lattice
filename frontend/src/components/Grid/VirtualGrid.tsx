@@ -43,7 +43,7 @@ export interface VirtualGridProps {
 // Component
 // ---------------------------------------------------------------------------
 
-const VirtualGrid: Component<VirtualGridProps> = (_props) => {
+const VirtualGrid: Component<VirtualGridProps> = (props) => {
   let containerRef: HTMLDivElement | undefined;
   let canvasRef: HTMLCanvasElement | undefined;
 
@@ -51,6 +51,12 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
   const [scrollY, setScrollY] = createSignal(0);
   const [canvasWidth, setCanvasWidth] = createSignal(800);
   const [canvasHeight, setCanvasHeight] = createSignal(600);
+
+  // Selection state
+  const [selectedRow, setSelectedRow] = createSignal(0);
+  const [selectedCol, setSelectedCol] = createSignal(0);
+  const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
+  const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
 
   // -----------------------------------------------------------------------
   // Viewport helpers
@@ -99,9 +105,65 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
     const rowCount = visibleRowCount();
 
     drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
+    drawSelection(ctx, sx, sy);
     drawColumnHeaders(ctx, sx, startCol, colCount, w);
     drawRowNumbers(ctx, sy, startRow, rowCount, h);
     drawCorner(ctx);
+  }
+
+  // -----------------------------------------------------------------------
+  // Selection helpers
+  // -----------------------------------------------------------------------
+
+  function getSelectionRange() {
+    const anchor = rangeAnchor();
+    const end = rangeEnd();
+    if (anchor && end) {
+      return {
+        minRow: Math.min(anchor[0], end[0]),
+        maxRow: Math.max(anchor[0], end[0]),
+        minCol: Math.min(anchor[1], end[1]),
+        maxCol: Math.max(anchor[1], end[1]),
+      };
+    }
+    return {
+      minRow: selectedRow(),
+      maxRow: selectedRow(),
+      minCol: selectedCol(),
+      maxCol: selectedCol(),
+    };
+  }
+
+  function isColInSelection(col: number): boolean {
+    const { minCol, maxCol } = getSelectionRange();
+    return col >= minCol && col <= maxCol;
+  }
+
+  function isRowInSelection(row: number): boolean {
+    const { minRow, maxRow } = getSelectionRange();
+    return row >= minRow && row <= maxRow;
+  }
+
+  function drawSelection(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
+    const range = getSelectionRange();
+
+    // Draw range fill if multi-cell selection
+    if (range.minRow !== range.maxRow || range.minCol !== range.maxCol) {
+      const rx = ROW_NUMBER_WIDTH + range.minCol * DEFAULT_COL_WIDTH - sx;
+      const ry = HEADER_HEIGHT + range.minRow * ROW_HEIGHT - sy;
+      const rw = (range.maxCol - range.minCol + 1) * DEFAULT_COL_WIDTH;
+      const rh = (range.maxRow - range.minRow + 1) * ROW_HEIGHT;
+      ctx.fillStyle = COLORS.selectionBg;
+      ctx.fillRect(rx, ry, rw, rh);
+    }
+
+    // Draw active cell border (2px blue)
+    const cx = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - sx;
+    const cy = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - sy;
+    ctx.strokeStyle = COLORS.selectionBorder;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx, cy, DEFAULT_COL_WIDTH, ROW_HEIGHT);
+    ctx.lineWidth = 1;
   }
 
   function drawGridLines(
@@ -171,7 +233,14 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
       ctx.lineTo(Math.round(cellRight) + 0.5, HEADER_HEIGHT);
       ctx.stroke();
 
-      ctx.fillStyle = COLORS.headerText;
+      // Highlight selected column header
+      if (isColInSelection(col)) {
+        ctx.fillStyle = COLORS.selectionBg;
+        ctx.fillRect(x, 0, DEFAULT_COL_WIDTH, HEADER_HEIGHT);
+        ctx.fillStyle = COLORS.selectionBorder;
+      } else {
+        ctx.fillStyle = COLORS.headerText;
+      }
       ctx.fillText(col_to_letter(col), x + DEFAULT_COL_WIDTH / 2, HEADER_HEIGHT / 2);
     }
   }
@@ -208,7 +277,14 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
       ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(cellBottom) + 0.5);
       ctx.stroke();
 
-      ctx.fillStyle = COLORS.headerText;
+      // Highlight selected row number
+      if (isRowInSelection(row)) {
+        ctx.fillStyle = COLORS.selectionBg;
+        ctx.fillRect(0, y, ROW_NUMBER_WIDTH, ROW_HEIGHT);
+        ctx.fillStyle = COLORS.selectionBorder;
+      } else {
+        ctx.fillStyle = COLORS.headerText;
+      }
       ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + ROW_HEIGHT / 2);
     }
   }
@@ -218,6 +294,112 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
     ctx.fillRect(0, 0, ROW_NUMBER_WIDTH, HEADER_HEIGHT);
     ctx.strokeStyle = COLORS.gridBorder;
     ctx.strokeRect(0, 0, ROW_NUMBER_WIDTH, HEADER_HEIGHT);
+  }
+
+  // -----------------------------------------------------------------------
+  // Hit testing & event handlers
+  // -----------------------------------------------------------------------
+
+  function hitTest(
+    clientX: number,
+    clientY: number,
+  ): { row: number; col: number } | null {
+    if (!containerRef) return null;
+    const rect = containerRef.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    if (x < ROW_NUMBER_WIDTH || y < HEADER_HEIGHT) return null;
+    const col = Math.floor((x - ROW_NUMBER_WIDTH + scrollX()) / DEFAULT_COL_WIDTH);
+    const row = Math.floor((y - HEADER_HEIGHT + scrollY()) / ROW_HEIGHT);
+    if (col < 0 || col >= TOTAL_COLS || row < 0 || row >= TOTAL_ROWS) return null;
+    return { row, col };
+  }
+
+  function handleMouseDown(e: MouseEvent) {
+    const hit = hitTest(e.clientX, e.clientY);
+    if (!hit) return;
+
+    if (e.shiftKey) {
+      if (!rangeAnchor()) {
+        setRangeAnchor([selectedRow(), selectedCol()]);
+      }
+      setRangeEnd([hit.row, hit.col]);
+    } else {
+      setSelectedRow(hit.row);
+      setSelectedCol(hit.col);
+      setRangeAnchor(null);
+      setRangeEnd(null);
+      props.onSelectionChange(hit.row, hit.col);
+    }
+    draw();
+  }
+
+  function ensureCellVisible(row: number, col: number) {
+    const sx = scrollX();
+    const sy = scrollY();
+    const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
+    const viewH = canvasHeight() - HEADER_HEIGHT;
+
+    const cellLeft = col * DEFAULT_COL_WIDTH;
+    const cellRight = cellLeft + DEFAULT_COL_WIDTH;
+    if (cellLeft < sx) {
+      setScrollX(cellLeft);
+    } else if (cellRight > sx + viewW) {
+      setScrollX(cellRight - viewW);
+    }
+
+    const cellTop = row * ROW_HEIGHT;
+    const cellBottom = cellTop + ROW_HEIGHT;
+    if (cellTop < sy) {
+      setScrollY(cellTop);
+    } else if (cellBottom > sy + viewH) {
+      setScrollY(cellBottom - viewH);
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    let row = selectedRow();
+    let col = selectedCol();
+    let handled = false;
+
+    switch (e.key) {
+      case 'ArrowUp':
+        row = Math.max(0, row - 1);
+        handled = true;
+        break;
+      case 'ArrowDown':
+        row = Math.min(TOTAL_ROWS - 1, row + 1);
+        handled = true;
+        break;
+      case 'ArrowLeft':
+        col = Math.max(0, col - 1);
+        handled = true;
+        break;
+      case 'ArrowRight':
+        col = Math.min(TOTAL_COLS - 1, col + 1);
+        handled = true;
+        break;
+      case 'Tab':
+        e.preventDefault();
+        col = Math.max(0, Math.min(TOTAL_COLS - 1, col + (e.shiftKey ? -1 : 1)));
+        handled = true;
+        break;
+      case 'Enter':
+        row = Math.max(0, Math.min(TOTAL_ROWS - 1, row + (e.shiftKey ? -1 : 1)));
+        handled = true;
+        break;
+    }
+
+    if (handled) {
+      e.preventDefault();
+      setSelectedRow(row);
+      setSelectedCol(col);
+      setRangeAnchor(null);
+      setRangeEnd(null);
+      props.onSelectionChange(row, col);
+      ensureCellVisible(row, col);
+      draw();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -261,6 +443,8 @@ const VirtualGrid: Component<VirtualGridProps> = (_props) => {
       ref={containerRef}
       class="virtual-grid-container"
       tabIndex={0}
+      onMouseDown={handleMouseDown}
+      onKeyDown={handleKeyDown}
       onWheel={handleWheel}
       style={{ outline: 'none' }}
     >
