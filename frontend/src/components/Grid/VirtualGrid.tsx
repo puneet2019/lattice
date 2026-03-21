@@ -65,17 +65,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const totalContentWidth = () => ROW_NUMBER_WIDTH + TOTAL_COLS * DEFAULT_COL_WIDTH;
   const totalContentHeight = () => HEADER_HEIGHT + TOTAL_ROWS * ROW_HEIGHT;
 
-  const firstVisibleCol = () => Math.floor(scrollX() / DEFAULT_COL_WIDTH);
-  const firstVisibleRow = () => Math.floor(scrollY() / ROW_HEIGHT);
+  // Buffer: render extra rows/cols beyond viewport for smooth scrolling.
+  const BUFFER_COLS = 4;
+  const BUFFER_ROWS = 8;
+
+  const firstVisibleCol = () => {
+    const col = Math.floor(scrollX() / DEFAULT_COL_WIDTH);
+    return Math.max(0, col - BUFFER_COLS);
+  };
+  const firstVisibleRow = () => {
+    const row = Math.floor(scrollY() / ROW_HEIGHT);
+    return Math.max(0, row - BUFFER_ROWS);
+  };
 
   const visibleColCount = () => {
-    const count = Math.ceil((canvasWidth() - ROW_NUMBER_WIDTH) / DEFAULT_COL_WIDTH) + 2;
-    return Math.min(count, TOTAL_COLS - firstVisibleCol());
+    const viewportCols = Math.ceil((canvasWidth() - ROW_NUMBER_WIDTH) / DEFAULT_COL_WIDTH);
+    const total = viewportCols + BUFFER_COLS * 2;
+    return Math.min(total, TOTAL_COLS - firstVisibleCol());
   };
 
   const visibleRowCount = () => {
-    const count = Math.ceil((canvasHeight() - HEADER_HEIGHT) / ROW_HEIGHT) + 2;
-    return Math.min(count, TOTAL_ROWS - firstVisibleRow());
+    const viewportRows = Math.ceil((canvasHeight() - HEADER_HEIGHT) / ROW_HEIGHT);
+    const total = viewportRows + BUFFER_ROWS * 2;
+    return Math.min(total, TOTAL_ROWS - firstVisibleRow());
   };
 
   // -----------------------------------------------------------------------
@@ -406,13 +418,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Scroll
   // -----------------------------------------------------------------------
 
+  let rafPending = false;
+  function scheduleDraw() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      draw();
+    });
+  }
+
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
     const maxX = Math.max(0, totalContentWidth() - canvasWidth());
     const maxY = Math.max(0, totalContentHeight() - canvasHeight());
     setScrollX(Math.max(0, Math.min(maxX, scrollX() + e.deltaX)));
     setScrollY(Math.max(0, Math.min(maxY, scrollY() + e.deltaY)));
-    draw();
+    scheduleDraw();
   }
 
   // -----------------------------------------------------------------------
