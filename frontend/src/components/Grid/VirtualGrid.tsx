@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
-import { getCell, getRange, setCell } from '../../bridge/tauri';
+import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -693,6 +693,34 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchVisibleData();
   }
 
+  // -----------------------------------------------------------------------
+  // Undo / Redo
+  // -----------------------------------------------------------------------
+
+  /** Undo the last operation via Tauri backend. */
+  async function handleUndo() {
+    try {
+      await undo();
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange('Undo');
+    } catch {
+      props.onStatusChange('Nothing to undo');
+    }
+  }
+
+  /** Redo the last undone operation via Tauri backend. */
+  async function handleRedo() {
+    try {
+      await redo();
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange('Redo');
+    } catch {
+      props.onStatusChange('Nothing to redo');
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (editing()) return; // editor handles its own keys
 
@@ -752,6 +780,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (e.key === 'v') {
         e.preventDefault();
         handlePaste();
+        return;
+      }
+      // Undo: Cmd+Z (without Shift)
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      // Redo: Cmd+Shift+Z or Cmd+Y
+      if ((e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
         return;
       }
     }
