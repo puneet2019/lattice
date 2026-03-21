@@ -79,6 +79,7 @@ impl DependencyGraph {
         // Collect all transitively affected cells via BFS.
         let mut affected: HashSet<(u32, u32)> = HashSet::new();
         let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
+        let mut has_cycle = false;
 
         if let Some(deps) = self.dependents.get(changed_cell) {
             for d in deps {
@@ -87,6 +88,11 @@ impl DependencyGraph {
         }
 
         while let Some(cell) = queue.pop_front() {
+            // If BFS reaches back to the changed cell, there's a cycle.
+            if cell == *changed_cell {
+                has_cycle = true;
+                continue;
+            }
             if !affected.insert(cell) {
                 continue; // Already visited
             }
@@ -97,6 +103,13 @@ impl DependencyGraph {
                     }
                 }
             }
+        }
+
+        if has_cycle {
+            let mut cycle_cells: Vec<(u32, u32)> = affected.into_iter().collect();
+            cycle_cells.push(*changed_cell);
+            cycle_cells.sort();
+            return Err(cycle_cells);
         }
 
         if affected.is_empty() {

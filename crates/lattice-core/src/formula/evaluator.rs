@@ -2003,6 +2003,7 @@ mod tests {
         eval.evaluate(formula, sheet).unwrap()
     }
 
+    #[allow(dead_code)]
     fn eval_err(formula: &str, sheet: &Sheet) -> LatticeError {
         let eval = SimpleEvaluator;
         eval.evaluate(formula, sheet).unwrap_err()
