@@ -47,6 +47,42 @@ impl McpServer {
         Self::new(Arc::new(RwLock::new(Workbook::new())))
     }
 
+    /// Run the MCP server over stdio (stdin/stdout).
+    ///
+    /// Reads newline-delimited JSON-RPC 2.0 messages from stdin, processes
+    /// each one, and writes responses to stdout. Logs go to stderr.
+    /// The loop runs until EOF on stdin.
+    pub async fn run_stdio(&mut self) -> std::io::Result<()> {
+        use crate::transport::Transport;
+        use crate::transport::stdio::StdioTransport;
+
+        let mut transport = StdioTransport::new();
+
+        eprintln!("lattice: MCP server starting on stdio");
+
+        loop {
+            let message = match transport.read_message().await? {
+                Some(msg) => msg,
+                None => {
+                    // EOF — client disconnected.
+                    eprintln!("lattice: stdin closed, shutting down MCP server");
+                    break;
+                }
+            };
+
+            // Skip empty lines.
+            if message.is_empty() {
+                continue;
+            }
+
+            if let Some(response) = self.handle_message(&message).await {
+                transport.write_message(&response).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Handle an incoming JSON-RPC 2.0 message and return a response.
     ///
     /// Parses the method, dispatches to the appropriate handler,

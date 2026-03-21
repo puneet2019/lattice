@@ -9,6 +9,15 @@ use tauri::Emitter;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
 fn main() {
+    // Check for --mcp-stdio flag before starting Tauri.
+    // In MCP stdio mode, we skip the GUI entirely and run a headless
+    // JSON-RPC server over stdin/stdout for Claude Desktop/Code.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--mcp-stdio") {
+        run_mcp_stdio();
+        return;
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
@@ -119,4 +128,19 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");
+}
+
+/// Run the MCP server in headless stdio mode.
+///
+/// This bypasses Tauri entirely and runs a simple stdin/stdout loop
+/// for use with Claude Desktop, Claude Code, or other MCP clients.
+fn run_mcp_stdio() {
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    rt.block_on(async {
+        let mut server = lattice_mcp::McpServer::new_default();
+        if let Err(e) = server.run_stdio().await {
+            eprintln!("lattice: MCP server error: {}", e);
+            std::process::exit(1);
+        }
+    });
 }
