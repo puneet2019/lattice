@@ -6,6 +6,7 @@ members = [
     "crates/lattice-charts",
     "crates/lattice-analysis",
     "src-tauri",
+    "tests",
 ]
 resolver = "3"
 

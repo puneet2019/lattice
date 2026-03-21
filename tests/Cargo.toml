@@ -1,0 +1,14 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition.workspace = true
+
+[[test]]
+name = "mcp_tests"
+path = "integration/mcp_tests.rs"
+
+[dependencies]
+lattice-mcp = { path = "../crates/lattice-mcp" }
+lattice-core = { path = "../crates/lattice-core" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
