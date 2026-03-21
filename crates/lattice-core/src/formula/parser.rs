@@ -3,7 +3,7 @@
 pub enum Token {
     /// A numeric literal.
     Number(f64),
-    /// A cell reference such as `A1`.
+    /// A cell reference such as `A1` or `$A$1`.
     CellRef(String),
     /// A function name such as `SUM`.
     Function(String),
@@ -17,15 +17,22 @@ pub enum Token {
     Colon,
     /// An arithmetic operator: `+`, `-`, `*`, `/`.
     Operator(char),
+    /// A comparison operator: `>`, `<`, `>=`, `<=`, `=`, `<>`.
+    Comparison(String),
+    /// The `&` string concatenation operator.
+    Ampersand,
     /// A string literal (the inner text without quotes).
     StringLiteral(String),
+    /// A boolean literal (`TRUE` or `FALSE`).
+    Boolean(bool),
 }
 
 /// Tokenise a formula string (without leading `=`) into a list of [`Token`]s.
 ///
-/// This is intentionally simple — it handles numeric literals, cell references,
-/// function names, parentheses, commas, colons, and the four basic arithmetic
-/// operators.
+/// Handles numeric literals, cell references, function names, parentheses,
+/// commas, colons, the four basic arithmetic operators, comparison operators
+/// (`>`, `<`, `>=`, `<=`, `=`, `<>`), string concatenation (`&`), string
+/// literals in double quotes, and boolean literals (`TRUE` / `FALSE`).
 pub fn tokenize(input: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = input.chars().collect();
@@ -56,18 +63,86 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 tokens.push(Token::Colon);
                 i += 1;
             }
-            '+' | '-' | '*' | '/' => {
+            '&' => {
+                tokens.push(Token::Ampersand);
+                i += 1;
+            }
+            '+' | '*' | '/' => {
                 tokens.push(Token::Operator(ch));
                 i += 1;
             }
-            '"' => {
-                // String literal
-                i += 1; // skip opening quote
-                let start = i;
-                while i < chars.len() && chars[i] != '"' {
+            '-' => {
+                // Determine if this is a unary minus (part of a negative number)
+                // or a binary subtraction operator.
+                let is_unary = tokens.is_empty()
+                    || matches!(
+                        tokens.last(),
+                        Some(
+                            Token::LParen
+                                | Token::Comma
+                                | Token::Operator(_)
+                                | Token::Comparison(_)
+                        )
+                    );
+                if is_unary && i + 1 < chars.len() && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.') {
+                    // Negative number literal
+                    let start = i;
+                    i += 1; // skip the '-'
+                    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                        i += 1;
+                    }
+                    let num_str: String = chars[start..i].iter().collect();
+                    if let Ok(n) = num_str.parse::<f64>() {
+                        tokens.push(Token::Number(n));
+                    }
+                } else {
+                    tokens.push(Token::Operator('-'));
                     i += 1;
                 }
-                let s: String = chars[start..i].iter().collect();
+            }
+            '<' => {
+                if i + 1 < chars.len() && chars[i + 1] == '>' {
+                    tokens.push(Token::Comparison("<>".to_string()));
+                    i += 2;
+                } else if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Comparison("<=".to_string()));
+                    i += 2;
+                } else {
+                    tokens.push(Token::Comparison("<".to_string()));
+                    i += 1;
+                }
+            }
+            '>' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Comparison(">=".to_string()));
+                    i += 2;
+                } else {
+                    tokens.push(Token::Comparison(">".to_string()));
+                    i += 1;
+                }
+            }
+            '=' => {
+                tokens.push(Token::Comparison("=".to_string()));
+                i += 1;
+            }
+            '"' => {
+                // String literal — handle escaped quotes ("") inside strings
+                i += 1; // skip opening quote
+                let mut s = String::new();
+                while i < chars.len() {
+                    if chars[i] == '"' {
+                        if i + 1 < chars.len() && chars[i + 1] == '"' {
+                            // Escaped quote
+                            s.push('"');
+                            i += 2;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        s.push(chars[i]);
+                        i += 1;
+                    }
+                }
                 tokens.push(Token::StringLiteral(s));
                 if i < chars.len() {
                     i += 1; // skip closing quote
@@ -91,16 +166,38 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                     i += 1;
                 }
                 let word: String = chars[start..i].iter().collect();
-                // If the next non-space char is '(', treat it as a function.
-                let mut peek = i;
-                while peek < chars.len() && chars[peek].is_whitespace() {
-                    peek += 1;
-                }
-                if peek < chars.len() && chars[peek] == '(' {
-                    tokens.push(Token::Function(word.to_ascii_uppercase()));
+                let upper = word.to_ascii_uppercase();
+
+                // Check for boolean literals
+                if upper == "TRUE" || upper == "FALSE" {
+                    // But only if not followed by '(' (could be a function name)
+                    let mut peek = i;
+                    while peek < chars.len() && chars[peek].is_whitespace() {
+                        peek += 1;
+                    }
+                    if peek < chars.len() && chars[peek] == '(' {
+                        tokens.push(Token::Function(upper));
+                    } else {
+                        tokens.push(Token::Boolean(upper == "TRUE"));
+                    }
                 } else {
-                    tokens.push(Token::CellRef(word));
+                    // If the next non-space char is '(', treat it as a function.
+                    let mut peek = i;
+                    while peek < chars.len() && chars[peek].is_whitespace() {
+                        peek += 1;
+                    }
+                    if peek < chars.len() && chars[peek] == '(' {
+                        tokens.push(Token::Function(upper));
+                    } else {
+                        tokens.push(Token::CellRef(word));
+                    }
                 }
+            }
+            '!' => {
+                // Sheet reference separator — attach to previous token
+                // e.g. "Sheet1" + "!" + "A1" => the previous CellRef becomes part of a
+                // sheet-qualified reference.
+                i += 1;
             }
             _ => {
                 i += 1; // skip unknown
@@ -110,8 +207,85 @@ pub fn tokenize(input: &str) -> Vec<Token> {
     tokens
 }
 
-/// Placeholder for a full recursive-descent parser. Currently the evaluator
-/// works directly on tokens.
+/// Convenience alias — currently just calls [`tokenize`].
 pub fn parse(input: &str) -> Vec<Token> {
     tokenize(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_tokenize() {
+        let tokens = tokenize("SUM(A1:A5)");
+        assert_eq!(tokens.len(), 6);
+        assert_eq!(tokens[0], Token::Function("SUM".to_string()));
+        assert_eq!(tokens[1], Token::LParen);
+        assert_eq!(tokens[2], Token::CellRef("A1".to_string()));
+        assert_eq!(tokens[3], Token::Colon);
+        assert_eq!(tokens[4], Token::CellRef("A5".to_string()));
+        assert_eq!(tokens[5], Token::RParen);
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        let tokens = tokenize("A1>=10");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0], Token::CellRef("A1".to_string()));
+        assert_eq!(tokens[1], Token::Comparison(">=".to_string()));
+        assert_eq!(tokens[2], Token::Number(10.0));
+    }
+
+    #[test]
+    fn test_not_equal() {
+        let tokens = tokenize("A1<>B1");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[1], Token::Comparison("<>".to_string()));
+    }
+
+    #[test]
+    fn test_string_literal() {
+        let tokens = tokenize(r#"CONCATENATE("hello", " ", "world")"#);
+        assert_eq!(tokens[0], Token::Function("CONCATENATE".to_string()));
+        assert_eq!(tokens[2], Token::StringLiteral("hello".to_string()));
+        assert_eq!(tokens[4], Token::StringLiteral(" ".to_string()));
+        assert_eq!(tokens[6], Token::StringLiteral("world".to_string()));
+    }
+
+    #[test]
+    fn test_boolean_literal() {
+        let tokens = tokenize("IF(TRUE, 1, 0)");
+        assert_eq!(tokens[0], Token::Function("IF".to_string()));
+        assert_eq!(tokens[2], Token::Boolean(true));
+    }
+
+    #[test]
+    fn test_boolean_as_function() {
+        let tokens = tokenize("TRUE()");
+        assert_eq!(tokens[0], Token::Function("TRUE".to_string()));
+    }
+
+    #[test]
+    fn test_negative_number() {
+        let tokens = tokenize("SUM(A1, -5)");
+        // SUM ( A1 , -5 )
+        assert!(tokens.contains(&Token::Number(-5.0)));
+    }
+
+    #[test]
+    fn test_ampersand() {
+        let tokens = tokenize(r#""A" & "B""#);
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0], Token::StringLiteral("A".to_string()));
+        assert_eq!(tokens[1], Token::Ampersand);
+        assert_eq!(tokens[2], Token::StringLiteral("B".to_string()));
+    }
+
+    #[test]
+    fn test_nested_functions() {
+        let tokens = tokenize("SUM(IF(A1>0,A1,0),B1)");
+        assert_eq!(tokens[0], Token::Function("SUM".to_string()));
+        assert_eq!(tokens[2], Token::Function("IF".to_string()));
+    }
 }
