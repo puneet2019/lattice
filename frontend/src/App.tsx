@@ -1,5 +1,7 @@
 import type { Component } from 'solid-js';
-import { createSignal, onMount } from 'solid-js';
+import { createSignal, onMount, onCleanup } from 'solid-js';
+import { listen } from '@tauri-apps/api/event';
+import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 import Toolbar from './components/Toolbar';
 import FormulaBar from './components/FormulaBar';
 import VirtualGrid from './components/Grid/VirtualGrid';
@@ -14,6 +16,9 @@ import {
   deleteSheet,
   duplicateSheet,
   formatCells,
+  openFile,
+  saveFile,
+  newWorkbook,
   undo as tauriUndo,
   redo as tauriRedo,
 } from './bridge/tauri';
@@ -44,8 +49,116 @@ const App: Component = () => {
   const [boldActive, setBoldActive] = createSignal(false);
   const [italicActive, setItalicActive] = createSignal(false);
   const [underlineActive, setUnderlineActive] = createSignal(false);
+  const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
 
-  // Load sheets on mount.
+  // Spreadsheet file filter for open/save dialogs.
+  const fileFilters = [
+    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice'] },
+    { name: 'All Files', extensions: ['*'] },
+  ];
+
+  // -------------------------------------------------------------------
+  // File operations (triggered by menu events)
+  // -------------------------------------------------------------------
+
+  /** Apply workbook info from open/new result to local state. */
+  function applyWorkbookInfo(info: { sheets: string[]; active_sheet: string }) {
+    setSheets(info.sheets);
+    setActiveSheetLocal(info.active_sheet);
+    setRefreshTrigger((n) => n + 1);
+    setSelectedCell([0, 0]);
+    setFormulaContent('');
+  }
+
+  const handleFileNew = async () => {
+    try {
+      const info = await newWorkbook();
+      applyWorkbookInfo(info);
+      setCurrentFilePath(null);
+      setStatusMessage('New workbook created');
+    } catch (e) {
+      setStatusMessage(`New workbook failed: ${e}`);
+    }
+  };
+
+  const handleFileOpen = async () => {
+    try {
+      const selected = await dialogOpen({
+        title: 'Open Spreadsheet',
+        filters: fileFilters,
+        multiple: false,
+        directory: false,
+      });
+      if (!selected) return; // user cancelled
+      const path = typeof selected === 'string' ? selected : selected[0];
+      if (!path) return;
+      const info = await openFile(path);
+      applyWorkbookInfo(info);
+      setCurrentFilePath(path);
+      setStatusMessage(`Opened: ${path}`);
+    } catch (e) {
+      setStatusMessage(`Open failed: ${e}`);
+    }
+  };
+
+  const handleFileSave = async () => {
+    const path = currentFilePath();
+    if (!path) {
+      // No path yet — fall through to Save As.
+      await handleFileSaveAs();
+      return;
+    }
+    try {
+      await saveFile(path);
+      setStatusMessage(`Saved: ${path}`);
+    } catch (e) {
+      setStatusMessage(`Save failed: ${e}`);
+    }
+  };
+
+  const handleFileSaveAs = async () => {
+    try {
+      const path = await dialogSave({
+        title: 'Save Spreadsheet',
+        filters: fileFilters,
+      });
+      if (!path) return; // user cancelled
+      await saveFile(path);
+      setCurrentFilePath(path);
+      setStatusMessage(`Saved: ${path}`);
+    } catch (e) {
+      setStatusMessage(`Save As failed: ${e}`);
+    }
+  };
+
+  // -------------------------------------------------------------------
+  // Menu event listener
+  // -------------------------------------------------------------------
+
+  const menuActions: Record<string, () => void> = {
+    file_new: handleFileNew,
+    file_open: handleFileOpen,
+    file_save: handleFileSave,
+    file_save_as: handleFileSaveAs,
+    edit_undo: () => {
+      void tauriUndo()
+        .then(() => {
+          setRefreshTrigger((n) => n + 1);
+          setStatusMessage('Undo');
+        })
+        .catch(() => setStatusMessage('Nothing to undo'));
+    },
+    edit_redo: () => {
+      void tauriRedo()
+        .then(() => {
+          setRefreshTrigger((n) => n + 1);
+          setStatusMessage('Redo');
+        })
+        .catch(() => setStatusMessage('Nothing to redo'));
+    },
+  };
+
+  // Load sheets on mount and subscribe to menu events.
   onMount(async () => {
     try {
       const sheetList = await listSheets();
@@ -58,6 +171,22 @@ const App: Component = () => {
       // If Tauri is not available (e.g. running in browser for dev), use defaults.
       console.warn('Tauri not available, using default state');
     }
+
+    // Listen for macOS menu bar events emitted by the Tauri backend.
+    let unlisten: (() => void) | undefined;
+    try {
+      unlisten = await listen<string>('menu-event', (event) => {
+        const action = menuActions[event.payload];
+        if (action) {
+          action();
+        }
+      });
+    } catch {
+      // Tauri event system not available (browser dev mode).
+    }
+    onCleanup(() => {
+      unlisten?.();
+    });
   });
 
   const handleSelectSheet = async (name: string) => {
@@ -213,6 +342,7 @@ const App: Component = () => {
   const handleUndo = async () => {
     try {
       await tauriUndo();
+      setRefreshTrigger((n) => n + 1);
       setStatusMessage('Undo');
     } catch {
       setStatusMessage('Nothing to undo');
@@ -222,6 +352,7 @@ const App: Component = () => {
   const handleRedo = async () => {
     try {
       await tauriRedo();
+      setRefreshTrigger((n) => n + 1);
       setStatusMessage('Redo');
     } catch {
       setStatusMessage('Nothing to redo');
