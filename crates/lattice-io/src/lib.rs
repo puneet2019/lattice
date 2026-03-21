@@ -13,7 +13,7 @@ use thiserror::Error;
 /// Errors produced by lattice-io operations.
 #[derive(Debug, Error)]
 pub enum IoError {
-    /// Standard I/O error.
+    /// Standard I/O error (wraps `std::io::Error`).
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -25,7 +25,7 @@ pub enum IoError {
     #[error("xlsx write error: {0}")]
     XlsxWrite(String),
 
-    /// CSV parsing/writing error.
+    /// CSV/TSV parsing or writing error.
     #[error("csv error: {0}")]
     Csv(String),
 
@@ -41,6 +41,14 @@ pub enum IoError {
     #[error("file not found: {0}")]
     FileNotFound(String),
 
+    /// Permission denied when accessing a file.
+    #[error("permission denied: {0}")]
+    PermissionDenied(String),
+
+    /// The file appears to be corrupt or invalid.
+    #[error("corrupt file: {0}")]
+    CorruptFile(String),
+
     /// Core engine error (e.g. sheet not found).
     #[error("core error: {0}")]
     Core(#[from] lattice_core::LatticeError),
@@ -52,6 +60,6 @@ pub type Result<T> = std::result::Result<T, IoError>;
 // Re-exports for convenience.
 pub use csv_io::{read_csv, write_csv};
 pub use format_detect::{FileFormat, detect_format};
-pub use json_export::export_json;
+pub use json_export::{export_json, export_range_json};
 pub use xlsx_reader::read_xlsx;
 pub use xlsx_writer::write_xlsx;
