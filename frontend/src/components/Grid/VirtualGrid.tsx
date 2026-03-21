@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
-import { getCell, getRange, setCell } from '../../bridge/tauri';
+import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -597,6 +597,130 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Clipboard
+  // -----------------------------------------------------------------------
+
+  /** Build a TSV string from the selected range. */
+  async function getSelectionTSV(): Promise<string> {
+    const range = getSelectionRange();
+    const rows: string[] = [];
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      const cols: string[] = [];
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        const cached = cellCache.get(`${r}:${c}`);
+        cols.push(cached?.value ?? '');
+      }
+      rows.push(cols.join('\t'));
+    }
+    return rows.join('\n');
+  }
+
+  /** Copy selected cells to the clipboard as TSV. */
+  async function handleCopy() {
+    const tsv = await getSelectionTSV();
+    try {
+      await navigator.clipboard.writeText(tsv);
+      props.onStatusChange('Copied to clipboard');
+    } catch {
+      props.onStatusChange('Copy failed');
+    }
+  }
+
+  /** Cut: copy to clipboard then clear selected cells. */
+  async function handleCut() {
+    const tsv = await getSelectionTSV();
+    try {
+      await navigator.clipboard.writeText(tsv);
+    } catch {
+      props.onStatusChange('Cut failed');
+      return;
+    }
+    await clearSelectedCells();
+    props.onStatusChange('Cut to clipboard');
+  }
+
+  /** Paste from clipboard: parse TSV and write cells starting at selection. */
+  async function handlePaste() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    const rows = text.split('\n');
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        const cellRow = startRow + r;
+        const cellCol = startCol + c;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+        const value = cols[c];
+        let formula: string | undefined;
+        if (value.startsWith('=')) {
+          formula = value.slice(1);
+        }
+        promises.push(
+          setCell(props.activeSheet, cellRow, cellCol, value, formula).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Pasted from clipboard');
+  }
+
+  /** Clear all cells in the current selection. */
+  async function clearSelectedCells() {
+    const range = getSelectionRange();
+    const promises: Promise<void>[] = [];
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        promises.push(setCell(props.activeSheet, r, c, '').catch(() => {}));
+      }
+    }
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+  }
+
+  // -----------------------------------------------------------------------
+  // Undo / Redo
+  // -----------------------------------------------------------------------
+
+  /** Undo the last operation via Tauri backend. */
+  async function handleUndo() {
+    try {
+      await undo();
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange('Undo');
+    } catch {
+      props.onStatusChange('Nothing to undo');
+    }
+  }
+
+  /** Redo the last undone operation via Tauri backend. */
+  async function handleRedo() {
+    try {
+      await redo();
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange('Redo');
+    } catch {
+      props.onStatusChange('Nothing to redo');
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (editing()) return; // editor handles its own keys
 
@@ -607,12 +731,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Delete/Backspace clears cell content
+    // Delete/Backspace clears selected cell(s)
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
-      setCell(props.activeSheet, selectedRow(), selectedCol(), '').catch(() => {});
-      lastFetchKey = '';
-      fetchVisibleData();
+      clearSelectedCells();
       return;
     }
 
@@ -625,7 +747,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Keyboard shortcuts
+    // Keyboard shortcuts (Cmd/Ctrl + key)
     if (e.metaKey || e.ctrlKey) {
       if (e.key === 'b') {
         e.preventDefault();
@@ -640,6 +762,36 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (e.key === 'u') {
         e.preventDefault();
         props.onUnderlineToggle();
+        return;
+      }
+      // Copy
+      if (e.key === 'c') {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+      // Cut
+      if (e.key === 'x') {
+        e.preventDefault();
+        handleCut();
+        return;
+      }
+      // Paste
+      if (e.key === 'v') {
+        e.preventDefault();
+        handlePaste();
+        return;
+      }
+      // Undo: Cmd+Z (without Shift)
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      // Redo: Cmd+Shift+Z or Cmd+Y
+      if ((e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
         return;
       }
     }
