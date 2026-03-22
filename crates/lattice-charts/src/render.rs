@@ -23,7 +23,7 @@ pub fn render_chart(chart_type: &ChartType, data: &ChartData, options: &ChartOpt
         ChartType::Area => types::area::render(data, options),
         ChartType::Combo => types::combo::render(data, options),
         ChartType::Histogram => types::histogram::render(data, options),
-        _ => placeholder_svg(chart_type, options),
+        ChartType::Candlestick => types::candlestick::render(data, options),
     }
 }
 
@@ -48,21 +48,6 @@ pub fn render_to_svg(chart: &Chart) -> String {
         xml_escape(title),
         chart.chart_type,
         xml_escape(&chart.data_range)
-    )
-}
-
-/// Placeholder SVG for chart types not yet implemented.
-fn placeholder_svg(chart_type: &ChartType, options: &ChartOptions) -> String {
-    let title = options.title.as_deref().unwrap_or("Chart");
-    format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">
-  <rect width="100%" height="100%" fill="#f5f5f5" stroke="#cccccc" rx="4"/>
-  <text x="50%" y="50%" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#999">{ct} chart &quot;{t}&quot; — not yet implemented</text>
-</svg>"##,
-        w = options.width,
-        h = options.height,
-        ct = chart_type,
-        t = xml_escape(title),
     )
 }
 

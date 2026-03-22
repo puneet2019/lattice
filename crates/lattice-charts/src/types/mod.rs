@@ -5,6 +5,7 @@
 
 pub mod area;
 pub mod bar;
+pub mod candlestick;
 pub mod combo;
 pub mod histogram;
 pub mod line;
