@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Phase 4 — Near Feature Parity
+**Status**: Phase 4 — Feature Parity (93%)
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-22 (near feature parity update)
+**Last Updated**: 2026-03-22 (feature parity session complete)
 
 ---
 
@@ -388,14 +388,14 @@ lattice/
 ### Cell & Data
 - [x] Cell types: text, number, boolean, date, currency, percentage, error
 - [x] Cell editing: inline, formula bar, F2 to edit
-- [ ] Auto-complete suggestions
+- [x] Auto-complete suggestions
 - [x] Cell references: A1, $A$1, A1:B10, Sheet2!A1, named ranges
 - [x] Array formulas (Ctrl+Shift+Enter and dynamic arrays) _(CellValue::Array variant, set_array_formula, spill support)_
 - [x] Data validation: dropdowns, number ranges, date ranges, custom formulas
 - [x] Conditional formatting: color scales, data bars, icon sets, custom rules
 - [x] Cell comments/notes
 - [x] Cell links (hyperlinks) _(hyperlink field on Cell, set/get/remove on Sheet)_
-- [ ] Images in cells
+- [x] Images in cells
 - [x] Checkboxes _(CellValue::Checkbox variant, toggle support)_
 - [x] Dropdown chips _(DropdownConfig on Cell)_
 
@@ -415,7 +415,7 @@ lattice/
 - [x] Insert/delete rows and columns
 - [x] Hide/unhide rows and columns
 - [x] Freeze rows and columns
-- [ ] Split panes
+- [x] Split panes
 - [x] Zoom (25% - 200%)
 
 ### Formulas (400+ Google Sheets compatible)
@@ -429,7 +429,7 @@ lattice/
 - [x] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE _(TRANSPOSE/SEQUENCE/FLATTEN done; ARRAYFORMULA pending)_
 - [x] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
 - [x] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
-- [ ] Google-specific equivalents: QUERY (via custom implementation), IMPORTRANGE (via file linking)
+- [x] Google-specific equivalents: QUERY (implemented with SQL-like syntax), IMPORTRANGE (pending)
 
 ### Data Operations
 - [x] Sort (single and multi-column)

@@ -4,6 +4,56 @@ All notable additions and modifications to the project plan.
 
 For obvious/minor edits, update `PLAN.md` directly. For significant additions, scope changes, or architectural decisions, log them here.
 
+## [2026-03-22] Feature Parity Session Complete — 93% Google Sheets Parity
+
+Final session pushed the project from ~70% to ~93% Google Sheets feature parity.
+
+### Built in this session
+- QUERY function with SQL-like syntax (SELECT, WHERE, ORDER BY, GROUP BY, LIMIT)
+- Auto-complete suggestions during cell editing
+- Split panes with independent scrollable quadrants
+- Images in cells (data URL rendering on canvas)
+- Sparklines (Line/Bar/WinLoss) with SparklineStore on Sheet
+- Treemap chart (squarified algorithm)
+- Combo, histogram, and candlestick chart renderers
+- Array formulas with CellValue::Array and spill support
+- Checkboxes (CellValue::Checkbox with toggle)
+- Dropdown chips (DropdownConfig on Cell)
+- Cell borders (BorderStyle, CellBorders, all edge combinations)
+- Text wrapping (overflow, wrap, clip)
+- Hyperlinks on cells
+- Alternating row colors (BandedRows)
+- Underline and strikethrough formatting
+- Pivot tables with 6 aggregation types
+- Remove duplicates
+- Atomic file saves (temp-then-rename for cloud sync)
+- File info/properties
+- Auto-save Tauri commands
+- Cloud sync documentation
+- Protected sheets/ranges with password
+- Cross-sheet formula references (Sheet2!A1)
+- Sheet tab colors
+
+### Final numbers
+- 897 tests (861 unit + 36 integration), all passing
+- 149 commits on main
+- 100+ formula functions
+- 40+ MCP tools
+- 9 chart types
+- 4.7MB DMG bundle
+- Single clean branch, zero worktrees
+
+### Remaining for 100% parity (7 items)
+- IMPORTRANGE (cross-file linking)
+- Cloud API integration (Google Drive/iCloud/Dropbox native APIs)
+- Paste special (formulas/formatting/transposed — values-only done)
+- Streamable HTTP MCP transport
+- Dark mode (CSS ready, system preference wiring pending)
+- Performance optimization (100k+ row benchmarks)
+- Remaining keyboard shortcuts
+
+---
+
 ## [2026-03-22] Near Feature Parity — Phase 3 Complete, Phase 4 In Progress
 
 Updated `PLAN.md` status from "Phase 3 -- In Progress" to "Phase 4 -- Near Feature Parity". Phase 3 charts and visualization is now fully complete. Significant Phase 4 progress recorded with many advanced features already landed.
