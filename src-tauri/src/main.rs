@@ -17,6 +17,11 @@ fn main() {
         run_mcp_stdio();
         return;
     }
+    if args.iter().any(|a| a == "--mcp-http") {
+        let port = parse_port_arg(&args);
+        run_mcp_http(port);
+        return;
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -153,4 +158,33 @@ fn run_mcp_stdio() {
             std::process::exit(1);
         }
     });
+}
+
+/// Run the MCP server as a Streamable HTTP service.
+///
+/// This bypasses Tauri entirely and runs an HTTP server on the given port
+/// for use with networked MCP clients.
+fn run_mcp_http(port: u16) {
+    let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+    rt.block_on(async {
+        let server = lattice_mcp::McpServer::new_default();
+        if let Err(e) = server.run_http(port).await {
+            eprintln!("lattice: MCP HTTP server error: {}", e);
+            std::process::exit(1);
+        }
+    });
+}
+
+/// Parse `--port <N>` from CLI args, defaulting to 3141.
+fn parse_port_arg(args: &[String]) -> u16 {
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--port" {
+            if let Some(port_str) = args.get(i + 1) {
+                if let Ok(port) = port_str.parse::<u16>() {
+                    return port;
+                }
+            }
+        }
+    }
+    3141
 }
