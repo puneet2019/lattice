@@ -91,6 +91,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const cellCache = new Map<string, CellData>();
   let lastFetchKey = ''; // tracks last fetched range to avoid duplicate calls
 
+  // Image cache: maps data URL to loaded HTMLImageElement (or null if loading).
+  const imageCache = new Map<string, HTMLImageElement | null>();
+
   // Editing state
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
@@ -647,6 +650,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.lineWidth = 1;
   }
 
+  /**
+   * Load an image from a data URL into the image cache.
+   * Returns the cached image if already loaded, or null while loading.
+   */
+  function getCachedImage(dataUrl: string): HTMLImageElement | null {
+    const cached = imageCache.get(dataUrl);
+    if (cached !== undefined) return cached;
+
+    // Mark as loading
+    imageCache.set(dataUrl, null);
+    const img = new Image();
+    img.onload = () => {
+      imageCache.set(dataUrl, img);
+      scheduleDraw(); // redraw once the image is loaded
+    };
+    img.onerror = () => {
+      // Remove from cache so it can be retried
+      imageCache.delete(dataUrl);
+    };
+    img.src = dataUrl;
+    return null;
+  }
+
   function drawCellData(
     ctx: CanvasRenderingContext2D,
     sx: number,
@@ -670,6 +696,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+
+        // Image cell: value starts with data:image/
+        if (cell.value.startsWith('data:image/')) {
+          const img = getCachedImage(cell.value);
+          if (img) {
+            // Scale image to fit within the cell with padding, preserving aspect ratio
+            const maxW = cw - PADDING * 2;
+            const maxH = rh - PADDING * 2;
+            if (maxW > 0 && maxH > 0) {
+              const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+              const drawW = img.width * scale;
+              const drawH = img.height * scale;
+              // Center the image in the cell
+              const drawX = x + PADDING + (maxW - drawW) / 2;
+              const drawY = y + PADDING + (maxH - drawH) / 2;
+              ctx.drawImage(img, drawX, drawY, drawW, drawH);
+            }
+          }
+          continue;
+        }
 
         // Determine font style
         const fontWeight = cell.bold ? 'bold' : 'normal';
