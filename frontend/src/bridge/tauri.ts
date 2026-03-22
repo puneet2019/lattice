@@ -206,3 +206,57 @@ export async function undo(): Promise<void> {
 export async function redo(): Promise<void> {
   return invoke('redo');
 }
+
+// ---------------------------------------------------------------------------
+// Chart commands
+// ---------------------------------------------------------------------------
+
+/** Chart metadata returned from the backend. */
+export interface ChartInfo {
+  id: string;
+  chart_type: string;
+  data_range: string;
+  sheet: string;
+  title: string | null;
+  width: number;
+  height: number;
+}
+
+/** Valid chart type strings. */
+export type ChartTypeStr =
+  | 'bar'
+  | 'line'
+  | 'pie'
+  | 'scatter'
+  | 'area'
+  | 'combo'
+  | 'histogram'
+  | 'candlestick';
+
+export async function createChart(
+  sheet: string,
+  chartType: ChartTypeStr,
+  dataRange: string,
+  title?: string,
+): Promise<string> {
+  return invoke('create_chart', {
+    sheet,
+    chartType,
+    dataRange,
+    title: title ?? null,
+  });
+}
+
+export async function renderChartSvg(chartId: string): Promise<string> {
+  return invoke('render_chart_svg', { chartId });
+}
+
+export async function listCharts(
+  sheet?: string,
+): Promise<ChartInfo[]> {
+  return invoke('list_charts', { sheet: sheet ?? null });
+}
+
+export async function deleteChart(chartId: string): Promise<void> {
+  return invoke('delete_chart', { chartId });
+}
