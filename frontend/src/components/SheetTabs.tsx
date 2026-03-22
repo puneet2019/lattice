@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 
 export interface SheetTabsProps {
   sheets: string[];
@@ -114,6 +114,37 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
   const getTabColor = (name: string): string | undefined => {
     return props.tabColors?.[name];
   };
+
+  // Close context menu on click-outside, Escape, window blur
+  const handleDocMouseDown = (e: MouseEvent) => {
+    if (!contextMenu()) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.sheet-tab-context-menu')) return;
+    closeContextMenu();
+  };
+
+  const handleDocKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && contextMenu()) {
+      closeContextMenu();
+      e.preventDefault();
+    }
+  };
+
+  const handleWinBlur = () => {
+    closeContextMenu();
+  };
+
+  onMount(() => {
+    document.addEventListener('mousedown', handleDocMouseDown);
+    document.addEventListener('keydown', handleDocKeyDown);
+    window.addEventListener('blur', handleWinBlur);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener('mousedown', handleDocMouseDown);
+    document.removeEventListener('keydown', handleDocKeyDown);
+    window.removeEventListener('blur', handleWinBlur);
+  });
 
   return (
     <div class="sheet-tabs" onClick={closeContextMenu}>

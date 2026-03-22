@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
 
 export interface ToolbarProps {
   onBold: () => void;
@@ -24,7 +24,7 @@ export interface ToolbarProps {
   currentFontFamily?: string;
 }
 
-const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+const FONT_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
 
 const FONT_FAMILIES = [
   'Arial',
@@ -41,6 +41,8 @@ const PRESET_COLORS = [
   '#e6b8af', '#f4cccc', '#fce5cd', '#fff2cc', '#d9ead3', '#d0e0e3', '#c9daf8', '#cfe2f3', '#d9d2e9', '#ead1dc',
   '#dd7e6b', '#ea9999', '#f9cb9c', '#ffe599', '#b6d7a8', '#a2c4c9', '#a4c2f4', '#9fc5e8', '#b4a7d6', '#d5a6bd',
   '#cc4125', '#e06666', '#f6b26b', '#ffd966', '#93c47d', '#76a5af', '#6d9eeb', '#6fa8dc', '#8e7cc3', '#c27ba0',
+  '#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79',
+  '#85200c', '#990000', '#b45f06', '#bf9000', '#38761d', '#134f5c', '#1155cc', '#0b5394', '#351c75', '#741b47',
 ];
 
 const Toolbar: Component<ToolbarProps> = (props) => {
@@ -49,8 +51,61 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showFontColorPicker, setShowFontColorPicker] = createSignal(false);
   const [showBgColorPicker, setShowBgColorPicker] = createSignal(false);
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
+  const [lastFontColor, setLastFontColor] = createSignal('#000000');
+  const [lastBgColor, setLastBgColor] = createSignal('#ffff00');
+
+  let toolbarRef: HTMLDivElement | undefined;
 
   const currentFamily = () => props.currentFontFamily ?? 'Arial';
+
+  const anyDropdownOpen = () =>
+    showFontFamilyDropdown() || showFontSizeDropdown() ||
+    showFontColorPicker() || showBgColorPicker();
+
+  const closeAllDropdowns = () => {
+    setShowFontFamilyDropdown(false);
+    setShowFontSizeDropdown(false);
+    setShowFontColorPicker(false);
+    setShowBgColorPicker(false);
+  };
+
+  // -----------------------------------------------------------------------
+  // Global listeners: close dropdowns on click-outside, Escape, window blur
+  // -----------------------------------------------------------------------
+  const handleDocumentMouseDown = (e: MouseEvent) => {
+    if (!anyDropdownOpen()) return;
+    // If the click is inside a toolbar-dropdown, let the dropdown handle it
+    const target = e.target as HTMLElement;
+    if (target.closest('.toolbar-dropdown')) return;
+    closeAllDropdowns();
+  };
+
+  const handleDocumentKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && anyDropdownOpen()) {
+      closeAllDropdowns();
+      e.preventDefault();
+    }
+  };
+
+  const handleWindowBlur = () => {
+    closeAllDropdowns();
+  };
+
+  onMount(() => {
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    document.addEventListener('keydown', handleDocumentKeyDown);
+    window.addEventListener('blur', handleWindowBlur);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener('mousedown', handleDocumentMouseDown);
+    document.removeEventListener('keydown', handleDocumentKeyDown);
+    window.removeEventListener('blur', handleWindowBlur);
+  });
+
+  // -----------------------------------------------------------------------
+  // Handlers
+  // -----------------------------------------------------------------------
 
   const handleFontFamilySelect = (family: string) => {
     setShowFontFamilyDropdown(false);
@@ -64,25 +119,26 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   };
 
   const handleFontColor = (color: string) => {
+    setLastFontColor(color);
     setShowFontColorPicker(false);
     props.onFontColor(color);
   };
 
   const handleBgColor = (color: string) => {
+    if (color) setLastBgColor(color);
     setShowBgColorPicker(false);
     props.onBgColor(color);
   };
 
-  // Close dropdowns when clicking elsewhere.
-  const closeDropdowns = () => {
-    setShowFontFamilyDropdown(false);
-    setShowFontSizeDropdown(false);
-    setShowFontColorPicker(false);
-    setShowBgColorPicker(false);
+  /** Apply brief active flash to a number format button. */
+  const handleNumberFormat = (btn: HTMLButtonElement, format: string) => {
+    btn.classList.add('active');
+    setTimeout(() => btn.classList.remove('active'), 150);
+    props.onNumberFormat(format);
   };
 
   return (
-    <div class="toolbar" onClick={(e) => { if ((e.target as HTMLElement).closest('.toolbar-dropdown')) return; closeDropdowns(); }}>
+    <div class="toolbar" ref={toolbarRef}>
       {/* Undo / Redo */}
       <button class="toolbar-btn" title="Undo (Cmd+Z)" onClick={props.onUndo}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -104,7 +160,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn toolbar-font-family-btn"
           title="Font family"
-          onClick={(e) => { e.stopPropagation(); setShowFontFamilyDropdown(!showFontFamilyDropdown()); }}
+          onClick={() => { const wasOpen = showFontFamilyDropdown(); closeAllDropdowns(); if (!wasOpen) setShowFontFamilyDropdown(true); }}
         >
           {currentFamily()}
         </button>
@@ -130,7 +186,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn toolbar-btn-wide"
           title="Font size"
-          onClick={(e) => { e.stopPropagation(); setShowFontSizeDropdown(!showFontSizeDropdown()); }}
+          onClick={() => { const wasOpen = showFontSizeDropdown(); closeAllDropdowns(); if (!wasOpen) setShowFontSizeDropdown(true); }}
         >
           {currentFontSize()}
         </button>
@@ -182,9 +238,9 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Text color"
-          onClick={(e) => { e.stopPropagation(); setShowFontColorPicker(!showFontColorPicker()); }}
+          onClick={() => { const wasOpen = showFontColorPicker(); closeAllDropdowns(); if (!wasOpen) setShowFontColorPicker(true); }}
         >
-          <span style={{ "border-bottom": "3px solid #000000", "line-height": "1" }}>A</span>
+          <span style={{ "border-bottom": `3px solid ${lastFontColor()}`, "line-height": "1" }}>A</span>
         </button>
         <Show when={showFontColorPicker()}>
           <div class="toolbar-color-picker">
@@ -207,11 +263,11 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Fill color"
-          onClick={(e) => { e.stopPropagation(); setShowBgColorPicker(!showBgColorPicker()); }}
+          onClick={() => { const wasOpen = showBgColorPicker(); closeAllDropdowns(); if (!wasOpen) setShowBgColorPicker(true); }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <rect x="2" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5" />
-            <rect x="3" y="10" width="10" height="3" fill="#ffff00" />
+            <rect x="3" y="10" width="10" height="3" fill={lastBgColor()} />
           </svg>
         </button>
         <Show when={showBgColorPicker()}>
@@ -268,32 +324,32 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn"
         title="Format as currency"
-        onClick={() => props.onNumberFormat('$#,##0.00')}
+        onClick={(e) => handleNumberFormat(e.currentTarget, '$#,##0.00')}
       >
         $
       </button>
       <button
         class="toolbar-btn"
         title="Format as percent"
-        onClick={() => props.onNumberFormat('0%')}
+        onClick={(e) => handleNumberFormat(e.currentTarget, '0%')}
       >
         %
       </button>
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Increase decimal places"
-        onClick={() => props.onNumberFormat('.0+')}
+        onClick={(e) => handleNumberFormat(e.currentTarget, '.0+')}
         style={{ "font-size": "11px" }}
       >
-        .0&rarr;
+        .0→
       </button>
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Decrease decimal places"
-        onClick={() => props.onNumberFormat('.0-')}
+        onClick={(e) => handleNumberFormat(e.currentTarget, '.0-')}
         style={{ "font-size": "11px" }}
       >
-        &larr;.0
+        ←.0
       </button>
 
       <div class="toolbar-separator" />

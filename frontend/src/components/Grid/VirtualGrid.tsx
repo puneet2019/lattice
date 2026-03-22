@@ -1933,10 +1933,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const range = getSelectionRange();
     const fillRange = getFillPreviewRange();
     if (!fillRange) {
-      console.log('executeFill: no fill range');
       return;
     }
-    console.log('executeFill: range=', range, 'fillRange=', fillRange);
 
     // Determine fill direction
     const isVertical = fillRange.minCol === range.minCol && fillRange.maxCol === range.maxCol;
@@ -1962,14 +1960,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ? fillRange.maxRow - fillRange.minRow + 1
           : fillRange.maxRow - fillRange.minRow + 1;
         const filledValues = detectAndFill(sourceVals, fillCount, isUp);
-        console.log('executeFill col', c, 'source=', sourceVals, 'filled=', filledValues);
 
         for (let i = 0; i < filledValues.length; i++) {
           const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
           promises.push(
-            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch((err) => {
-              console.error('Fill setCell failed:', targetRow, c, filledValues[i], err);
-            }),
+            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
           );
         }
       }
@@ -1990,9 +1985,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         for (let i = 0; i < filledValues.length; i++) {
           const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
           promises.push(
-            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch((err) => {
-              console.error('Fill setCell failed:', r, targetCol, filledValues[i], err);
-            }),
+            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
           );
         }
       }
@@ -3322,6 +3315,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         document.removeEventListener('mouseup', handleDragMouseUp);
       }
     });
+
+    // Close context menu on window blur
+    const handleWindowBlur = () => {
+      if (ctxMenuVisible()) dismissContextMenu();
+    };
+    window.addEventListener('blur', handleWindowBlur);
+    onCleanup(() => window.removeEventListener('blur', handleWindowBlur));
 
     updateSize();
     containerRef.focus();
