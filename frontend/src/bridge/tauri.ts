@@ -26,6 +26,7 @@ export interface FormatOptions {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   font_size?: number;
   font_color?: string;
   bg_color?: string;

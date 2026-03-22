@@ -346,6 +346,10 @@ impl McpServer {
                 let mut wb = self.workbook.write().await;
                 formula_ops::handle_bulk_formula(&mut wb, arguments)
             }
+            "import_range" => {
+                // No workbook lock needed — reads from an external file.
+                formula_ops::handle_import_range(arguments)
+            }
 
             // ── Validation operations ─────────────────────────────────────
             "set_validation" => {

@@ -1,4 +1,7 @@
-//! Formula operation tool handlers: evaluate_formula, get_formula, insert_formula, bulk_formula.
+//! Formula operation tool handlers: evaluate_formula, get_formula, insert_formula,
+//! bulk_formula, import_range.
+
+use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -68,6 +71,17 @@ pub fn tool_definitions() -> Vec<ToolDef> {
                     ),
                 ],
                 &["sheet", "operations"],
+            ),
+        },
+        ToolDef {
+            name: "import_range".to_string(),
+            description: "Import data from another .xlsx file on disk. Equivalent to Google Sheets IMPORTRANGE. Returns the extracted cell values as a 2-D array.".to_string(),
+            input_schema: object_schema(
+                &[
+                    ("file_path", string_prop("Absolute path to the .xlsx file to import from")),
+                    ("range_string", string_prop("Range to import in 'Sheet1!A1:C10' notation (sheet name + cell range)")),
+                ],
+                &["file_path", "range_string"],
             ),
         },
     ]
@@ -276,6 +290,98 @@ pub fn handle_bulk_formula(
     }))
 }
 
+/// Arguments for import_range.
+#[derive(Debug, Deserialize)]
+pub struct ImportRangeArgs {
+    pub file_path: String,
+    pub range_string: String,
+}
+
+/// Handle the `import_range` tool call.
+///
+/// Opens the specified `.xlsx` file, extracts the requested range, and returns
+/// the data as a 2-D JSON array. This is the MCP equivalent of Google Sheets'
+/// `IMPORTRANGE` function.
+///
+/// The `range_string` must be in `SheetName!StartRef:EndRef` format, e.g.
+/// `"Sheet1!A1:C10"`.
+pub fn handle_import_range(args: Value) -> std::result::Result<Value, String> {
+    let args: ImportRangeArgs =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    // Parse the range string: "Sheet1!A1:C10"
+    let (sheet_name, start_ref_str, end_ref_str) =
+        parse_import_range_string(&args.range_string)?;
+
+    let start = CellRef::parse(&start_ref_str)
+        .map_err(|e| format!("Invalid start cell reference '{}': {}", start_ref_str, e))?;
+    let end = CellRef::parse(&end_ref_str)
+        .map_err(|e| format!("Invalid end cell reference '{}': {}", end_ref_str, e))?;
+
+    // Open the workbook from disk using lattice-io.
+    let path = Path::new(&args.file_path);
+    let workbook = lattice_io::xlsx_reader::read_xlsx(path)
+        .map_err(|e| format!("Failed to open '{}': {}", args.file_path, e))?;
+
+    // Get the requested sheet.
+    let sheet = workbook
+        .get_sheet(&sheet_name)
+        .map_err(|e| format!("Sheet '{}' not found: {}", sheet_name, e))?;
+
+    // Extract the range as a 2-D array of JSON values.
+    let min_row = start.row.min(end.row);
+    let max_row = start.row.max(end.row);
+    let min_col = start.col.min(end.col);
+    let max_col = start.col.max(end.col);
+
+    let mut rows: Vec<Value> = Vec::new();
+    for r in min_row..=max_row {
+        let mut row_vals: Vec<Value> = Vec::new();
+        for c in min_col..=max_col {
+            let val = match sheet.get_cell(r, c) {
+                Some(cell) => cell_value_to_json(&cell.value),
+                None => Value::Null,
+            };
+            row_vals.push(val);
+        }
+        rows.push(Value::Array(row_vals));
+    }
+
+    Ok(json!({
+        "file_path": args.file_path,
+        "range": args.range_string,
+        "rows": max_row - min_row + 1,
+        "cols": max_col - min_col + 1,
+        "data": rows,
+    }))
+}
+
+/// Parse a range string like `"Sheet1!A1:C10"` into `(sheet_name, start_ref, end_ref)`.
+fn parse_import_range_string(s: &str) -> std::result::Result<(String, String, String), String> {
+    let excl = s
+        .find('!')
+        .ok_or_else(|| format!("Range '{}' must contain '!' separator (e.g. 'Sheet1!A1:C10')", s))?;
+
+    let sheet_name = s[..excl].trim().to_string();
+    if sheet_name.is_empty() {
+        return Err("Sheet name cannot be empty in range string".to_string());
+    }
+
+    let cell_range = &s[excl + 1..];
+    let colon = cell_range
+        .find(':')
+        .ok_or_else(|| format!("Range '{}' must contain ':' (e.g. 'A1:C10')", cell_range))?;
+
+    let start_ref = cell_range[..colon].trim().to_string();
+    let end_ref = cell_range[colon + 1..].trim().to_string();
+
+    if start_ref.is_empty() || end_ref.is_empty() {
+        return Err("Start and end cell references cannot be empty".to_string());
+    }
+
+    Ok((sheet_name, start_ref, end_ref))
+}
+
 /// Convert a CellValue to a serde_json::Value for responses.
 fn cell_value_to_json(cv: &CellValue) -> Value {
     match cv {
@@ -466,5 +572,46 @@ mod tests {
         assert_eq!(result["success"], false);
         assert_eq!(result["succeeded"], 1);
         assert_eq!(result["failed"], 1);
+    }
+
+    // ===== import_range helpers =====
+
+    #[test]
+    fn test_parse_import_range_string_valid() {
+        let (sheet, start, end) =
+            super::parse_import_range_string("Sheet1!A1:C10").unwrap();
+        assert_eq!(sheet, "Sheet1");
+        assert_eq!(start, "A1");
+        assert_eq!(end, "C10");
+    }
+
+    #[test]
+    fn test_parse_import_range_string_with_spaces() {
+        let (sheet, start, end) =
+            super::parse_import_range_string("My Sheet ! B2 : D5").unwrap();
+        assert_eq!(sheet, "My Sheet");
+        assert_eq!(start, "B2");
+        assert_eq!(end, "D5");
+    }
+
+    #[test]
+    fn test_parse_import_range_string_no_excl() {
+        let result = super::parse_import_range_string("A1:C10");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_import_range_string_no_colon() {
+        let result = super::parse_import_range_string("Sheet1!A1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_import_range_file_not_found() {
+        let result = handle_import_range(
+            json!({"file_path": "/nonexistent/file.xlsx", "range_string": "Sheet1!A1:A1"}),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to open"));
     }
 }

@@ -59,6 +59,11 @@ pub enum PasteMode {
     FormulasOnly,
     /// Paste formatting only (no values or formulas).
     FormattingOnly,
+    /// Paste with rows and columns transposed (swapped).
+    ///
+    /// A cell at source position `(row, col)` is pasted to
+    /// `(dest_start_row + col, dest_start_col + row)`.
+    Transposed,
 }
 
 /// Copy a rectangular range of cells from a sheet into a [`ClipboardContent`].
@@ -93,6 +98,9 @@ pub fn copy_range(
 ///
 /// Formula references are adjusted by the row/column offset from the
 /// original position (for relative references).
+///
+/// For [`PasteMode::Transposed`], rows and columns are swapped: a cell at
+/// source position `(r, c)` is pasted to `(dest_row + c, dest_col + r)`.
 pub fn paste(
     sheet: &mut Sheet,
     clipboard: &ClipboardContent,
@@ -100,6 +108,11 @@ pub fn paste(
     dest_col: u32,
     mode: &PasteMode,
 ) -> Result<()> {
+    // Transposed paste swaps row/col indices.
+    if *mode == PasteMode::Transposed {
+        return paste_transposed(sheet, clipboard, dest_row, dest_col);
+    }
+
     let row_offset = dest_row as i32 - clipboard.source_origin.0 as i32;
     let col_offset = dest_col as i32 - clipboard.source_origin.1 as i32;
 
@@ -152,6 +165,49 @@ pub fn paste(
                 }
                 (None, PasteMode::FormattingOnly) => {
                     // Don't clear cells when pasting formatting only
+                }
+                // Transposed is handled above via early return.
+                (_, PasteMode::Transposed) => unreachable!(),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Paste clipboard content with rows and columns transposed.
+///
+/// Source cell at `(r_idx, c_idx)` is placed at `(dest_row + c_idx, dest_col + r_idx)`.
+/// Formulas and formatting are preserved. Formula references are adjusted
+/// relative to the transposed destination.
+fn paste_transposed(
+    sheet: &mut Sheet,
+    clipboard: &ClipboardContent,
+    dest_row: u32,
+    dest_col: u32,
+) -> Result<()> {
+    for (r_idx, row_data) in clipboard.cells.iter().enumerate() {
+        for (c_idx, cell_opt) in row_data.iter().enumerate() {
+            // Swap: source row index becomes dest column offset,
+            //        source col index becomes dest row offset.
+            let target_row = dest_row + c_idx as u32;
+            let target_col = dest_col + r_idx as u32;
+
+            match cell_opt {
+                Some(cell) => {
+                    let mut new_cell = cell.clone();
+                    if let Some(ref formula) = cell.formula {
+                        let row_offset =
+                            target_row as i32 - clipboard.source_origin.0 as i32;
+                        let col_offset =
+                            target_col as i32 - clipboard.source_origin.1 as i32;
+                        new_cell.formula =
+                            Some(adjust_formula_references(formula, row_offset, col_offset));
+                    }
+                    sheet.set_cell(target_row, target_col, new_cell);
+                }
+                None => {
+                    sheet.clear_cell(target_row, target_col);
                 }
             }
         }
@@ -456,5 +512,117 @@ mod tests {
         let pasted = dest.get_cell(0, 0).unwrap();
         assert_eq!(pasted.value, CellValue::Text("keep me".into()));
         assert!(pasted.format.bold);
+    }
+
+    #[test]
+    fn test_paste_transposed_basic() {
+        // Source: 2 rows x 3 cols
+        //   (0,0)=1  (0,1)=2  (0,2)=3
+        //   (1,0)=4  (1,1)=5  (1,2)=6
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(0, 2, CellValue::Number(3.0));
+        sheet.set_value(1, 0, CellValue::Number(4.0));
+        sheet.set_value(1, 1, CellValue::Number(5.0));
+        sheet.set_value(1, 2, CellValue::Number(6.0));
+
+        let clipboard = copy_range(&sheet, 0, 0, 1, 2, false);
+        assert_eq!(clipboard.dimensions(), (2, 3));
+
+        // Paste transposed at (0, 0): should become 3 rows x 2 cols
+        //   (0,0)=1  (0,1)=4
+        //   (1,0)=2  (1,1)=5
+        //   (2,0)=3  (2,1)=6
+        let mut dest = Sheet::new("D");
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::Transposed).unwrap();
+
+        assert_eq!(dest.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(dest.get_cell(0, 1).unwrap().value, CellValue::Number(4.0));
+        assert_eq!(dest.get_cell(1, 0).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(dest.get_cell(1, 1).unwrap().value, CellValue::Number(5.0));
+        assert_eq!(dest.get_cell(2, 0).unwrap().value, CellValue::Number(3.0));
+        assert_eq!(dest.get_cell(2, 1).unwrap().value, CellValue::Number(6.0));
+    }
+
+    #[test]
+    fn test_paste_transposed_with_offset() {
+        // Source: 1 row x 3 cols at row=0 col=0
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("a".into()));
+        sheet.set_value(0, 1, CellValue::Text("b".into()));
+        sheet.set_value(0, 2, CellValue::Text("c".into()));
+
+        let clipboard = copy_range(&sheet, 0, 0, 0, 2, false);
+
+        // Paste transposed at (5, 5): should become 3 rows x 1 col
+        let mut dest = Sheet::new("D");
+        paste(&mut dest, &clipboard, 5, 5, &PasteMode::Transposed).unwrap();
+
+        assert_eq!(dest.get_cell(5, 5).unwrap().value, CellValue::Text("a".into()));
+        assert_eq!(dest.get_cell(6, 5).unwrap().value, CellValue::Text("b".into()));
+        assert_eq!(dest.get_cell(7, 5).unwrap().value, CellValue::Text("c".into()));
+        // No data in the original column direction
+        assert!(dest.get_cell(5, 6).is_none());
+    }
+
+    #[test]
+    fn test_paste_transposed_single_cell() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(99.0));
+
+        let clipboard = copy_range(&sheet, 0, 0, 0, 0, false);
+        let mut dest = Sheet::new("D");
+        paste(&mut dest, &clipboard, 3, 3, &PasteMode::Transposed).unwrap();
+
+        assert_eq!(dest.get_cell(3, 3).unwrap().value, CellValue::Number(99.0));
+    }
+
+    #[test]
+    fn test_paste_transposed_preserves_formatting() {
+        let mut sheet = Sheet::new("T");
+        let mut cell = Cell::default();
+        cell.value = CellValue::Number(42.0);
+        cell.format = CellFormat {
+            bold: true,
+            ..CellFormat::default()
+        };
+        sheet.set_cell(0, 0, cell);
+        sheet.set_value(0, 1, CellValue::Number(7.0));
+
+        let clipboard = copy_range(&sheet, 0, 0, 0, 1, false);
+        let mut dest = Sheet::new("D");
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::Transposed).unwrap();
+
+        // (0,0) -> (0,0), bold should be preserved
+        let pasted = dest.get_cell(0, 0).unwrap();
+        assert!(pasted.format.bold);
+        assert_eq!(pasted.value, CellValue::Number(42.0));
+
+        // (0,1) -> (1,0), no bold
+        let pasted2 = dest.get_cell(1, 0).unwrap();
+        assert!(!pasted2.format.bold);
+        assert_eq!(pasted2.value, CellValue::Number(7.0));
+    }
+
+    #[test]
+    fn test_paste_transposed_clears_empty() {
+        // When a source cell is None (empty), transposed paste should clear
+        // the target cell.
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        // (0,1) is empty
+
+        let clipboard = copy_range(&sheet, 0, 0, 0, 1, false);
+
+        let mut dest = Sheet::new("D");
+        // Pre-fill destination so we can verify clearing
+        dest.set_value(1, 0, CellValue::Text("should be cleared".into()));
+
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::Transposed).unwrap();
+
+        assert_eq!(dest.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        // (0,1) was empty -> transposed to (1,0), should be cleared
+        assert!(dest.get_cell(1, 0).is_none());
     }
 }
