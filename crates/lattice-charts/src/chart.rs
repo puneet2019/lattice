@@ -1,4 +1,8 @@
 //! Core chart types and definitions.
+//!
+//! This module provides the chart data model including chart type definitions,
+//! data containers (`ChartData`, `DataSeries`), rendering options (`ChartOptions`),
+//! and the persistent `Chart` definition used in workbooks.
 
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +39,61 @@ impl std::fmt::Display for ChartType {
             ChartType::Combo => write!(f, "combo"),
             ChartType::Histogram => write!(f, "histogram"),
             ChartType::Candlestick => write!(f, "candlestick"),
+        }
+    }
+}
+
+/// Data to be rendered in a chart.
+///
+/// Contains category labels for the x-axis and one or more data series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChartData {
+    /// Category labels for the x-axis.
+    pub labels: Vec<String>,
+    /// One or more data series to plot.
+    pub series: Vec<DataSeries>,
+}
+
+/// A single data series within a chart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataSeries {
+    /// Display name for this series (used in legend).
+    pub name: String,
+    /// Numeric values for each category.
+    pub values: Vec<f64>,
+    /// Optional color override (CSS hex, e.g. "#ff0000").
+    pub color: Option<String>,
+}
+
+/// Rendering options for chart output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChartOptions {
+    /// Chart title displayed at the top.
+    pub title: Option<String>,
+    /// SVG width in pixels (default 600).
+    pub width: u32,
+    /// SVG height in pixels (default 400).
+    pub height: u32,
+    /// Whether to show a legend.
+    pub show_legend: bool,
+    /// Whether to show grid lines.
+    pub show_grid: bool,
+    /// Label for the x-axis.
+    pub x_axis_label: Option<String>,
+    /// Label for the y-axis.
+    pub y_axis_label: Option<String>,
+}
+
+impl Default for ChartOptions {
+    fn default() -> Self {
+        Self {
+            title: None,
+            width: 600,
+            height: 400,
+            show_legend: true,
+            show_grid: true,
+            x_axis_label: None,
+            y_axis_label: None,
         }
     }
 }
@@ -88,6 +147,19 @@ impl Chart {
         self.title = Some(title.into());
         self
     }
+
+    /// Convert this chart definition into `ChartOptions` for rendering.
+    pub fn to_options(&self) -> ChartOptions {
+        ChartOptions {
+            title: self.title.clone(),
+            width: self.width,
+            height: self.height,
+            show_legend: true,
+            show_grid: true,
+            x_axis_label: self.x_axis_label.clone(),
+            y_axis_label: self.y_axis_label.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +192,40 @@ mod tests {
         assert_eq!(json, "\"scatter\"");
         let parsed: ChartType = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, ChartType::Scatter);
+    }
+
+    #[test]
+    fn test_chart_data_creation() {
+        let data = ChartData {
+            labels: vec!["Q1".into(), "Q2".into(), "Q3".into()],
+            series: vec![DataSeries {
+                name: "Revenue".into(),
+                values: vec![100.0, 200.0, 150.0],
+                color: Some("#ff0000".into()),
+            }],
+        };
+        assert_eq!(data.labels.len(), 3);
+        assert_eq!(data.series[0].name, "Revenue");
+        assert_eq!(data.series[0].values, vec![100.0, 200.0, 150.0]);
+    }
+
+    #[test]
+    fn test_chart_options_default() {
+        let opts = ChartOptions::default();
+        assert_eq!(opts.width, 600);
+        assert_eq!(opts.height, 400);
+        assert!(opts.show_legend);
+        assert!(opts.show_grid);
+        assert!(opts.title.is_none());
+    }
+
+    #[test]
+    fn test_chart_to_options() {
+        let chart =
+            Chart::new("c1", ChartType::Bar, "A1:B5", "Sheet1").with_title("Sales");
+        let opts = chart.to_options();
+        assert_eq!(opts.title, Some("Sales".into()));
+        assert_eq!(opts.width, 600);
+        assert_eq!(opts.height, 400);
     }
 }
