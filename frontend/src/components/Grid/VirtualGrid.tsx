@@ -14,6 +14,10 @@ import {
   deleteRows,
   insertCols,
   deleteCols,
+  setColWidth as tauriSetColWidth,
+  setRowHeight as tauriSetRowHeight,
+  getColWidths,
+  getRowHeights,
 } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
@@ -365,6 +369,34 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       draw();
     } catch {
       // Tauri not available (browser dev mode) -- draw without data.
+    }
+  }
+
+  /** Load persisted column widths and row heights from the backend. */
+  async function loadPersistedSizes() {
+    try {
+      const widths = await getColWidths(props.activeSheet);
+      colWidths.clear();
+      for (const [col, w] of Object.entries(widths)) {
+        const c = Number(col);
+        if (w !== DEFAULT_COL_WIDTH) {
+          colWidths.set(c, w);
+        }
+      }
+    } catch {
+      // Backend may not support this yet
+    }
+    try {
+      const heights = await getRowHeights(props.activeSheet);
+      rowHeights.clear();
+      for (const [row, h] of Object.entries(heights)) {
+        const r = Number(row);
+        if (h !== DEFAULT_ROW_HEIGHT) {
+          rowHeights.set(r, h);
+        }
+      }
+    } catch {
+      // Backend may not support this yet
     }
   }
 
@@ -1714,12 +1746,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } else {
       colWidths.set(col, maxW);
     }
+    tauriSetColWidth(props.activeSheet, col, maxW).catch(() => {});
     draw();
   }
 
   /** Auto-fit a row height based on the default (reset to default). */
   function autoFitRow(row: number) {
     rowHeights.delete(row);
+    tauriSetRowHeight(props.activeSheet, row, DEFAULT_ROW_HEIGHT).catch(() => {});
     draw();
   }
 
@@ -1819,11 +1853,17 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (w !== undefined && w === DEFAULT_COL_WIDTH) {
         colWidths.delete(resizeDrag.index);
       }
+      // Persist to backend
+      const finalW = colWidths.get(resizeDrag.index) ?? DEFAULT_COL_WIDTH;
+      tauriSetColWidth(props.activeSheet, resizeDrag.index, finalW).catch(() => {});
     } else {
       const h = rowHeights.get(resizeDrag.index);
       if (h !== undefined && h === DEFAULT_ROW_HEIGHT) {
         rowHeights.delete(resizeDrag.index);
       }
+      // Persist to backend
+      const finalH = rowHeights.get(resizeDrag.index) ?? DEFAULT_ROW_HEIGHT;
+      tauriSetRowHeight(props.activeSheet, resizeDrag.index, finalH).catch(() => {});
     }
     resizeDrag = null;
     document.removeEventListener('mousemove', handleMouseMove);
@@ -3274,6 +3314,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     updateSize();
     containerRef.focus();
 
+    // Load persisted col/row sizes from backend
+    loadPersistedSizes();
+
     // Initial data fetch + formula bar sync
     fetchVisibleData();
     selectCell(0, 0);
@@ -3287,6 +3330,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
+    // Reload persisted sizes for new sheet
+    loadPersistedSizes();
   });
 
   // Sync find match highlights from props to canvas-accessible state
