@@ -69,7 +69,12 @@ pub async fn format_cells(
                 cell.format.strikethrough = strikethrough;
             }
             if let Some(ref bg) = format.bg_color {
-                cell.format.bg_color = Some(bg.clone());
+                if bg.is_empty() {
+                    // Empty string means "clear background color"
+                    cell.format.bg_color = None;
+                } else {
+                    cell.format.bg_color = Some(bg.clone());
+                }
             }
             if let Some(ref align) = format.h_align {
                 cell.format.h_align = match align.as_str() {

@@ -400,7 +400,9 @@ const App: Component = () => {
   };
 
   const handleBgColor = (color: string) => {
-    applyFormat({ bg_color: color || null });
+    // Send empty string to clear bg_color (backend treats "" as "remove fill").
+    // A non-empty color string sets the fill color.
+    applyFormat({ bg_color: color });
     setStatusMessage(color ? `Fill color: ${color}` : 'Fill removed');
   };
 
