@@ -27,8 +27,23 @@ export {
   TOTAL_ROWS,
 } from './constants';
 
-// Colors — kept in sync with grid.css CSS variables (light mode defaults).
-const COLORS = {
+// Theme colors — kept in sync with grid.css CSS variables.
+// Light and dark palettes are defined separately and switched
+// based on the system `prefers-color-scheme` media query.
+
+interface ThemeColors {
+  headerBg: string;
+  headerText: string;
+  gridBorder: string;
+  selectionBorder: string;
+  selectionBg: string;
+  cornerBg: string;
+  cellText: string;
+  cellBg: string;
+  freezeBorder: string;
+}
+
+const LIGHT_COLORS: ThemeColors = {
   headerBg: '#f8f9fa',
   headerText: '#5f6368',
   gridBorder: '#e0e0e0',
@@ -36,8 +51,35 @@ const COLORS = {
   selectionBg: 'rgba(26, 115, 232, 0.08)',
   cornerBg: '#f8f9fa',
   cellText: '#202124',
+  cellBg: '#ffffff',
   freezeBorder: '#9e9e9e',
 };
+
+const DARK_COLORS: ThemeColors = {
+  headerBg: '#292a2d',
+  headerText: '#9aa0a6',
+  gridBorder: '#3c4043',
+  selectionBorder: '#8ab4f8',
+  selectionBg: 'rgba(138, 180, 248, 0.12)',
+  cornerBg: '#292a2d',
+  cellText: '#e8eaed',
+  cellBg: '#202124',
+  freezeBorder: '#5f6368',
+};
+
+/** Detect system dark mode preference. */
+function getSystemDarkMode(): boolean {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+}
+
+/** Return the appropriate color palette for the current system preference. */
+function getColors(): ThemeColors {
+  return getSystemDarkMode() ? DARK_COLORS : LIGHT_COLORS;
+}
+
+// Module-level mutable reference; updated by the matchMedia listener inside
+// the component. Canvas draw calls read from this.
+let COLORS: ThemeColors = getColors();
 
 // ---------------------------------------------------------------------------
 // Props
@@ -589,6 +631,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     canvas.height = h * dpr;
     ctx.scale(dpr * zoomLevel, dpr * zoomLevel);
     ctx.clearRect(0, 0, w / zoomLevel, h / zoomLevel);
+
+    // Fill background with theme-appropriate color for dark mode support.
+    ctx.fillStyle = COLORS.cellBg;
+    ctx.fillRect(0, 0, w / zoomLevel, h / zoomLevel);
 
     const sx = scrollX();
     const sy = scrollY();
@@ -1854,6 +1900,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const observer = new ResizeObserver(updateSize);
     observer.observe(containerRef);
     onCleanup(() => observer.disconnect());
+
+    // Listen for system dark/light mode changes and re-render the canvas.
+    const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleColorSchemeChange = () => {
+      COLORS = getColors();
+      draw();
+    };
+    darkModeQuery.addEventListener('change', handleColorSchemeChange);
+    onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
 
     updateSize();
     containerRef.focus();
