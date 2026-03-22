@@ -180,6 +180,145 @@ impl Sheet {
         &mut self.cells
     }
 
+    // ----- Array formulas -----
+
+    /// Set an array formula that spans the given range.
+    ///
+    /// The `formula` text (without leading `=`) is stored on every cell in
+    /// the range. If `result` is a [`CellValue::Array`], its elements are
+    /// "spilled" into the corresponding cells. If the array is smaller
+    /// than the range, extra cells get [`CellValue::Empty`]; if larger,
+    /// excess values are silently ignored.
+    ///
+    /// Every cell in the range is marked with `is_array_formula = true`.
+    /// The top-left (anchor) cell stores the `array_formula_range`.
+    ///
+    /// Returns an error if `start > end` in either dimension.
+    pub fn set_array_formula(
+        &mut self,
+        start_row: u32,
+        start_col: u32,
+        end_row: u32,
+        end_col: u32,
+        formula: &str,
+        result: &CellValue,
+    ) -> Result<()> {
+        if start_row > end_row || start_col > end_col {
+            return Err(LatticeError::InvalidRange(
+                "array formula range start must not exceed end".into(),
+            ));
+        }
+
+        let rows_data: Option<&Vec<Vec<CellValue>>> = match result {
+            CellValue::Array(rows) => Some(rows),
+            _ => None,
+        };
+
+        for r in start_row..=end_row {
+            for c in start_col..=end_col {
+                let ri = (r - start_row) as usize;
+                let ci = (c - start_col) as usize;
+
+                let spilled_value = rows_data
+                    .and_then(|rows| rows.get(ri))
+                    .and_then(|row| row.get(ci))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // For a scalar result, put it only in the anchor cell
+                        if r == start_row && c == start_col {
+                            result.clone()
+                        } else {
+                            CellValue::Empty
+                        }
+                    });
+
+                let cell = self.cells.entry((r, c)).or_default();
+                cell.value = spilled_value;
+                cell.formula = Some(formula.to_string());
+                cell.is_array_formula = true;
+
+                // Only the anchor cell stores the range extents
+                if r == start_row && c == start_col {
+                    cell.array_formula_range =
+                        Some((start_row, start_col, end_row, end_col));
+                } else {
+                    cell.array_formula_range = None;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Clear an array formula and all its spilled cells.
+    ///
+    /// The `row`/`col` may refer to any cell in the array; the method
+    /// resolves the anchor to find the full range.
+    ///
+    /// Returns `Ok(true)` if an array formula was found and cleared,
+    /// `Ok(false)` if the cell is not part of an array formula.
+    pub fn clear_array_formula(&mut self, row: u32, col: u32) -> Result<bool> {
+        // First check if this cell is part of an array formula
+        let cell = match self.cells.get(&(row, col)) {
+            Some(c) if c.is_array_formula => c,
+            _ => return Ok(false),
+        };
+
+        // Find the anchor cell's range
+        let range = if let Some(rng) = cell.array_formula_range {
+            rng
+        } else {
+            // This cell is a spill target; scan for the anchor
+            let mut found_range = None;
+            for ((_r, _c), c) in &self.cells {
+                if let Some(rng) = c.array_formula_range {
+                    if row >= rng.0
+                        && row <= rng.2
+                        && col >= rng.1
+                        && col <= rng.3
+                    {
+                        found_range = Some(rng);
+                        break;
+                    }
+                }
+            }
+            match found_range {
+                Some(r) => r,
+                None => return Ok(false),
+            }
+        };
+
+        let (sr, sc, er, ec) = range;
+        for r in sr..=er {
+            for c in sc..=ec {
+                self.cells.remove(&(r, c));
+            }
+        }
+        Ok(true)
+    }
+
+    // ----- Checkbox toggle -----
+
+    /// Toggle a checkbox cell between checked and unchecked.
+    ///
+    /// Returns the new state, or an error if the cell does not contain
+    /// a [`CellValue::Checkbox`].
+    pub fn toggle_checkbox(&mut self, row: u32, col: u32) -> Result<bool> {
+        let cell = self.cells.get_mut(&(row, col)).ok_or_else(|| {
+            LatticeError::InvalidRange(format!("no cell at ({row}, {col})"))
+        })?;
+        match &cell.value {
+            CellValue::Checkbox(current) => {
+                let new_state = !current;
+                cell.value = CellValue::Checkbox(new_state);
+                Ok(new_state)
+            }
+            _ => Err(LatticeError::InvalidRange(
+                "cell is not a checkbox".into(),
+            )),
+        }
+    }
+
     // ----- Comments -----
 
     /// Set a comment on a cell. Creates the cell if it does not exist.
@@ -1859,5 +1998,174 @@ mod tests {
         // start_row > end_row
         let removed = sheet.remove_duplicates(5, 2, &[0]);
         assert_eq!(removed, 0);
+    }
+
+    // --- Array formula tests ---
+
+    #[test]
+    fn test_set_array_formula_scalar() {
+        let mut sheet = Sheet::new("S");
+        let result = CellValue::Number(42.0);
+        sheet
+            .set_array_formula(0, 0, 0, 0, "42", &result)
+            .unwrap();
+
+        let cell = sheet.get_cell(0, 0).unwrap();
+        assert_eq!(cell.value, CellValue::Number(42.0));
+        assert!(cell.is_array_formula);
+        assert_eq!(cell.array_formula_range, Some((0, 0, 0, 0)));
+        assert_eq!(cell.formula.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn test_set_array_formula_spills_array() {
+        let mut sheet = Sheet::new("S");
+        let result = CellValue::Array(vec![
+            vec![CellValue::Number(1.0), CellValue::Number(2.0)],
+            vec![CellValue::Number(3.0), CellValue::Number(4.0)],
+        ]);
+        sheet
+            .set_array_formula(0, 0, 1, 1, "SEQUENCE(2,2)", &result)
+            .unwrap();
+
+        // Check all four spilled cells
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Number(3.0));
+        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Number(4.0));
+
+        // All cells marked as array formula
+        for r in 0..=1 {
+            for c in 0..=1 {
+                let cell = sheet.get_cell(r, c).unwrap();
+                assert!(cell.is_array_formula);
+                assert_eq!(cell.formula.as_deref(), Some("SEQUENCE(2,2)"));
+            }
+        }
+
+        // Only anchor has the range
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().array_formula_range,
+            Some((0, 0, 1, 1))
+        );
+        assert!(sheet.get_cell(0, 1).unwrap().array_formula_range.is_none());
+        assert!(sheet.get_cell(1, 0).unwrap().array_formula_range.is_none());
+    }
+
+    #[test]
+    fn test_set_array_formula_array_smaller_than_range() {
+        let mut sheet = Sheet::new("S");
+        // Array is 1x1 but range is 2x2 -- excess cells get Empty
+        let result = CellValue::Array(vec![vec![CellValue::Number(99.0)]]);
+        sheet
+            .set_array_formula(0, 0, 1, 1, "F", &result)
+            .unwrap();
+
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(99.0));
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Empty);
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Empty);
+        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Empty);
+    }
+
+    #[test]
+    fn test_set_array_formula_invalid_range() {
+        let mut sheet = Sheet::new("S");
+        let result = CellValue::Number(1.0);
+        // start_row > end_row
+        assert!(sheet.set_array_formula(5, 0, 0, 0, "F", &result).is_err());
+        // start_col > end_col
+        assert!(sheet.set_array_formula(0, 5, 0, 0, "F", &result).is_err());
+    }
+
+    #[test]
+    fn test_clear_array_formula_from_anchor() {
+        let mut sheet = Sheet::new("S");
+        let result = CellValue::Array(vec![
+            vec![CellValue::Number(1.0), CellValue::Number(2.0)],
+        ]);
+        sheet
+            .set_array_formula(0, 0, 0, 1, "F", &result)
+            .unwrap();
+
+        let cleared = sheet.clear_array_formula(0, 0).unwrap();
+        assert!(cleared);
+        assert!(sheet.get_cell(0, 0).is_none());
+        assert!(sheet.get_cell(0, 1).is_none());
+    }
+
+    #[test]
+    fn test_clear_array_formula_from_spill_cell() {
+        let mut sheet = Sheet::new("S");
+        let result = CellValue::Array(vec![
+            vec![CellValue::Number(1.0), CellValue::Number(2.0)],
+        ]);
+        sheet
+            .set_array_formula(0, 0, 0, 1, "F", &result)
+            .unwrap();
+
+        // Clear from the non-anchor cell (0,1)
+        let cleared = sheet.clear_array_formula(0, 1).unwrap();
+        assert!(cleared);
+        assert!(sheet.get_cell(0, 0).is_none());
+        assert!(sheet.get_cell(0, 1).is_none());
+    }
+
+    #[test]
+    fn test_clear_array_formula_not_array() {
+        let mut sheet = Sheet::new("S");
+        sheet.set_value(0, 0, CellValue::Number(5.0));
+        let cleared = sheet.clear_array_formula(0, 0).unwrap();
+        assert!(!cleared);
+        // Original cell should be untouched
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(5.0));
+    }
+
+    #[test]
+    fn test_clear_array_formula_empty_cell() {
+        let sheet = Sheet::new("S");
+        let cleared = sheet.clone().clear_array_formula(0, 0).unwrap();
+        assert!(!cleared);
+    }
+
+    // --- Checkbox toggle tests ---
+
+    #[test]
+    fn test_toggle_checkbox_true_to_false() {
+        let mut sheet = Sheet::new("S");
+        sheet.set_value(0, 0, CellValue::Checkbox(true));
+        let new_state = sheet.toggle_checkbox(0, 0).unwrap();
+        assert!(!new_state);
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(false));
+    }
+
+    #[test]
+    fn test_toggle_checkbox_false_to_true() {
+        let mut sheet = Sheet::new("S");
+        sheet.set_value(0, 0, CellValue::Checkbox(false));
+        let new_state = sheet.toggle_checkbox(0, 0).unwrap();
+        assert!(new_state);
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(true));
+    }
+
+    #[test]
+    fn test_toggle_checkbox_not_checkbox() {
+        let mut sheet = Sheet::new("S");
+        sheet.set_value(0, 0, CellValue::Boolean(true));
+        assert!(sheet.toggle_checkbox(0, 0).is_err());
+    }
+
+    #[test]
+    fn test_toggle_checkbox_no_cell() {
+        let mut sheet = Sheet::new("S");
+        assert!(sheet.toggle_checkbox(5, 5).is_err());
+    }
+
+    #[test]
+    fn test_toggle_checkbox_double_toggle() {
+        let mut sheet = Sheet::new("S");
+        sheet.set_value(0, 0, CellValue::Checkbox(true));
+        sheet.toggle_checkbox(0, 0).unwrap();
+        sheet.toggle_checkbox(0, 0).unwrap();
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(true));
     }
 }
