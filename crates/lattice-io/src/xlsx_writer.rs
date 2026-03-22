@@ -78,7 +78,7 @@ fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
                         .write_number_with_format(row, col as u16, *n, &fmt)
                         .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                 }
-                CellValue::Boolean(b) => {
+                CellValue::Boolean(b) | CellValue::Checkbox(b) => {
                     worksheet
                         .write_boolean_with_format(row, col as u16, *b, &fmt)
                         .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
@@ -107,6 +107,12 @@ fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
                             .write_string_with_format(row, col as u16, s, &date_fmt)
                             .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                     }
+                }
+                CellValue::Array(_) => {
+                    // Array values are written as their first element display
+                    worksheet
+                        .write_string_with_format(row, col as u16, "{array}", &fmt)
+                        .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                 }
             }
 
@@ -286,7 +292,6 @@ mod tests {
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         let cell = lattice_core::Cell {
             value: CellValue::Number(100.0),
-            formula: None,
             format: CellFormat {
                 bold: true,
                 italic: true,
@@ -298,9 +303,7 @@ mod tests {
                 number_format: Some("#,##0.00".to_string()),
                 ..CellFormat::default()
             },
-            style_id: 0,
-            comment: None,
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 
@@ -317,11 +320,8 @@ mod tests {
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         let cell = lattice_core::Cell {
             value: CellValue::Text("Annotated".into()),
-            formula: None,
-            format: Default::default(),
-            style_id: 0,
             comment: Some("This is a comment".to_string()),
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 

@@ -184,7 +184,7 @@ fn cell_value_to_html(value: &CellValue) -> String {
                 format!("{}", n)
             }
         }
-        CellValue::Boolean(b) => {
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
             if *b {
                 "TRUE".to_string()
             } else {
@@ -193,6 +193,7 @@ fn cell_value_to_html(value: &CellValue) -> String {
         }
         CellValue::Error(e) => escape_html(&e.to_string()),
         CellValue::Date(s) => escape_html(s),
+        CellValue::Array(_) => escape_html("{array}"),
     }
 }
 
@@ -276,7 +277,6 @@ mod tests {
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         let cell = lattice_core::Cell {
             value: CellValue::Text("Bold Red".into()),
-            formula: None,
             format: CellFormat {
                 bold: true,
                 italic: true,
@@ -288,9 +288,7 @@ mod tests {
                 number_format: None,
                 ..CellFormat::default()
             },
-            style_id: 0,
-            comment: None,
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 

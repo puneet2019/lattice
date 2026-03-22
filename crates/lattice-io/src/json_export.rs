@@ -151,9 +151,22 @@ fn cell_value_to_json(value: &CellValue) -> Option<serde_json::Value> {
         CellValue::Empty => None,
         CellValue::Text(s) => Some(serde_json::Value::String(s.clone())),
         CellValue::Number(n) => serde_json::Number::from_f64(*n).map(serde_json::Value::Number),
-        CellValue::Boolean(b) => Some(serde_json::Value::Bool(*b)),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Some(serde_json::Value::Bool(*b)),
         CellValue::Error(e) => Some(serde_json::Value::String(e.to_string())),
         CellValue::Date(s) => Some(serde_json::Value::String(s.clone())),
+        CellValue::Array(rows) => {
+            let arr: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|row| {
+                    serde_json::Value::Array(
+                        row.iter()
+                            .map(|v| cell_value_to_json(v).unwrap_or(serde_json::Value::Null))
+                            .collect(),
+                    )
+                })
+                .collect();
+            Some(serde_json::Value::Array(arr))
+        }
     }
 }
 
@@ -227,10 +240,7 @@ mod tests {
         let cell = lattice_core::Cell {
             value: CellValue::Number(3.0),
             formula: Some("SUM(A1:A2)".to_string()),
-            format: Default::default(),
-            style_id: 0,
-            comment: None,
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 

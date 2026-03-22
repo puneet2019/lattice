@@ -49,11 +49,7 @@ pub fn read_csv(path: &Path) -> Result<Workbook> {
             if value != CellValue::Empty {
                 let cell = Cell {
                     value,
-                    formula: None,
-                    format: Default::default(),
-                    style_id: 0,
-                    comment: None,
-                    hyperlink: None,
+                    ..Default::default()
                 };
                 sheet.set_cell(row_idx as u32, col_idx as u32, cell);
             }
@@ -138,7 +134,7 @@ pub(crate) fn cell_value_to_csv_string(value: &CellValue) -> String {
                 format!("{}", n)
             }
         }
-        CellValue::Boolean(b) => {
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
             if *b {
                 "TRUE".to_string()
             } else {
@@ -147,6 +143,7 @@ pub(crate) fn cell_value_to_csv_string(value: &CellValue) -> String {
         }
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 

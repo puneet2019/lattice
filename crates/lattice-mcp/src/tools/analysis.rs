@@ -87,9 +87,10 @@ pub fn handle_describe_data(workbook: &Workbook, args: Value) -> Result<Value, S
                     CellValue::Number(n) => numbers.push(*n),
                     CellValue::Empty => null_count += 1,
                     CellValue::Text(_) => text_count += 1,
-                    CellValue::Boolean(_) => bool_count += 1,
+                    CellValue::Boolean(_) | CellValue::Checkbox(_) => bool_count += 1,
                     CellValue::Date(_) => text_count += 1,
                     CellValue::Error(_) => null_count += 1,
+                    CellValue::Array(_) => text_count += 1,
                 },
                 None => null_count += 1,
             }

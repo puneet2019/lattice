@@ -192,9 +192,16 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
         CellValue::Number(n) => serde_json::Number::from_f64(*n)
             .map(Value::Number)
             .unwrap_or(Value::Null),
-        CellValue::Boolean(b) => Value::Bool(*b),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Value::Bool(*b),
         CellValue::Error(e) => Value::String(e.to_string()),
         CellValue::Date(s) => Value::String(s.clone()),
+        CellValue::Array(rows) => {
+            let arr: Vec<Value> = rows
+                .iter()
+                .map(|row| Value::Array(row.iter().map(|v| cell_value_to_json(v)).collect()))
+                .collect();
+            Value::Array(arr)
+        }
     }
 }
 
@@ -211,9 +218,10 @@ fn cell_value_to_csv_field(cv: &CellValue) -> String {
             }
         }
         CellValue::Number(n) => n.to_string(),
-        CellValue::Boolean(b) => b.to_string().to_uppercase(),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => b.to_string().to_uppercase(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 

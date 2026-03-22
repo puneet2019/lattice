@@ -54,7 +54,7 @@ fn cell_value_to_string(val: &CellValue) -> String {
     match val {
         CellValue::Text(s) => s.clone(),
         CellValue::Number(n) => n.to_string(),
-        CellValue::Boolean(b) => {
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
             if *b {
                 "TRUE".to_string()
             } else {
@@ -64,6 +64,7 @@ fn cell_value_to_string(val: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 

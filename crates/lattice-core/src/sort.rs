@@ -107,36 +107,39 @@ pub fn sort_range(
 
 /// Compare two CellValues for sorting purposes.
 ///
-/// Ordering: Empty < Number < Text < Boolean < Error
+/// Ordering: Empty < Number < Text < Boolean/Checkbox < Date < Error/Array
 fn compare_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
+    /// Map a CellValue to a sort-priority bucket.
+    fn type_rank(v: &CellValue) -> u8 {
+        match v {
+            CellValue::Empty => 0,
+            CellValue::Number(_) => 1,
+            CellValue::Text(_) => 2,
+            CellValue::Boolean(_) | CellValue::Checkbox(_) => 3,
+            CellValue::Date(_) => 4,
+            CellValue::Error(_) => 5,
+            CellValue::Array(_) => 6,
+        }
+    }
+
     match (a, b) {
         (CellValue::Empty, CellValue::Empty) => Ordering::Equal,
-        (CellValue::Empty, _) => Ordering::Less,
-        (_, CellValue::Empty) => Ordering::Greater,
-
         (CellValue::Number(na), CellValue::Number(nb)) => {
             na.partial_cmp(nb).unwrap_or(Ordering::Equal)
         }
-        (CellValue::Number(_), _) => Ordering::Less,
-        (_, CellValue::Number(_)) => Ordering::Greater,
-
         (CellValue::Text(sa), CellValue::Text(sb)) => {
             sa.to_lowercase().cmp(&sb.to_lowercase())
         }
-        (CellValue::Text(_), _) => Ordering::Less,
-        (_, CellValue::Text(_)) => Ordering::Greater,
-
-        (CellValue::Boolean(ba), CellValue::Boolean(bb)) => ba.cmp(bb),
-        (CellValue::Boolean(_), _) => Ordering::Less,
-        (_, CellValue::Boolean(_)) => Ordering::Greater,
-
+        (CellValue::Boolean(ba), CellValue::Boolean(bb))
+        | (CellValue::Checkbox(ba), CellValue::Checkbox(bb))
+        | (CellValue::Boolean(ba), CellValue::Checkbox(bb))
+        | (CellValue::Checkbox(ba), CellValue::Boolean(bb)) => ba.cmp(bb),
         (CellValue::Date(da), CellValue::Date(db)) => da.cmp(db),
-        (CellValue::Date(_), _) => Ordering::Less,
-        (_, CellValue::Date(_)) => Ordering::Greater,
-
         (CellValue::Error(_), CellValue::Error(_)) => Ordering::Equal,
+        (CellValue::Array(_), CellValue::Array(_)) => Ordering::Equal,
+        _ => type_rank(a).cmp(&type_rank(b)),
     }
 }
 

@@ -349,11 +349,12 @@ fn cell_value_as_text(value: &CellValue) -> String {
     match value {
         CellValue::Text(s) => s.clone(),
         CellValue::Number(n) => n.to_string(),
-        CellValue::Boolean(true) => "TRUE".to_string(),
-        CellValue::Boolean(false) => "FALSE".to_string(),
+        CellValue::Boolean(true) | CellValue::Checkbox(true) => "TRUE".to_string(),
+        CellValue::Boolean(false) | CellValue::Checkbox(false) => "FALSE".to_string(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Empty => String::new(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 

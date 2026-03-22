@@ -543,39 +543,43 @@ fn cell_value_to_string(cv: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Text(s) => s.clone(),
         CellValue::Number(n) => n.to_string(),
-        CellValue::Boolean(b) => b.to_string(),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => b.to_string(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 
 /// Compare two CellValues for sorting (Empty < Number < Text < Boolean < Error).
 fn compare_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
     use std::cmp::Ordering;
+
+    fn type_rank(v: &CellValue) -> u8 {
+        match v {
+            CellValue::Empty => 0,
+            CellValue::Number(_) => 1,
+            CellValue::Text(_) => 2,
+            CellValue::Boolean(_) | CellValue::Checkbox(_) => 3,
+            CellValue::Date(_) => 4,
+            CellValue::Error(_) => 5,
+            CellValue::Array(_) => 6,
+        }
+    }
+
     match (a, b) {
         (CellValue::Empty, CellValue::Empty) => Ordering::Equal,
-        (CellValue::Empty, _) => Ordering::Less,
-        (_, CellValue::Empty) => Ordering::Greater,
-
         (CellValue::Number(na), CellValue::Number(nb)) => {
             na.partial_cmp(nb).unwrap_or(Ordering::Equal)
         }
-        (CellValue::Number(_), _) => Ordering::Less,
-        (_, CellValue::Number(_)) => Ordering::Greater,
-
         (CellValue::Text(sa), CellValue::Text(sb)) => sa.cmp(sb),
-        (CellValue::Text(_), _) => Ordering::Less,
-        (_, CellValue::Text(_)) => Ordering::Greater,
-
-        (CellValue::Boolean(ba), CellValue::Boolean(bb)) => ba.cmp(bb),
-        (CellValue::Boolean(_), _) => Ordering::Less,
-        (_, CellValue::Boolean(_)) => Ordering::Greater,
-
+        (CellValue::Boolean(ba), CellValue::Boolean(bb))
+        | (CellValue::Checkbox(ba), CellValue::Checkbox(bb))
+        | (CellValue::Boolean(ba), CellValue::Checkbox(bb))
+        | (CellValue::Checkbox(ba), CellValue::Boolean(bb)) => ba.cmp(bb),
         (CellValue::Date(da), CellValue::Date(db)) => da.cmp(db),
-        (CellValue::Date(_), _) => Ordering::Less,
-        (_, CellValue::Date(_)) => Ordering::Greater,
-
         (CellValue::Error(_), CellValue::Error(_)) => Ordering::Equal,
+        (CellValue::Array(_), CellValue::Array(_)) => Ordering::Equal,
+        _ => type_rank(a).cmp(&type_rank(b)),
     }
 }
 

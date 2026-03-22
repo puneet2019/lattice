@@ -284,9 +284,16 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
         CellValue::Number(n) => serde_json::Number::from_f64(*n)
             .map(Value::Number)
             .unwrap_or(Value::Null),
-        CellValue::Boolean(b) => Value::Bool(*b),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Value::Bool(*b),
         CellValue::Error(e) => Value::String(e.to_string()),
         CellValue::Date(s) => Value::String(s.clone()),
+        CellValue::Array(rows) => {
+            let arr: Vec<Value> = rows
+                .iter()
+                .map(|row| Value::Array(row.iter().map(|v| cell_value_to_json(v)).collect()))
+                .collect();
+            Value::Array(arr)
+        }
     }
 }
 
@@ -296,9 +303,10 @@ fn cell_value_type_name(cv: &CellValue) -> &'static str {
         CellValue::Empty => "empty",
         CellValue::Text(_) => "text",
         CellValue::Number(_) => "number",
-        CellValue::Boolean(_) => "boolean",
+        CellValue::Boolean(_) | CellValue::Checkbox(_) => "boolean",
         CellValue::Error(_) => "error",
         CellValue::Date(_) => "date",
+        CellValue::Array(_) => "array",
     }
 }
 

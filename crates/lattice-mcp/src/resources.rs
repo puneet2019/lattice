@@ -232,10 +232,11 @@ fn read_sheet_summary(
         match &cell.value {
             CellValue::Number(_) => number_count += 1,
             CellValue::Text(_) => text_count += 1,
-            CellValue::Boolean(_) => bool_count += 1,
+            CellValue::Boolean(_) | CellValue::Checkbox(_) => bool_count += 1,
             CellValue::Empty => empty_count += 1,
             CellValue::Error(_) => error_count += 1,
             CellValue::Date(_) => date_count += 1,
+            CellValue::Array(_) => number_count += 1,
         }
         if cell.formula.is_some() {
             formula_count += 1;
@@ -342,9 +343,18 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
         CellValue::Number(n) => serde_json::Number::from_f64(*n)
             .map(Value::Number)
             .unwrap_or(Value::Null),
-        CellValue::Boolean(b) => Value::Bool(*b),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Value::Bool(*b),
         CellValue::Error(e) => Value::String(e.to_string()),
         CellValue::Date(s) => Value::String(s.clone()),
+        CellValue::Array(rows) => {
+            let arr: Vec<Value> = rows
+                .iter()
+                .map(|row| {
+                    Value::Array(row.iter().map(|v| cell_value_to_json(v)).collect())
+                })
+                .collect();
+            Value::Array(arr)
+        }
     }
 }
 
