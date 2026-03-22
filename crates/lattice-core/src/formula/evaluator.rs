@@ -8,6 +8,8 @@ use crate::cell::{CellError, CellValue};
 use crate::error::{LatticeError, Result};
 use crate::formula::{FormulaEngine, SheetResolver};
 use crate::formula::parser::{Token, tokenize};
+use crate::formula::query;
+use crate::formula::query_exec;
 use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
@@ -2461,6 +2463,46 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 rate = new_rate;
             }
             Ok(CellValue::Number(rate))
+        }
+
+        // ===== QUERY =====
+        "QUERY" => {
+            // QUERY(data_range, query_string, [headers])
+            // data_range: a 2-D range of cells
+            // query_string: a Google Visualization API Query Language string
+            // headers: number of header rows (default 1)
+            if args.is_empty() || args.len() > 3 {
+                return Err(LatticeError::FormulaError(
+                    "QUERY requires 1 to 3 arguments".into(),
+                ));
+            }
+            let data = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "QUERY: first argument must be a range".into(),
+                    ));
+                }
+            };
+            // Default query: SELECT * (show all data)
+            let query_str = if args.len() > 1 {
+                match &args[1] {
+                    FuncArg::Value(v) => coerce_to_string(v),
+                    _ => "SELECT *".to_string(),
+                }
+            } else {
+                "SELECT *".to_string()
+            };
+            let headers = if args.len() > 2 {
+                match &args[2] {
+                    FuncArg::Value(v) => coerce_to_number(v)? as usize,
+                    _ => 1,
+                }
+            } else {
+                1
+            };
+            let parsed = query::parse_query(&query_str)?;
+            query_exec::execute_query(&data, &parsed, headers)
         }
 
         _ => Err(LatticeError::FormulaError(format!(
