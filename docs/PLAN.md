@@ -440,7 +440,7 @@ lattice/
 - [x] Remove duplicates _(Sheet::remove_duplicates)_
 - [x] Text to columns
 - [x] Transpose
-- [~] Paste special (values, formulas, formatting, transposed) _(values-only done via Cmd+Shift+V; formulas/formatting/transposed pending)_
+- [x] Paste special (values, formulas, formatting, transposed) _(all 5 modes: dialog via Cmd+Shift+P)_
 
 ### Charts
 - [x] Bar / Column (stacked, grouped, 100% stacked)
