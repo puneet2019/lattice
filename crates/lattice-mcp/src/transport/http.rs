@@ -275,16 +275,9 @@ mod tests {
         let server = Arc::new(Mutex::new(McpServer::new_default()));
         let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
 
-        let req = Request::builder()
-            .method(Method::POST)
-            .uri("/mcp")
-            .header("Content-Type", "application/json")
-            .body(Full::new(Bytes::from(body)).map_err(|e| match e {}).boxed())
-            .unwrap();
-
-        // We cannot easily convert Full<Bytes> to Incoming, so test via
-        // handle_post_mcp directly by constructing a compatible request.
-        // Instead, test the server's handle_message directly.
+        // We cannot easily convert Full<Bytes> to Incoming for hyper's
+        // request type, so we test the server's handle_message directly
+        // which is the core logic that handle_post_mcp delegates to.
         let mut srv = server.lock().await;
         let resp = srv.handle_message(body).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&resp).unwrap();
