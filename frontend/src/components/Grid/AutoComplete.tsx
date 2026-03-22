@@ -1,6 +1,9 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
 
+// Re-export from utility file for backward compatibility
+export { getColumnSuggestions, filterSuggestions } from './autoCompleteUtils';
+
 export interface AutoCompleteProps {
   /** Current text typed by the user. */
   inputValue: string;
@@ -37,47 +40,11 @@ const AutoComplete: Component<AutoCompleteProps> = (props) => {
 
   // Reset selection index when filtered list changes
   createEffect(() => {
-    // Access filtered to subscribe
     const list = filtered();
     if (list.length > 0) {
       setSelectedIndex(0);
     }
   });
-
-  /** Handle keyboard navigation. Returns true if the event was consumed. */
-  function handleKeyDown(e: KeyboardEvent): boolean {
-    const list = filtered();
-    if (!props.visible || list.length === 0) return false;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.min(i + 1, list.length - 1));
-      return true;
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((i) => Math.max(i - 1, 0));
-      return true;
-    }
-    if (e.key === 'Tab' || (e.key === 'Enter' && list.length > 0)) {
-      // Only consume if there are suggestions visible
-      const idx = selectedIndex();
-      if (idx >= 0 && idx < list.length) {
-        e.preventDefault();
-        props.onAccept(list[idx]);
-        return true;
-      }
-    }
-    if (e.key === 'Escape') {
-      props.onDismiss();
-      return true;
-    }
-    return false;
-  }
-
-  // Expose the key handler so the parent can forward keyboard events
-  // We attach it to the component instance via a ref pattern
-  (AutoComplete as unknown as { handleKeyDown: typeof handleKeyDown }).handleKeyDown = handleKeyDown;
 
   return (
     <Show when={props.visible && filtered().length > 0}>
@@ -111,25 +78,3 @@ const AutoComplete: Component<AutoCompleteProps> = (props) => {
 };
 
 export default AutoComplete;
-
-/**
- * Collect unique non-empty values for a given column from the cell cache.
- * Excludes formula indicators and image data URLs.
- */
-export function getColumnSuggestions(
-  cellCache: Map<string, { value: string }>,
-  col: number,
-): string[] {
-  const seen = new Set<string>();
-  cellCache.forEach((cell, key) => {
-    const parts = key.split(':');
-    if (parseInt(parts[1], 10) !== col) return;
-    const v = cell.value?.trim();
-    if (!v) return;
-    // Skip numeric values, formulas, and data URLs
-    if (!isNaN(Number(v))) return;
-    if (v.startsWith('data:image/')) return;
-    seen.add(v);
-  });
-  return Array.from(seen).sort();
-}
