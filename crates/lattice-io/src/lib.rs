@@ -3,6 +3,7 @@
 //! Supports reading and writing `.xlsx`, `.csv`, and JSON export.
 
 pub mod atomic;
+pub mod cloud;
 pub mod csv_io;
 pub mod file_info;
 pub mod format_detect;
@@ -58,6 +59,10 @@ pub enum IoError {
     /// The file was modified externally since it was last read or saved.
     #[error("conflict detected: file was modified externally")]
     ConflictDetected,
+
+    /// Cloud provider is not authenticated or not configured.
+    #[error("cloud provider not configured: {0}")]
+    CloudNotConfigured(String),
 
     /// Core engine error (e.g. sheet not found).
     #[error("core error: {0}")]
