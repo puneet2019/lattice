@@ -240,10 +240,7 @@ mod tests {
         let cell = lattice_core::Cell {
             value: CellValue::Number(3.0),
             formula: Some("SUM(A1:A2)".to_string()),
-            format: Default::default(),
-            style_id: 0,
-            comment: None,
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 

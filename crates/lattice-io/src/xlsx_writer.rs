@@ -271,7 +271,6 @@ mod tests {
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         let cell = lattice_core::Cell {
             value: CellValue::Number(100.0),
-            formula: None,
             format: CellFormat {
                 bold: true,
                 italic: true,
@@ -283,9 +282,7 @@ mod tests {
                 number_format: Some("#,##0.00".to_string()),
                 ..CellFormat::default()
             },
-            style_id: 0,
-            comment: None,
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 
@@ -302,11 +299,8 @@ mod tests {
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         let cell = lattice_core::Cell {
             value: CellValue::Text("Annotated".into()),
-            formula: None,
-            format: Default::default(),
-            style_id: 0,
             comment: Some("This is a comment".to_string()),
-            hyperlink: None,
+            ..Default::default()
         };
         sheet.set_cell(0, 0, cell);
 
