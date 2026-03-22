@@ -5,6 +5,7 @@
 pub mod csv_io;
 pub mod format_detect;
 pub mod json_export;
+pub mod pdf_export;
 pub mod recent_files;
 pub mod tsv_io;
 pub mod watcher;
@@ -68,6 +69,7 @@ pub type Result<T> = std::result::Result<T, IoError>;
 pub use csv_io::{read_csv, write_csv};
 pub use format_detect::{FileFormat, detect_format};
 pub use json_export::{export_json, export_range_json};
+pub use pdf_export::export_print_html;
 pub use recent_files::{RecentFile, RecentFileStore};
 pub use tsv_io::{read_tsv, write_tsv};
 pub use watcher::FileWatcher;
