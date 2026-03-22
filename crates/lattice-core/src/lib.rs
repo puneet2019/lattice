@@ -22,7 +22,7 @@ pub use cell::{Cell, CellError, CellValue};
 pub use clipboard::{ClipboardContent, PasteMode};
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
-pub use format::{CellFormat, HAlign, NumberFormat, VAlign};
+pub use format::{CellFormat, HAlign, NumberFormat, VAlign, format_value};
 pub use formula::FormulaEngine;
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
