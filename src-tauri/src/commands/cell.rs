@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{CellValue, Operation};
+use lattice_core::{CellValue, NumberFormat, Operation, format_value};
 
 use crate::state::AppState;
 
 /// Serializable cell data returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellData {
-    /// The display value as a string.
+    /// The display value as a string (formatted according to number_format).
     pub value: String,
     /// The raw formula text (without leading `=`), if any.
     pub formula: Option<String>,
@@ -18,6 +18,8 @@ pub struct CellData {
     pub bold: bool,
     /// Whether the cell is italic.
     pub italic: bool,
+    /// The number format pattern string, if any.
+    pub number_format: Option<String>,
 }
 
 /// Get a single cell's data.
@@ -34,11 +36,12 @@ pub async fn get_cell(
         .map_err(|e| e.to_string())?;
 
     Ok(cell.map(|c| CellData {
-        value: cell_value_to_string(&c.value),
+        value: format_cell_display(&c.value, &c.format.number_format),
         formula: c.formula.clone(),
         format_id: c.style_id,
         bold: c.format.bold,
         italic: c.format.italic,
+        number_format: c.format.number_format.clone(),
     }))
 }
 
@@ -110,11 +113,12 @@ pub async fn get_range(
         for c in start_col..=end_col {
             let cell = s.get_cell(r, c);
             row_data.push(cell.map(|c| CellData {
-                value: cell_value_to_string(&c.value),
+                value: format_cell_display(&c.value, &c.format.number_format),
                 formula: c.formula.clone(),
                 format_id: c.style_id,
                 bold: c.format.bold,
                 italic: c.format.italic,
+                number_format: c.format.number_format.clone(),
             }));
         }
         rows.push(row_data);
@@ -123,29 +127,16 @@ pub async fn get_range(
     Ok(rows)
 }
 
-/// Convert a `CellValue` to its display string.
-fn cell_value_to_string(value: &CellValue) -> String {
-    match value {
-        CellValue::Empty => String::new(),
-        CellValue::Text(s) => s.clone(),
-        CellValue::Number(n) => {
-            // Format integers without decimal point.
-            if n.fract() == 0.0 && n.abs() < 1e15 {
-                format!("{}", *n as i64)
-            } else {
-                format!("{}", n)
-            }
-        }
-        CellValue::Boolean(b) => {
-            if *b {
-                "TRUE".to_string()
-            } else {
-                "FALSE".to_string()
-            }
-        }
-        CellValue::Error(e) => e.to_string(),
-        CellValue::Date(s) => s.clone(),
-    }
+/// Format a cell value for display, using the core engine's `format_value`.
+///
+/// When a number_format pattern is set, uses `NumberFormat::Custom` (which
+/// currently falls back to General). When no pattern is set, uses General.
+fn format_cell_display(value: &CellValue, number_format: &Option<String>) -> String {
+    let fmt = match number_format {
+        Some(pattern) => NumberFormat::Custom(pattern.clone()),
+        None => NumberFormat::General,
+    };
+    format_value(value, &fmt)
 }
 
 /// Parse a string into a `CellValue`, inferring the type.

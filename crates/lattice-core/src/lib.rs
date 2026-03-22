@@ -26,7 +26,7 @@ pub use clipboard::{ClipboardContent, PasteMode};
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
-pub use format::{CellFormat, HAlign, VAlign};
+pub use format::{CellFormat, HAlign, NumberFormat, VAlign, format_value};
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use formula::FormulaEngine;
 pub use history::{Operation, UndoStack};
