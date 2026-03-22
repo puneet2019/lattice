@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use lattice_core::{CellRef, CellFormat, HAlign, VAlign, Workbook};
+use lattice_core::{CellFormat, CellRef, HAlign, VAlign, Workbook};
 
 use super::ToolDef;
 use crate::schema::{bool_prop, number_prop, object_schema, string_prop};
@@ -115,24 +115,32 @@ pub struct SetCellFormatArgs {
 }
 
 /// Handle the `set_cell_format` tool call.
+///
+/// We parse `args` directly as a JSON object so we can distinguish between a
+/// field being **absent** (no change) and a field being explicitly **null**
+/// (clear the value).  Using `Option<Value>` via serde would collapse both
+/// cases to `None`.
 pub fn handle_set_cell_format(
     workbook: &mut Workbook,
     args: Value,
 ) -> std::result::Result<Value, String> {
-    let args: SetCellFormatArgs =
-        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+    // Validate required scalar fields via the typed struct.
+    let typed: SetCellFormatArgs =
+        serde_json::from_value(args.clone()).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    let raw = args.as_object().ok_or("arguments must be a JSON object")?;
 
     // Determine if we're formatting a single cell or a range.
-    let cells = if args.cell_ref.contains(':') {
-        parse_range_cells(&args.cell_ref)?
+    let cells = if typed.cell_ref.contains(':') {
+        parse_range_cells(&typed.cell_ref)?
     } else {
-        let cr =
-            CellRef::parse(&args.cell_ref).map_err(|e| format!("Invalid cell reference: {}", e))?;
+        let cr = CellRef::parse(&typed.cell_ref)
+            .map_err(|e| format!("Invalid cell reference: {}", e))?;
         vec![(cr.row, cr.col)]
     };
 
     let sheet = workbook
-        .get_sheet_mut(&args.sheet)
+        .get_sheet_mut(&typed.sheet)
         .map_err(|e| e.to_string())?;
 
     let mut cells_formatted = 0u32;
@@ -140,37 +148,41 @@ pub fn handle_set_cell_format(
         // Ensure the cell exists (create default if not).
         let cell = sheet.cells_mut().entry((*row, *col)).or_default();
 
-        // Apply only the properties that were provided.
-        if let Some(bold) = args.bold {
+        // Apply only the properties that are present in the JSON object.
+        // Checking the raw map allows null to mean "clear" and absence to mean
+        // "leave unchanged".
+        if let Some(bold) = typed.bold {
             cell.format.bold = bold;
         }
-        if let Some(italic) = args.italic {
+        if let Some(italic) = typed.italic {
             cell.format.italic = italic;
         }
-        if let Some(font_size) = args.font_size {
+        if let Some(font_size) = typed.font_size {
             cell.format.font_size = font_size;
         }
-        if let Some(ref font_color) = args.font_color {
+        if let Some(ref font_color) = typed.font_color {
             cell.format.font_color = font_color.clone();
         }
-        if let Some(ref bg_color) = args.bg_color {
-            cell.format.bg_color = match bg_color {
+        // bg_color: present+null → clear; present+string → set; absent → keep.
+        if raw.contains_key("bg_color") {
+            cell.format.bg_color = match raw.get("bg_color").unwrap() {
                 Value::Null => None,
                 Value::String(s) => Some(s.clone()),
-                _ => Some(bg_color.to_string()),
+                other => Some(other.to_string()),
             };
         }
-        if let Some(ref h_align) = args.h_align {
+        if let Some(ref h_align) = typed.h_align {
             cell.format.h_align = parse_h_align(h_align)?;
         }
-        if let Some(ref v_align) = args.v_align {
+        if let Some(ref v_align) = typed.v_align {
             cell.format.v_align = parse_v_align(v_align)?;
         }
-        if let Some(ref number_format) = args.number_format {
-            cell.format.number_format = match number_format {
+        // number_format: same null-means-clear semantics as bg_color.
+        if raw.contains_key("number_format") {
+            cell.format.number_format = match raw.get("number_format").unwrap() {
                 Value::Null => None,
                 Value::String(s) => Some(s.clone()),
-                _ => Some(number_format.to_string()),
+                other => Some(other.to_string()),
             };
         }
         cells_formatted += 1;
@@ -179,7 +191,7 @@ pub fn handle_set_cell_format(
     Ok(json!({
         "success": true,
         "cells_formatted": cells_formatted,
-        "cell_ref": args.cell_ref,
+        "cell_ref": typed.cell_ref,
     }))
 }
 
@@ -341,11 +353,8 @@ mod tests {
     #[test]
     fn test_get_cell_format_default() {
         let wb = Workbook::new();
-        let result = handle_get_cell_format(
-            &wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result =
+            handle_get_cell_format(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert_eq!(result["format"]["bold"], false);
         assert_eq!(result["format"]["italic"], false);
@@ -358,7 +367,8 @@ mod tests {
     #[test]
     fn test_get_cell_format_custom() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0))
+            .unwrap();
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         if let Some(cell) = sheet.get_cell_mut(0, 0) {
             cell.format.bold = true;
@@ -366,11 +376,8 @@ mod tests {
             cell.format.bg_color = Some("#FFFF00".to_string());
         }
 
-        let result = handle_get_cell_format(
-            &wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result =
+            handle_get_cell_format(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert_eq!(result["format"]["bold"], true);
         assert_eq!(result["format"]["font_size"], 14.0);
@@ -380,7 +387,8 @@ mod tests {
     #[test]
     fn test_set_cell_format_single() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0))
+            .unwrap();
 
         let result = handle_set_cell_format(
             &mut wb,
@@ -434,14 +442,13 @@ mod tests {
     #[test]
     fn test_merge_cells() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("main".into())).unwrap();
-        wb.set_cell("Sheet1", 0, 1, CellValue::Text("cleared".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("main".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Text("cleared".into()))
+            .unwrap();
 
-        let result = handle_merge_cells(
-            &mut wb,
-            json!({"sheet": "Sheet1", "range": "A1:B2"}),
-        )
-        .unwrap();
+        let result =
+            handle_merge_cells(&mut wb, json!({"sheet": "Sheet1", "range": "A1:B2"})).unwrap();
 
         assert_eq!(result["success"], true);
 
@@ -461,11 +468,8 @@ mod tests {
         sheet.merge_cells(0, 0, 1, 1).unwrap();
         assert_eq!(sheet.merged_regions().len(), 1);
 
-        let result = handle_unmerge_cells(
-            &mut wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result =
+            handle_unmerge_cells(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert_eq!(result["success"], true);
         assert_eq!(result["was_merged"], true);
@@ -477,11 +481,8 @@ mod tests {
     fn test_unmerge_not_merged() {
         let mut wb = Workbook::new();
 
-        let result = handle_unmerge_cells(
-            &mut wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result =
+            handle_unmerge_cells(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert_eq!(result["success"], true);
         assert_eq!(result["was_merged"], false);
