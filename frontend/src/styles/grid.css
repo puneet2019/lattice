@@ -163,6 +163,14 @@ body,
   font-size: 11px;
   color: var(--header-text);
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-brand-logo {
+  height: 18px;
+  width: 18px;
 }
 
 /* Toolbar dropdown menus */

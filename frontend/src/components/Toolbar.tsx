@@ -397,7 +397,10 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
       <div class="toolbar-separator" />
 
-      <span class="toolbar-brand">Lattice</span>
+      <span class="toolbar-brand">
+        <img src="/logo.svg" alt="Lattice" class="toolbar-brand-logo" />
+        Lattice
+      </span>
     </div>
   );
 };
