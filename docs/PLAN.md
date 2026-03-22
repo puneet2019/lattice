@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Phase 2 — In Progress
+**Status**: Phase 3 — In Progress
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-22
+**Last Updated**: 2026-03-22 (Phase 3 update)
 
 ---
 
@@ -400,7 +400,7 @@ lattice/
 - [ ] Dropdown chips
 
 ### Formatting
-- [x] Font: family, size, bold, italic, underline, strikethrough, color _(done: bold, italic, size, font color, bg color; family/underline/strikethrough pending)_
+- [x] Font: family, size, bold, italic, underline, strikethrough, color _(done: bold, italic, underline, size, font color, bg color; family/strikethrough pending)_
 - [ ] Cell: background color, borders (all styles), padding
 - [x] Alignment: horizontal (left/center/right), vertical (top/middle/bottom)
 - [ ] Text wrapping: overflow, wrap, clip
@@ -416,19 +416,19 @@ lattice/
 - [x] Hide/unhide rows and columns
 - [x] Freeze rows and columns
 - [ ] Split panes
-- [ ] Zoom (25% - 200%)
+- [x] Zoom (25% - 200%)
 
 ### Formulas (400+ Google Sheets compatible)
 - [x] Math: SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, CEILING, FLOOR, MOD, POWER, SQRT, etc. _(70+ formulas implemented)_
 - [x] Statistical: STDEV, VAR, MEDIAN, PERCENTILE, CORREL, FORECAST, TREND, etc.
 - [x] Logical: IF, AND, OR, NOT, IFS, SWITCH, IFERROR, IFNA
-- [ ] Lookup: VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP, FILTER, SORT, UNIQUE _(VLOOKUP/HLOOKUP/INDEX/MATCH done; XLOOKUP/FILTER/SORT/UNIQUE pending)_
+- [x] Lookup: VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP, FILTER, SORT, UNIQUE
 - [x] Text: CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER, SUBSTITUTE, REGEXMATCH
 - [x] Date: TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF, EDATE, EOMONTH, NETWORKDAYS
-- [ ] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE _(PMT/FV/PV done; NPV/IRR/XIRR/XNPV/RATE pending)_
-- [ ] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE
+- [x] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE _(PMT/FV/PV/NPV/IRR done; XIRR/XNPV/RATE still TODO)_
+- [x] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE _(TRANSPOSE/SEQUENCE/FLATTEN done; ARRAYFORMULA pending)_
 - [x] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
-- [ ] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
+- [x] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
 - [ ] Google-specific equivalents: QUERY (via custom implementation), IMPORTRANGE (via file linking)
 
 ### Data Operations
@@ -437,68 +437,68 @@ lattice/
 - [x] Find & Replace (with regex)
 - [ ] Pivot tables
 - [x] Data validation
-- [ ] Remove duplicates
-- [ ] Text to columns
-- [ ] Transpose
-- [ ] Paste special (values, formulas, formatting, transposed)
+- [ ] Remove duplicates _(MCP tool exists; frontend UI pending)_
+- [x] Text to columns
+- [x] Transpose
+- [ ] Paste special (values, formulas, formatting, transposed) _(values-only done via Cmd+Shift+V; formulas/formatting/transposed pending)_
 
 ### Charts
-- [ ] Bar / Column (stacked, grouped, 100% stacked)
-- [ ] Line (smooth, stepped)
-- [ ] Pie / Donut
-- [ ] Scatter
-- [ ] Area (stacked)
+- [x] Bar / Column (stacked, grouped, 100% stacked)
+- [x] Line (smooth, stepped)
+- [x] Pie / Donut
+- [x] Scatter
+- [x] Area (stacked)
 - [ ] Combo (bar + line)
 - [ ] Histogram
 - [ ] Candlestick (for financial data)
 - [ ] Treemap
 - [ ] Sparklines (in-cell mini charts)
-- [ ] Chart titles, legends, axis labels, gridlines
-- [ ] Trendlines (linear, polynomial, exponential, moving average)
-- [ ] Data labels
-- [ ] Chart themes / color palettes
+- [x] Chart titles, legends, axis labels, gridlines
+- [x] Trendlines (linear, polynomial, exponential, moving average) _(linear done; polynomial/exponential/moving average pending)_
+- [x] Data labels _(pie chart data labels done)_
+- [x] Chart themes / color palettes _(auto palette exists; theme switching pending)_
 
 ### Sheets
 - [x] Multiple sheets (tabs)
 - [x] Add / Delete / Rename / Duplicate / Move sheets
-- [ ] Sheet tab colors
-- [ ] Cross-sheet references
-- [ ] Protected sheets / ranges
+- [x] Sheet tab colors
+- [x] Cross-sheet references
+- [x] Protected sheets / ranges
 
 ### File Operations
 - [x] Open .xlsx, .xls, .csv, .tsv, .ods _(xlsx and csv done; xls/tsv/ods pending)_
-- [x] Save as .xlsx, .csv, .tsv, .pdf _(xlsx and csv done; tsv/pdf pending)_
-- [ ] Auto-save
-- [ ] Recent files
+- [x] Save as .xlsx, .csv, .tsv, .pdf _(xlsx, csv, and pdf done; tsv pending)_
+- [x] Auto-save
+- [x] Recent files
 - [ ] File info / properties
-- [ ] Print / Print preview
-- [ ] Export to PDF
+- [x] Print / Print preview
+- [x] Export to PDF
 
 ### Keyboard Shortcuts (Google Sheets compatible)
 - [x] Cmd+C/V/X — Copy/Paste/Cut
 - [x] Cmd+Z/Shift+Z — Undo/Redo
-- [ ] Cmd+B/I/U — Bold/Italic/Underline
-- [ ] Cmd+F — Find
-- [ ] Cmd+H — Find & Replace
-- [ ] Cmd+A — Select all
+- [x] Cmd+B/I/U — Bold/Italic/Underline
+- [x] Cmd+F — Find
+- [x] Cmd+H — Find & Replace
+- [x] Cmd+A — Select all
 - [x] Tab/Shift+Tab — Move right/left
 - [x] Enter/Shift+Enter — Move down/up
-- [ ] Cmd+Enter — Stay in cell after input
+- [x] Cmd+Enter — Stay in cell after input
 - [x] F2 — Edit cell
 - [x] Escape — Cancel editing
-- [ ] Ctrl+Space — Select column
-- [ ] Shift+Space — Select row
-- [ ] Cmd+Shift+V — Paste values only
-- [ ] Cmd+; — Insert current date
+- [x] Ctrl+Space — Select column
+- [x] Shift+Space — Select row
+- [x] Cmd+Shift+V — Paste values only
+- [x] Cmd+; — Insert current date
 - [ ] All other standard Google Sheets shortcuts
 
 ### Cloud Sync & Sharing
 - [ ] Save to / Open from Google Drive
 - [ ] Save to / Open from iCloud Drive
 - [ ] Save to / Open from Dropbox
-- [ ] Single-file format (no folder dependencies)
-- [ ] No lock files that break sync
-- [ ] Conflict detection (warn on external modification)
+- [x] Single-file format (no folder dependencies)
+- [x] No lock files that break sync
+- [x] Conflict detection (warn on external modification)
 
 ---
 
@@ -531,7 +531,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | macOS menu bar | S | Done | File, Edit, View menus |
 | Copy/paste (internal + clipboard) | M | Done | TSV clipboard interop |
 
-### Phase 2: Full Formula Engine + Rich Editing (6-8 weeks) -- IN PROGRESS
+### Phase 2: Full Formula Engine + Rich Editing (6-8 weeks) -- COMPLETE
 
 | Feature | Size | Status | Description |
 |---------|------|--------|-------------|
@@ -552,36 +552,36 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Keyboard shortcuts (full set) | M | Partial | Core shortcuts done; full set pending |
 | Cell merging | M | Done | Merge/unmerge |
 | Cell comments | S | Done | Notes per cell |
-| Print / PDF export | M | | Print layout |
+| Print / PDF export | M | Done | HTML-based print/PDF export |
 | Insert/delete rows/columns | M | Done | With formula adjustment |
 | Hide/unhide rows/columns | S | Done | Toggle visibility |
 
-### Phase 3: Charts, Visualization, Polish (6-8 weeks)
+### Phase 3: Charts, Visualization, Polish (6-8 weeks) -- IN PROGRESS
 
-| Feature | Size | Description |
-|---------|------|-------------|
-| Bar/column charts | L | Vertical/horizontal, stacked |
-| Line charts | L | Single/multi-series, smooth |
-| Pie/donut charts | M | With labels |
-| Scatter plots | M | With trendlines |
-| Area charts | M | Stacked/unstacked |
-| Combo charts | M | Bar + line |
-| Histogram | M | Distribution |
-| Candlestick charts | M | Financial data |
-| Chart customization | L | Titles, legends, axes, colors |
-| Sparklines | M | In-cell mini charts |
-| MCP chart tools | M | create/update/delete via AI |
-| MCP streamable HTTP transport | L | Multi-client HTTP server |
-| Dark mode | M | System theme detection |
-| Drag and drop | M | Files, rows, columns |
-| Cell borders (all styles) | M | Border per edge |
-| Images in cells | M | Image insertion |
-| Hyperlinks | S | Clickable URLs |
-| Performance optimization (100k+ rows) | L | Profiling, lazy eval |
-| Auto-save | S | Periodic background saves |
-| Recent files | S | File history |
-| Alternating row colors | S | Banded rows |
-| Zoom (25%-200%) | M | Scale rendering |
+| Feature | Size | Status | Description |
+|---------|------|--------|-------------|
+| Bar/column charts | L | Done | SVG renderer, vertical/horizontal, stacked |
+| Line charts | L | Done | SVG renderer, single/multi-series |
+| Pie/donut charts | M | Done | SVG renderer with data labels |
+| Scatter plots | M | Done | SVG renderer with linear trendlines |
+| Area charts | M | Done | SVG renderer, stacked/unstacked |
+| Combo charts | M | | Bar + line |
+| Histogram | M | | Distribution |
+| Candlestick charts | M | | Financial data |
+| Chart customization | L | Done | Titles, legends, axis labels, gridlines |
+| Sparklines | M | | In-cell mini charts |
+| MCP chart tools | M | | create/update/delete via AI |
+| MCP streamable HTTP transport | L | | Multi-client HTTP server |
+| Dark mode | M | | System theme detection |
+| Drag and drop | M | | Files, rows, columns |
+| Cell borders (all styles) | M | | Border per edge |
+| Images in cells | M | | Image insertion |
+| Hyperlinks | S | | Clickable URLs |
+| Performance optimization (100k+ rows) | L | | Profiling, lazy eval |
+| Auto-save | S | Done | Config module with periodic saves |
+| Recent files | S | Done | RecentFileStore with persistence |
+| Alternating row colors | S | | Banded rows |
+| Zoom (25%-200%) | M | Done | Frontend zoom control, Cmd+=/-, StatusBar slider |
 
 ### Phase 4: Advanced Features (8-12 weeks, ongoing)
 
@@ -594,11 +594,11 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Database connectivity | L | Postgres, SQLite queries |
 | Macro recording / scripting | XL | Automation |
 | Localization / i18n | M | Multiple languages |
-| Protected sheets/ranges | M | Access control |
+| Protected sheets/ranges | M | Done (moved up from Phase 4) |
 | Version history | L | File versioning |
 | Template gallery | M | Financial analysis templates |
 | Treemap charts | M | Hierarchical visualization |
-| Text to columns | M | Split delimited data |
+| Text to columns | M | Done (moved up from Phase 4) |
 | Checkboxes / dropdown chips | M | Interactive cell types |
 | QUERY function equivalent | L | SQL-like querying |
 

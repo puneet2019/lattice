@@ -4,7 +4,56 @@ All notable additions and modifications to the project plan.
 
 For obvious/minor edits, update `PLAN.md` directly. For significant additions, scope changes, or architectural decisions, log them here.
 
-## [2026-03-22] Phase 1 Complete, Phase 2 In Progress — Checklist Update
+## [2026-03-22] Phase 2 Complete, Phase 3 In Progress — Major Checklist Update
+
+Updated `PLAN.md` status from "Phase 2 — In Progress" to "Phase 3 — In Progress". Phase 2 is now fully complete. Significant Phase 3 progress recorded.
+
+### Phase 2 — Now Complete (all 20 items done)
+- Print / PDF export: HTML-based print and PDF export implemented (was the last remaining item)
+- Keyboard shortcuts expanded: Cmd+B/I/U, Cmd+F, Cmd+H, Cmd+A, Cmd+Enter, Ctrl+Space, Shift+Space, Cmd+Shift+V, Cmd+;
+
+### Phase 3 Charts — 8 of 22 items done
+- Bar/Column charts: SVG renderer done
+- Line charts: SVG renderer done
+- Pie/Donut charts: SVG renderer done with data labels
+- Scatter plots: SVG renderer done with linear trendlines
+- Area charts: SVG renderer done
+- Chart customization: titles, legends, axis labels, gridlines all done
+- Auto-save: config module with periodic saves
+- Recent files: RecentFileStore with persistence
+- Zoom (25%-200%): frontend zoom control with Cmd+=/- and StatusBar slider
+
+### Formula engine progress
+- Lookup: XLOOKUP, FILTER, SORT, UNIQUE now implemented (all lookup functions complete)
+- Financial: NPV, IRR now implemented (XIRR/XNPV/RATE still TODO)
+- Array: TRANSPOSE, SEQUENCE, FLATTEN implemented (ARRAYFORMULA pending)
+- Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN all implemented
+- REGEXMATCH: confirmed implemented
+
+### Additional completed features (pulled forward from later phases)
+- Sheet tab colors
+- Cross-sheet references (Sheet2!A1 syntax)
+- Protected sheets/ranges (with password, protected ranges) — originally Phase 4
+- Text to columns — originally Phase 4
+- Conflict detection (FileWatcher with SHA-256 hash checking)
+- Single-file format (xlsx, no folder dependencies)
+- No lock files that break sync
+
+### Section 6 checklist summary (Google Sheets parity)
+- Cell & Data: 5/12 done
+- Formatting: 4/8 done
+- Layout: 6/7 done (Zoom now done; only Split panes remaining)
+- Formulas: 10/11 categories done or partial (only Google-specific equivalents remaining)
+- Data Operations: 6/9 done (Text to columns, Transpose now done)
+- Charts: 8/14 done
+- Sheets: 5/5 done
+- File Operations: 6/7 done (only File info/properties remaining)
+- Keyboard Shortcuts: 14/16 done
+- Cloud Sync: 3/6 done (format/lockfile/conflict detection done; API integration pending)
+
+---
+
+## [2026-03-22] Phase 1 Complete, Phase 2 In Progress — Checklist Update (earlier)
 
 Updated `PLAN.md` status from "Planning" to "Phase 2 — In Progress" and marked completed items across Sections 6 and 7.
 
