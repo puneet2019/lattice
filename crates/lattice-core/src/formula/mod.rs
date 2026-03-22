@@ -1,6 +1,7 @@
 pub mod dependency;
 pub mod evaluator;
 pub mod parser;
+pub mod query;
 
 use crate::cell::CellValue;
 use crate::error::Result;
