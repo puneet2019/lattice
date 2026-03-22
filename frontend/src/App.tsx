@@ -13,6 +13,7 @@ import type { ChartOverlay } from './components/Charts/ChartContainer';
 import ChartDialog from './components/Charts/ChartDialog';
 import PasteSpecialDialog from './components/PasteSpecialDialog';
 import type { PasteMode } from './components/PasteSpecialDialog';
+import FormatCellsDialog from './components/FormatCellsDialog';
 import {
   listSheets,
   addSheet,
@@ -29,6 +30,8 @@ import {
   undo as tauriUndo,
   redo as tauriRedo,
   listCharts,
+  setSheetTabColor,
+  moveSheet,
 } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
@@ -60,6 +63,7 @@ const App: Component = () => {
   const [underlineActive, setUnderlineActive] = createSignal(false);
   const [currentFontFamily, setCurrentFontFamily] = createSignal('Arial');
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
+  const [tabColors, setTabColors] = createSignal<Record<string, string>>({});
   const [frozenRows, setFrozenRows] = createSignal(0);
   const [frozenCols, setFrozenCols] = createSignal(0);
   const [splitRow, setSplitRow] = createSignal(0);
@@ -263,6 +267,34 @@ const App: Component = () => {
     } catch (e) {
       setStatusMessage(`Duplicate failed: ${e}`);
     }
+  };
+
+  const handleTabColorChange = async (name: string, color: string | null) => {
+    try {
+      await setSheetTabColor(name, color);
+    } catch {
+      // Backend may not support this yet
+    }
+    if (color) {
+      setTabColors({ ...tabColors(), [name]: color });
+    } else {
+      const next = { ...tabColors() };
+      delete next[name];
+      setTabColors(next);
+    }
+  };
+
+  const handleMoveSheet = async (name: string, toIndex: number) => {
+    try {
+      await moveSheet(name, toIndex);
+    } catch {
+      // Backend may not support this yet
+    }
+    // Reorder locally
+    const current = sheets().filter((s) => s !== name);
+    const clamped = Math.max(0, Math.min(toIndex, current.length));
+    current.splice(clamped, 0, name);
+    setSheets(current);
   };
 
   const handleSelectionChange = (row: number, col: number) => {
@@ -533,6 +565,7 @@ const App: Component = () => {
   // Paste special state
   // -------------------------------------------------------------------
 
+  const [showFormatCells, setShowFormatCells] = createSignal(false);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
 
@@ -647,6 +680,7 @@ const App: Component = () => {
           onPasteSpecialDone={handlePasteSpecialDone}
           findMatches={findMatches()}
           findActiveIndex={findActiveIndex()}
+          onFormatCellsOpen={() => setShowFormatCells(true)}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -660,6 +694,18 @@ const App: Component = () => {
           activeSheet={activeSheetName()}
           onInsert={handleChartInserted}
           onClose={handleChartDialogClose}
+        />
+      </Show>
+      <Show when={showFormatCells()}>
+        <FormatCellsDialog
+          onApply={(format) => {
+            const [row, col] = selectedCell();
+            formatCells(activeSheetName(), row, col, row, col, format).catch(() => {});
+            setRefreshTrigger((n) => n + 1);
+            setShowFormatCells(false);
+            setStatusMessage('Format applied');
+          }}
+          onClose={() => setShowFormatCells(false)}
         />
       </Show>
       <Show when={showPasteSpecial()}>
@@ -676,6 +722,9 @@ const App: Component = () => {
         onRenameSheet={handleRenameSheet}
         onDeleteSheet={handleDeleteSheet}
         onDuplicateSheet={handleDuplicateSheet}
+        onTabColorChange={handleTabColorChange}
+        onMoveSheet={handleMoveSheet}
+        tabColors={tabColors()}
       />
       <StatusBar
         message={statusMessage()}

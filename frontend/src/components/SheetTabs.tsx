@@ -9,21 +9,34 @@ export interface SheetTabsProps {
   onRenameSheet: (oldName: string, newName: string) => void;
   onDeleteSheet: (name: string) => void;
   onDuplicateSheet: (name: string) => void;
+  onTabColorChange?: (name: string, color: string | null) => void;
+  onMoveSheet?: (name: string, toIndex: number) => void;
+  /** Tab colors keyed by sheet name. */
+  tabColors?: Record<string, string>;
 }
+
+const TAB_PRESET_COLORS = [
+  '#e06666', '#f6b26b', '#ffd966', '#93c47d', '#6fa8dc', '#8e7cc3', '#c27ba0', null,
+];
 
 const SheetTabs: Component<SheetTabsProps> = (props) => {
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number; sheet: string } | null>(null);
   const [renamingSheet, setRenamingSheet] = createSignal<string | null>(null);
   const [renameValue, setRenameValue] = createSignal('');
+  const [showColorPicker, setShowColorPicker] = createSignal(false);
 
   let renameInputRef: HTMLInputElement | undefined;
 
   const handleContextMenu = (e: MouseEvent, name: string) => {
     e.preventDefault();
+    setShowColorPicker(false);
     setContextMenu({ x: e.clientX, y: e.clientY, sheet: name });
   };
 
-  const closeContextMenu = () => setContextMenu(null);
+  const closeContextMenu = () => {
+    setContextMenu(null);
+    setShowColorPicker(false);
+  };
 
   const handleDoubleClick = (name: string) => {
     setRenamingSheet(name);
@@ -59,23 +72,47 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
     const menu = contextMenu();
     if (!menu) return;
     const sheet = menu.sheet;
-    closeContextMenu();
 
     switch (action) {
       case 'rename':
+        closeContextMenu();
         handleDoubleClick(sheet);
         break;
       case 'delete':
+        closeContextMenu();
         if (props.sheets.length > 1) {
           props.onDeleteSheet(sheet);
         }
         break;
       case 'duplicate':
+        closeContextMenu();
         props.onDuplicateSheet(sheet);
+        break;
+      case 'color':
+        setShowColorPicker(!showColorPicker());
+        break;
+      case 'move-start':
+        closeContextMenu();
+        props.onMoveSheet?.(sheet, 0);
+        break;
+      case 'move-end':
+        closeContextMenu();
+        props.onMoveSheet?.(sheet, props.sheets.length - 1);
         break;
       default:
         break;
     }
+  };
+
+  const handleColorSelect = (color: string | null) => {
+    const menu = contextMenu();
+    if (!menu) return;
+    props.onTabColorChange?.(menu.sheet, color);
+    closeContextMenu();
+  };
+
+  const getTabColor = (name: string): string | undefined => {
+    return props.tabColors?.[name];
   };
 
   return (
@@ -85,33 +122,41 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
       </button>
       <div class="sheet-tabs-list">
         <For each={props.sheets}>
-          {(name) => (
-            <div
-              class={`sheet-tab ${name === props.activeSheet ? 'active' : ''}`}
-              onClick={() => {
-                if (renamingSheet() !== name) {
-                  props.onSelectSheet(name);
-                }
-              }}
-              onDblClick={() => handleDoubleClick(name)}
-              onContextMenu={(e) => handleContextMenu(e, name)}
-            >
-              {renamingSheet() === name ? (
-                <input
-                  ref={renameInputRef}
-                  class="sheet-tab-rename-input"
-                  type="text"
-                  value={renameValue()}
-                  onInput={(e) => setRenameValue(e.currentTarget.value)}
-                  onKeyDown={handleRenameKeyDown}
-                  onBlur={commitRename}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <span>{name}</span>
-              )}
-            </div>
-          )}
+          {(name) => {
+            const tabColor = () => getTabColor(name);
+            return (
+              <div
+                class={`sheet-tab ${name === props.activeSheet ? 'active' : ''}`}
+                onClick={() => {
+                  if (renamingSheet() !== name) {
+                    props.onSelectSheet(name);
+                  }
+                }}
+                onDblClick={() => handleDoubleClick(name)}
+                onContextMenu={(e) => handleContextMenu(e, name)}
+                style={{
+                  ...(tabColor() ? {
+                    "border-bottom": `3px solid ${tabColor()}`,
+                  } : {}),
+                }}
+              >
+                {renamingSheet() === name ? (
+                  <input
+                    ref={renameInputRef}
+                    class="sheet-tab-rename-input"
+                    type="text"
+                    value={renameValue()}
+                    onInput={(e) => setRenameValue(e.currentTarget.value)}
+                    onKeyDown={handleRenameKeyDown}
+                    onBlur={commitRename}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span>{name}</span>
+                )}
+              </div>
+            );
+          }}
         </For>
       </div>
 
@@ -131,6 +176,33 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
             </div>
             <div class="context-menu-item" onClick={() => handleMenuAction('duplicate')}>
               Duplicate
+            </div>
+            <div class="context-menu-separator" />
+            <div class="context-menu-item" onClick={() => handleMenuAction('color')}>
+              Change color
+            </div>
+            <Show when={showColorPicker()}>
+              <div class="sheet-tab-color-picker">
+                <For each={TAB_PRESET_COLORS}>
+                  {(color) => (
+                    <div
+                      class="sheet-tab-color-swatch"
+                      style={{ background: color ?? 'transparent' }}
+                      onClick={() => handleColorSelect(color)}
+                      title={color ?? 'No color'}
+                    >
+                      {color === null && <span style={{ "font-size": "8px", color: 'var(--header-text)' }}>X</span>}
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="context-menu-separator" />
+            <div class="context-menu-item" onClick={() => handleMenuAction('move-start')}>
+              Move to beginning
+            </div>
+            <div class="context-menu-item" onClick={() => handleMenuAction('move-end')}>
+              Move to end
             </div>
             <div class="context-menu-separator" />
             <div
