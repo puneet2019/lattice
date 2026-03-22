@@ -355,6 +355,8 @@ const App: Component = () => {
     const [row, col] = selectedCell();
     try {
       await formatCells(activeSheetName(), row, col, row, col, format);
+      // Refresh the grid so the canvas re-fetches and renders the new format.
+      setRefreshTrigger((n) => n + 1);
     } catch {
       // Ignore in browser dev mode — command may not exist yet.
     }
