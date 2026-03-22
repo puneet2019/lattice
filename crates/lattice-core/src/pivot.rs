@@ -312,3 +312,351 @@ fn cell_value_sort_key(value: &CellValue) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cell::CellValue;
+    use crate::selection::CellRef;
+    use crate::workbook::Workbook;
+
+    /// Helper: create a workbook with a "Data" sheet populated with sales data.
+    ///
+    /// Layout (row 0 is header):
+    /// | Region | Product | Amount |
+    /// | East   | Widget  | 100    |
+    /// | West   | Gadget  | 200    |
+    /// | East   | Widget  | 150    |
+    /// | West   | Widget  | 300    |
+    /// | East   | Gadget  | 50     |
+    fn sales_workbook() -> Workbook {
+        let mut wb = Workbook::new();
+        wb.add_sheet("Data").unwrap();
+
+        let s = wb.get_sheet_mut("Data").unwrap();
+        // Header row
+        s.set_value(0, 0, CellValue::Text("Region".into()));
+        s.set_value(0, 1, CellValue::Text("Product".into()));
+        s.set_value(0, 2, CellValue::Text("Amount".into()));
+        // Data rows
+        s.set_value(1, 0, CellValue::Text("East".into()));
+        s.set_value(1, 1, CellValue::Text("Widget".into()));
+        s.set_value(1, 2, CellValue::Number(100.0));
+
+        s.set_value(2, 0, CellValue::Text("West".into()));
+        s.set_value(2, 1, CellValue::Text("Gadget".into()));
+        s.set_value(2, 2, CellValue::Number(200.0));
+
+        s.set_value(3, 0, CellValue::Text("East".into()));
+        s.set_value(3, 1, CellValue::Text("Widget".into()));
+        s.set_value(3, 2, CellValue::Number(150.0));
+
+        s.set_value(4, 0, CellValue::Text("West".into()));
+        s.set_value(4, 1, CellValue::Text("Widget".into()));
+        s.set_value(4, 2, CellValue::Number(300.0));
+
+        s.set_value(5, 0, CellValue::Text("East".into()));
+        s.set_value(5, 1, CellValue::Text("Gadget".into()));
+        s.set_value(5, 2, CellValue::Number(50.0));
+
+        wb
+    }
+
+    fn full_range() -> Range {
+        Range {
+            start: CellRef { row: 0, col: 0 },
+            end: CellRef { row: 5, col: 2 },
+        }
+    }
+
+    #[test]
+    fn test_pivot_group_by_region_sum_amount() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0], // Region
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 2,
+                aggregation: PivotAggregation::Sum,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers, vec!["Region", "Sum of Amount"]);
+        assert_eq!(result.rows.len(), 2); // East, West
+
+        // BTreeMap sorts keys: East < West
+        assert_eq!(result.rows[0][0], CellValue::Text("East".into()));
+        assert_eq!(result.rows[0][1], CellValue::Number(300.0)); // 100+150+50
+
+        assert_eq!(result.rows[1][0], CellValue::Text("West".into()));
+        assert_eq!(result.rows[1][1], CellValue::Number(500.0)); // 200+300
+    }
+
+    #[test]
+    fn test_pivot_multi_field_group_average() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0, 1], // Region + Product
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 2,
+                aggregation: PivotAggregation::Average,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers, vec!["Region", "Product", "Average of Amount"]);
+        // Groups: (East, Gadget), (East, Widget), (West, Gadget), (West, Widget)
+        assert_eq!(result.rows.len(), 4);
+
+        // East Gadget: avg(50) = 50
+        assert_eq!(result.rows[0][0], CellValue::Text("East".into()));
+        assert_eq!(result.rows[0][1], CellValue::Text("Gadget".into()));
+        assert_eq!(result.rows[0][2], CellValue::Number(50.0));
+
+        // East Widget: avg(100, 150) = 125
+        assert_eq!(result.rows[1][0], CellValue::Text("East".into()));
+        assert_eq!(result.rows[1][1], CellValue::Text("Widget".into()));
+        assert_eq!(result.rows[1][2], CellValue::Number(125.0));
+
+        // West Gadget: avg(200) = 200
+        assert_eq!(result.rows[2][2], CellValue::Number(200.0));
+
+        // West Widget: avg(300) = 300
+        assert_eq!(result.rows[3][2], CellValue::Number(300.0));
+    }
+
+    #[test]
+    fn test_pivot_count_aggregation() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0], // Region
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 2,
+                aggregation: PivotAggregation::Count,
+                label: Some("Row Count".into()),
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers, vec!["Region", "Row Count"]);
+        // East: 3 rows, West: 2 rows
+        assert_eq!(result.rows[0][1], CellValue::Number(3.0));
+        assert_eq!(result.rows[1][1], CellValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_pivot_count_distinct() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0], // Region
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 1, // Product
+                aggregation: PivotAggregation::CountDistinct,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        // East has Widget + Gadget = 2 distinct products
+        assert_eq!(result.rows[0][1], CellValue::Number(2.0));
+        // West has Gadget + Widget = 2 distinct products
+        assert_eq!(result.rows[1][1], CellValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_pivot_min_max() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0], // Region
+            col_fields: vec![],
+            value_fields: vec![
+                PivotValue {
+                    source_col: 2,
+                    aggregation: PivotAggregation::Min,
+                    label: None,
+                },
+                PivotValue {
+                    source_col: 2,
+                    aggregation: PivotAggregation::Max,
+                    label: None,
+                },
+            ],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers.len(), 3); // Region, Min, Max
+        // East: min=50, max=150
+        assert_eq!(result.rows[0][1], CellValue::Number(50.0));
+        assert_eq!(result.rows[0][2], CellValue::Number(150.0));
+        // West: min=200, max=300
+        assert_eq!(result.rows[1][1], CellValue::Number(200.0));
+        assert_eq!(result.rows[1][2], CellValue::Number(300.0));
+    }
+
+    #[test]
+    fn test_pivot_empty_data() {
+        let mut wb = Workbook::new();
+        wb.add_sheet("Empty").unwrap();
+        let s = wb.get_sheet_mut("Empty").unwrap();
+        s.set_value(0, 0, CellValue::Text("Name".into()));
+        s.set_value(0, 1, CellValue::Text("Value".into()));
+        // No data rows
+
+        let config = PivotConfig {
+            source_sheet: "Empty".into(),
+            source_range: Range {
+                start: CellRef { row: 0, col: 0 },
+                end: CellRef { row: 0, col: 1 },
+            },
+            row_fields: vec![0],
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 1,
+                aggregation: PivotAggregation::Sum,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Sum of Value"]);
+        assert!(result.rows.is_empty());
+    }
+
+    #[test]
+    fn test_pivot_single_row() {
+        let mut wb = Workbook::new();
+        wb.add_sheet("One").unwrap();
+        let s = wb.get_sheet_mut("One").unwrap();
+        s.set_value(0, 0, CellValue::Text("Category".into()));
+        s.set_value(0, 1, CellValue::Text("Value".into()));
+        s.set_value(1, 0, CellValue::Text("A".into()));
+        s.set_value(1, 1, CellValue::Number(42.0));
+
+        let config = PivotConfig {
+            source_sheet: "One".into(),
+            source_range: Range {
+                start: CellRef { row: 0, col: 0 },
+                end: CellRef { row: 1, col: 1 },
+            },
+            row_fields: vec![0],
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 1,
+                aggregation: PivotAggregation::Sum,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0][0], CellValue::Text("A".into()));
+        assert_eq!(result.rows[0][1], CellValue::Number(42.0));
+    }
+
+    #[test]
+    fn test_pivot_sheet_not_found() {
+        let wb = Workbook::new();
+        let config = PivotConfig {
+            source_sheet: "NonExistent".into(),
+            source_range: full_range(),
+            row_fields: vec![0],
+            col_fields: vec![],
+            value_fields: vec![],
+        };
+
+        let result = generate_pivot(&wb, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pivot_field_out_of_range() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![10], // out of range
+            col_fields: vec![],
+            value_fields: vec![],
+        };
+
+        let result = generate_pivot(&wb, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pivot_value_field_out_of_range() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0],
+            col_fields: vec![],
+            value_fields: vec![PivotValue {
+                source_col: 99,
+                aggregation: PivotAggregation::Sum,
+                label: None,
+            }],
+        };
+
+        let result = generate_pivot(&wb, &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pivot_multiple_value_fields() {
+        let wb = sales_workbook();
+        let config = PivotConfig {
+            source_sheet: "Data".into(),
+            source_range: full_range(),
+            row_fields: vec![0],
+            col_fields: vec![],
+            value_fields: vec![
+                PivotValue {
+                    source_col: 2,
+                    aggregation: PivotAggregation::Sum,
+                    label: Some("Total".into()),
+                },
+                PivotValue {
+                    source_col: 2,
+                    aggregation: PivotAggregation::Count,
+                    label: Some("Rows".into()),
+                },
+                PivotValue {
+                    source_col: 2,
+                    aggregation: PivotAggregation::Average,
+                    label: Some("Avg".into()),
+                },
+            ],
+        };
+
+        let result = generate_pivot(&wb, &config).unwrap();
+
+        assert_eq!(result.headers, vec!["Region", "Total", "Rows", "Avg"]);
+        // East: sum=300, count=3, avg=100
+        assert_eq!(result.rows[0][1], CellValue::Number(300.0));
+        assert_eq!(result.rows[0][2], CellValue::Number(3.0));
+        assert_eq!(result.rows[0][3], CellValue::Number(100.0));
+    }
+}
