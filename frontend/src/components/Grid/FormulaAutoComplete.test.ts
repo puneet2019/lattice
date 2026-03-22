@@ -47,11 +47,11 @@ describe('filterFormulaFunctions', () => {
     expect(names).toContain('SUMPRODUCT');
   });
 
-  it('returns exact matches only at prefix', () => {
+  it('includes exact match and longer matches', () => {
     const results = filterFormulaFunctions('SUM');
     const names = results.map((f) => f.name);
-    // SUM itself should NOT be included (exact match excluded)
-    expect(names).not.toContain('SUM');
+    // SUM itself should be included (exact match shown like Google Sheets)
+    expect(names).toContain('SUM');
     expect(names).toContain('SUMIF');
     expect(names).toContain('SUMIFS');
     expect(names).toContain('SUMPRODUCT');

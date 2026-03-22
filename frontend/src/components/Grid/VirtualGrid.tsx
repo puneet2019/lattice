@@ -1235,8 +1235,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   // Fill handle constants
-  const FILL_HANDLE_SIZE = 6;
-  const FILL_HANDLE_HIT_SIZE = 10; // larger hit area for easier clicking
+  const FILL_HANDLE_SIZE = 8;
+  const FILL_HANDLE_HIT_SIZE = 16; // larger hit area for easier clicking
 
   function drawSelection(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
     const range = getSelectionRange();
@@ -1887,8 +1887,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const range = getSelectionRange();
     const sx = effectiveScrollX(localX);
     const sy = effectiveScrollY(localY);
-    const handleCenterX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx;
-    const handleCenterY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy;
+    // Handle is drawn at the bottom-right corner of the selection, offset by half size
+    const handleCenterX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx - FILL_HANDLE_SIZE / 2;
+    const handleCenterY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy - FILL_HANDLE_SIZE / 2;
     return (
       Math.abs(localX - handleCenterX) <= FILL_HANDLE_HIT_SIZE / 2 &&
       Math.abs(localY - handleCenterY) <= FILL_HANDLE_HIT_SIZE / 2

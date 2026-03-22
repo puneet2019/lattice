@@ -151,6 +151,6 @@ export function extractCurrentToken(formula: string): string {
 export function filterFormulaFunctions(token: string): FormulaFunction[] {
   if (!token || token.length === 0) return [];
   const upper = token.toUpperCase();
-  return FORMULA_FUNCTIONS.filter((f) => f.name.startsWith(upper) && f.name !== upper)
+  return FORMULA_FUNCTIONS.filter((f) => f.name.startsWith(upper))
     .slice(0, 8); // limit to 8 suggestions
 }
