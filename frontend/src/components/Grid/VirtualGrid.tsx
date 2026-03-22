@@ -2711,38 +2711,66 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onStatusChange(`Inserted time: ${timeStr}`);
         return;
       }
-      // Cmd+D: fill down (copy cell above into selected cell)
+      // Cmd+D: fill down — copy first row of selection into all rows below
       if (e.key === 'd' && !e.shiftKey) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        if (row > 0) {
-          const above = cellCache.get(`${row - 1}:${col}`);
-          const value = above?.formula ? `=${above.formula}` : above?.value ?? '';
-          const formula = above?.formula ?? undefined;
-          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+        const range = getSelectionRange();
+        const promises: Promise<void>[] = [];
+        for (let c = range.minCol; c <= range.maxCol; c++) {
+          const source = cellCache.get(`${range.minRow}:${c}`);
+          const value = source?.formula ? `=${source.formula}` : source?.value ?? '';
+          const formula = source?.formula ?? undefined;
+          for (let r = range.minRow + 1; r <= range.maxRow; r++) {
+            promises.push(
+              setCell(props.activeSheet, r, c, value, formula).catch(() => {}),
+            );
+          }
+          // If single row selected and there's a row above, fill from above
+          if (range.minRow === range.maxRow && range.minRow > 0) {
+            const above = cellCache.get(`${range.minRow - 1}:${c}`);
+            const aboveVal = above?.formula ? `=${above.formula}` : above?.value ?? '';
+            const aboveFormula = above?.formula ?? undefined;
+            promises.push(
+              setCell(props.activeSheet, range.minRow, c, aboveVal, aboveFormula).catch(() => {}),
+            );
+          }
+        }
+        void Promise.all(promises).then(() => {
           lastFetchKey = '';
           fetchVisibleData();
-          props.onContentChange(value);
-          props.onStatusChange('Filled down');
-        }
+        });
+        props.onStatusChange('Filled down');
         return;
       }
-      // Cmd+R: fill right (copy cell to the left into selected cell)
+      // Cmd+R: fill right — copy first column of selection into all columns right
       if (e.key === 'r' && !e.shiftKey) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        if (col > 0) {
-          const left = cellCache.get(`${row}:${col - 1}`);
-          const value = left?.formula ? `=${left.formula}` : left?.value ?? '';
-          const formula = left?.formula ?? undefined;
-          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+        const range = getSelectionRange();
+        const promises: Promise<void>[] = [];
+        for (let r = range.minRow; r <= range.maxRow; r++) {
+          const source = cellCache.get(`${r}:${range.minCol}`);
+          const value = source?.formula ? `=${source.formula}` : source?.value ?? '';
+          const formula = source?.formula ?? undefined;
+          for (let c = range.minCol + 1; c <= range.maxCol; c++) {
+            promises.push(
+              setCell(props.activeSheet, r, c, value, formula).catch(() => {}),
+            );
+          }
+          // If single column selected and there's a column to the left, fill from left
+          if (range.minCol === range.maxCol && range.minCol > 0) {
+            const left = cellCache.get(`${r}:${range.minCol - 1}`);
+            const leftVal = left?.formula ? `=${left.formula}` : left?.value ?? '';
+            const leftFormula = left?.formula ?? undefined;
+            promises.push(
+              setCell(props.activeSheet, r, range.minCol, leftVal, leftFormula).catch(() => {}),
+            );
+          }
+        }
+        void Promise.all(promises).then(() => {
           lastFetchKey = '';
           fetchVisibleData();
-          props.onContentChange(value);
-          props.onStatusChange('Filled right');
-        }
+        });
+        props.onStatusChange('Filled right');
         return;
       }
       // Cmd+Shift+K: strikethrough toggle
