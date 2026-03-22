@@ -753,6 +753,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
     const y = HEADER_HEIGHT + getRowY(row) - sy;
     const minH = getRowHeight(row);
+    // Match canvas cell's font for visual consistency
+    const cell = cellCache.get(`${row}:${col}`);
+    const fontSize = cell?.font_size || 11;
+    const fontFamily = cell?.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    const fontWeight = cell?.bold ? 'bold' : 'normal';
+    const fontStyleCss = cell?.italic ? 'italic' : 'normal';
     return {
       position: 'absolute' as const,
       left: `${x}px`,
@@ -760,6 +766,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       width: `${getColWidth(col)}px`,
       'min-height': `${minH}px`,
       'z-index': '10',
+      'font-size': `${fontSize}px`,
+      'font-family': fontFamily,
+      'font-weight': fontWeight,
+      'font-style': fontStyleCss,
+      color: cell?.font_color || undefined,
     };
   }
 
