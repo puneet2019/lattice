@@ -205,7 +205,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Editing state
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
-  let editorRef: HTMLInputElement | undefined;
+  let editorRef: HTMLTextAreaElement | undefined;
 
   // Auto-complete state (cell value suggestions)
   const [acVisible, setAcVisible] = createSignal(false);
@@ -403,6 +403,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         if (!clearContent) {
           editorRef.setSelectionRange(content.length, content.length);
         }
+        autoResizeEditor();
       }
     });
   }
@@ -459,9 +460,41 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     draw();
   }
 
+  /** Cmd+Enter: fill ALL cells in the current selection with the edited value. */
+  async function commitEditFillSelection() {
+    const value = editValue();
+    setEditing(false);
+    setAcVisible(false);
+    setFormulaAcVisible(false);
+    props.onModeChange('Ready');
+
+    let formula: string | undefined;
+    if (value.startsWith('=')) {
+      formula = value.slice(1);
+    }
+
+    const range = getSelectionRange();
+    const promises: Promise<void>[] = [];
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        promises.push(
+          setCell(props.activeSheet, r, c, value, formula).catch(() => {}),
+        );
+      }
+    }
+    await Promise.all(promises);
+
+    props.onContentChange(value);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Filled selection');
+    containerRef?.focus();
+  }
+
   function handleEditorInput(value: string) {
     setEditValue(value);
     props.onContentChange(value);
+    autoResizeEditor();
 
     // Show/hide auto-complete based on input
     const trimmed = value.trim();
@@ -569,10 +602,45 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       }
     }
 
+    // Arrow keys: only move grid when cursor is at edge of text
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (!editorRef) return;
+      const pos = editorRef.selectionStart ?? 0;
+      const end = editorRef.selectionEnd ?? 0;
+      const val = editValue();
+      const hasSelection = pos !== end;
+
+      // Only intercept if at edge and no text selection
+      if (!hasSelection) {
+        if (e.key === 'ArrowLeft' && pos === 0) {
+          e.preventDefault();
+          commitEdit(0, -1);
+          return;
+        }
+        if (e.key === 'ArrowRight' && pos === val.length) {
+          e.preventDefault();
+          commitEdit(0, 1);
+          return;
+        }
+        if (e.key === 'ArrowUp' && pos === 0) {
+          e.preventDefault();
+          commitEdit(-1, 0);
+          return;
+        }
+        if (e.key === 'ArrowDown' && pos === val.length) {
+          e.preventDefault();
+          commitEdit(1, 0);
+          return;
+        }
+      }
+      // Otherwise let the textarea handle cursor movement within text
+      return;
+    }
+
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      // Cmd+Enter: commit edit but stay in cell (don't move selection)
+      // Cmd+Enter: fill ALL cells in the current selection with edited value
       e.preventDefault();
-      commitEdit(0, 0);
+      void commitEditFillSelection();
     } else if (e.key === 'Enter') {
       e.preventDefault();
       commitEdit(e.shiftKey ? -1 : 1, 0);
@@ -633,14 +701,22 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
     const y = HEADER_HEIGHT + getRowY(row) - sy;
+    const minH = getRowHeight(row);
     return {
       position: 'absolute' as const,
       left: `${x}px`,
       top: `${y}px`,
       width: `${getColWidth(col)}px`,
-      height: `${getRowHeight(row)}px`,
+      'min-height': `${minH}px`,
       'z-index': '10',
     };
+  }
+
+  /** Auto-resize the editor textarea to fit its content. */
+  function autoResizeEditor() {
+    if (!editorRef) return;
+    editorRef.style.height = 'auto';
+    editorRef.style.height = `${Math.max(editorRef.scrollHeight, getRowHeight(selectedRow()))}px`;
   }
 
   // -----------------------------------------------------------------------
@@ -3172,7 +3248,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     >
       <canvas ref={canvasRef} class="virtual-grid-canvas" />
       <Show when={editing()}>
-        <input
+        <textarea
           ref={editorRef}
           class="cell-editor-textarea"
           value={editValue()}
@@ -3184,6 +3260,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             }
           }}
           style={editorStyle()}
+          rows={1}
         />
         <AutoComplete
           inputValue={editValue()}

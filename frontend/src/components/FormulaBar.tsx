@@ -21,14 +21,38 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   const [localValue, setLocalValue] = createSignal('');
   const [nameBoxEditing, setNameBoxEditing] = createSignal(false);
   const [nameBoxValue, setNameBoxValue] = createSignal('');
+  const [expanded, setExpanded] = createSignal(false);
 
   let nameBoxRef: HTMLInputElement | undefined;
+  let textareaRef: HTMLTextAreaElement | undefined;
 
   // Sync local value when the cell content prop changes (and we're not editing).
   createEffect(() => {
     if (!editing()) {
       setLocalValue(props.content);
     }
+  });
+
+  // Auto-resize textarea height based on content
+  const autoResize = () => {
+    if (!textareaRef) return;
+    if (expanded()) {
+      // In expanded mode, show at least 4 lines
+      textareaRef.style.height = 'auto';
+      const scrollH = textareaRef.scrollHeight;
+      const minH = 76; // ~4 lines at 19px each
+      textareaRef.style.height = `${Math.max(minH, scrollH)}px`;
+    } else {
+      // In collapsed mode, single line (match the 28px min-height)
+      textareaRef.style.height = '20px';
+    }
+  };
+
+  createEffect(() => {
+    // Re-run auto-resize when expanded state or value changes
+    void expanded();
+    void localValue();
+    autoResize();
   });
 
   const handleFocus = () => {
@@ -39,10 +63,11 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   const handleInput = (value: string) => {
     setLocalValue(value);
     props.onContentChange?.(value);
+    autoResize();
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       props.onCommit(localValue());
       setEditing(false);
@@ -52,6 +77,7 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
       setEditing(false);
       props.onCancel();
     }
+    // Shift+Enter inserts a newline (default textarea behavior)
   };
 
   // Name box: click to edit, type a cell ref, press Enter to navigate.
@@ -81,7 +107,7 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   };
 
   return (
-    <div class="formula-bar">
+    <div class={`formula-bar ${expanded() ? 'formula-bar-expanded' : ''}`}>
       <div class="formula-bar-cell-ref" onClick={handleNameBoxClick}>
         {nameBoxEditing() ? (
           <input
@@ -100,9 +126,10 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
       <div class="formula-bar-fx">
         <span class="formula-bar-fx-icon">fx</span>
       </div>
-      <input
+      <textarea
+        ref={textareaRef}
         class="formula-bar-input"
-        type="text"
+        rows={1}
         value={localValue()}
         onInput={(e) => handleInput(e.currentTarget.value)}
         onFocus={handleFocus}
@@ -114,6 +141,19 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
         }}
         onKeyDown={handleKeyDown}
       />
+      <button
+        class="formula-bar-expand-btn"
+        title={expanded() ? 'Collapse formula bar' : 'Expand formula bar'}
+        onClick={() => setExpanded(!expanded())}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
+          {expanded() ? (
+            <path d="M2 7L5 4l3 3" />
+          ) : (
+            <path d="M2 3l3 3 3-3" />
+          )}
+        </svg>
+      </button>
     </div>
   );
 };

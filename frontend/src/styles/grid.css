@@ -227,11 +227,15 @@ body,
 
 .formula-bar {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   border-bottom: 1px solid var(--formula-bar-border);
   background: var(--formula-bar-bg);
   min-height: 28px;
   flex-shrink: 0;
+}
+
+.formula-bar-expanded {
+  /* No extra height constraint -- auto-size from textarea */
 }
 
 .formula-bar-cell-ref {
@@ -240,8 +244,9 @@ body,
   justify-content: center;
   width: 80px;
   min-width: 80px;
-  height: 100%;
+  min-height: 28px;
   padding: 0 8px;
+  align-self: flex-start;
   border-right: 1px solid var(--formula-bar-border);
   font-size: 12px;
   font-weight: 500;
@@ -271,8 +276,9 @@ body,
   justify-content: center;
   width: 28px;
   min-width: 28px;
-  height: 100%;
+  min-height: 28px;
   border-right: 1px solid var(--formula-bar-border);
+  align-self: flex-start;
 }
 
 .formula-bar-fx-icon {
@@ -284,18 +290,45 @@ body,
 
 .formula-bar-input {
   flex: 1;
-  height: 100%;
-  padding: 4px 8px;
+  height: 20px;
+  min-height: 20px;
+  padding: 2px 8px;
   border: none;
   outline: none;
   font-size: 13px;
   font-family: var(--font-family);
   color: var(--cell-text);
   background: var(--formula-bar-bg);
+  resize: none;
+  overflow: hidden;
+  line-height: 16px;
 }
 
 .formula-bar-input:focus {
   background: var(--cell-bg);
+}
+
+.formula-bar-expanded .formula-bar-input {
+  overflow-y: auto;
+}
+
+.formula-bar-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  min-width: 20px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--header-text);
+  cursor: pointer;
+  align-self: flex-end;
+  padding: 4px 0;
+}
+
+.formula-bar-expand-btn:hover {
+  color: var(--cell-text);
 }
 
 /* -----------------------------------------------------------------------
