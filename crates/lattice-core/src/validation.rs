@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 
 use crate::cell::CellValue;
-use crate::error::{LatticeError, Result};
 
 /// The type of validation to apply to a cell.
 #[derive(Debug, Clone, PartialEq)]
