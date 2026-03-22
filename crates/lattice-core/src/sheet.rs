@@ -713,6 +713,152 @@ impl Sheet {
 
         max_parts
     }
+
+    // ----- Remove Duplicates -----
+
+    /// Remove duplicate rows based on specified columns.
+    ///
+    /// Examines rows in `[start_row, end_row]` (inclusive) and compares them
+    /// using only the values in the given `columns`. The first occurrence of
+    /// each unique combination is kept; subsequent duplicates are removed.
+    /// Remaining rows below the range are shifted up to fill gaps.
+    ///
+    /// Returns the number of rows removed.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use lattice_core::sheet::Sheet;
+    /// use lattice_core::cell::CellValue;
+    ///
+    /// let mut sheet = Sheet::new("S");
+    /// sheet.set_value(0, 0, CellValue::Text("Alice".into()));
+    /// sheet.set_value(0, 1, CellValue::Number(100.0));
+    /// sheet.set_value(1, 0, CellValue::Text("Bob".into()));
+    /// sheet.set_value(1, 1, CellValue::Number(200.0));
+    /// sheet.set_value(2, 0, CellValue::Text("Alice".into()));
+    /// sheet.set_value(2, 1, CellValue::Number(300.0));
+    ///
+    /// // Remove duplicates based on column 0 (name)
+    /// let removed = sheet.remove_duplicates(0, 2, &[0]);
+    /// assert_eq!(removed, 1); // second "Alice" row removed
+    /// ```
+    pub fn remove_duplicates(&mut self, start_row: u32, end_row: u32, columns: &[u32]) -> u32 {
+        if start_row > end_row || columns.is_empty() {
+            return 0;
+        }
+
+        // Build a key for each row from the specified columns.
+        // We use a Vec<String> representation of cell values as the comparison key.
+        let mut seen: HashSet<Vec<String>> = HashSet::new();
+        let mut rows_to_remove: Vec<u32> = Vec::new();
+
+        for row in start_row..=end_row {
+            let key: Vec<String> = columns
+                .iter()
+                .map(|&col| {
+                    self.get_cell(row, col)
+                        .map(|c| cell_value_to_key(&c.value))
+                        .unwrap_or_else(|| String::new())
+                })
+                .collect();
+
+            if !seen.insert(key) {
+                rows_to_remove.push(row);
+            }
+        }
+
+        if rows_to_remove.is_empty() {
+            return 0;
+        }
+
+        let removed_count = rows_to_remove.len() as u32;
+
+        // Find the maximum column in use so we know which cells to move.
+        let max_col = self
+            .cells
+            .keys()
+            .map(|(_, c)| *c)
+            .max()
+            .unwrap_or(0);
+
+        // Remove all cells in the duplicate rows.
+        for &row in &rows_to_remove {
+            for col in 0..=max_col {
+                self.cells.remove(&(row, col));
+            }
+        }
+
+        // Build the compacted row mapping: for each kept row in [start_row, end_row],
+        // assign it a new position based on how many rows were removed before it.
+        // Rows outside the range but below end_row also need to shift up.
+        let rows_to_remove_set: HashSet<u32> = rows_to_remove.iter().copied().collect();
+
+        // Collect kept rows in order and shift them up.
+        // Step 1: gather all rows in [start_row, end_row] that were kept.
+        let kept_rows: Vec<u32> = (start_row..=end_row)
+            .filter(|r| !rows_to_remove_set.contains(r))
+            .collect();
+
+        // Step 2: move kept rows into their new positions (start_row, start_row+1, ...).
+        for (i, &old_row) in kept_rows.iter().enumerate() {
+            let new_row = start_row + i as u32;
+            if new_row != old_row {
+                // Move all cells from old_row to new_row.
+                for col in 0..=max_col {
+                    if let Some(cell) = self.cells.remove(&(old_row, col)) {
+                        self.cells.insert((new_row, col), cell);
+                    }
+                }
+            }
+        }
+
+        // Step 3: shift rows below end_row up by removed_count.
+        let new_end = start_row + kept_rows.len() as u32; // first empty slot after compacted rows
+
+        // Collect all cells below end_row and shift them up.
+        let mut below_keys: Vec<(u32, u32)> = self
+            .cells
+            .keys()
+            .filter(|(r, _)| *r > end_row)
+            .copied()
+            .collect();
+        below_keys.sort_by_key(|k| k.0); // ascending by row
+
+        for key in below_keys {
+            if let Some(cell) = self.cells.remove(&key) {
+                self.cells
+                    .insert((key.0 - removed_count, key.1), cell);
+            }
+        }
+
+        // Clean up any leftover cells in the gap that may exist
+        // (rows between new_end and the shifted-up rows should already be empty,
+        // but clear the vacated tail end to be safe).
+        let old_max_row = self.cells.keys().map(|(r, _)| *r).max().unwrap_or(0);
+        for row in (old_max_row + 1)..=(old_max_row + removed_count) {
+            for col in 0..=max_col {
+                self.cells.remove(&(row, col));
+            }
+        }
+
+        removed_count
+    }
+}
+
+/// Convert a `CellValue` to a string key for deduplication comparison.
+///
+/// This ensures that values of different types are distinguishable
+/// (e.g. the number `1` vs. the text `"1"`).
+fn cell_value_to_key(value: &CellValue) -> String {
+    match value {
+        CellValue::Empty => String::new(),
+        CellValue::Text(s) => format!("T:{s}"),
+        CellValue::Number(n) => format!("N:{n}"),
+        CellValue::Boolean(b) => format!("B:{b}"),
+        CellValue::Error(e) => format!("E:{e}"),
+        CellValue::Date(d) => format!("D:{d}"),
+    }
 }
 
 /// Compute a simple deterministic hash of a password string.
@@ -1399,5 +1545,156 @@ mod tests {
         sheet.set_tab_color(Some("#00FF00".into()));
         sheet.set_tab_color(None);
         assert!(sheet.tab_color.is_none());
+    }
+
+    // --- Remove Duplicates ---
+
+    #[test]
+    fn test_remove_duplicates_basic() {
+        let mut sheet = Sheet::new("T");
+        // Row 0: Alice, 100
+        sheet.set_value(0, 0, CellValue::Text("Alice".into()));
+        sheet.set_value(0, 1, CellValue::Number(100.0));
+        // Row 1: Bob, 200
+        sheet.set_value(1, 0, CellValue::Text("Bob".into()));
+        sheet.set_value(1, 1, CellValue::Number(200.0));
+        // Row 2: Alice, 300 (duplicate by col 0)
+        sheet.set_value(2, 0, CellValue::Text("Alice".into()));
+        sheet.set_value(2, 1, CellValue::Number(300.0));
+
+        let removed = sheet.remove_duplicates(0, 2, &[0]);
+        assert_eq!(removed, 1);
+        // Row 0: Alice, 100 (kept)
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("Alice".into()));
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(100.0));
+        // Row 1: Bob, 200 (kept)
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("Bob".into()));
+        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Number(200.0));
+        // Row 2: should be empty
+        assert!(sheet.get_cell(2, 0).is_none());
+    }
+
+    #[test]
+    fn test_remove_duplicates_no_duplicates() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("A".into()));
+        sheet.set_value(1, 0, CellValue::Text("B".into()));
+        sheet.set_value(2, 0, CellValue::Text("C".into()));
+
+        let removed = sheet.remove_duplicates(0, 2, &[0]);
+        assert_eq!(removed, 0);
+        // All rows should remain
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("A".into()));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("B".into()));
+        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Text("C".into()));
+    }
+
+    #[test]
+    fn test_remove_duplicates_all_duplicates() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("Same".into()));
+        sheet.set_value(1, 0, CellValue::Text("Same".into()));
+        sheet.set_value(2, 0, CellValue::Text("Same".into()));
+
+        let removed = sheet.remove_duplicates(0, 2, &[0]);
+        assert_eq!(removed, 2);
+        // Only first row kept
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("Same".into()));
+        assert!(sheet.get_cell(1, 0).is_none());
+        assert!(sheet.get_cell(2, 0).is_none());
+    }
+
+    #[test]
+    fn test_remove_duplicates_multi_column_key() {
+        let mut sheet = Sheet::new("T");
+        // Row 0: Alice, NYC
+        sheet.set_value(0, 0, CellValue::Text("Alice".into()));
+        sheet.set_value(0, 1, CellValue::Text("NYC".into()));
+        // Row 1: Alice, LA (different combo)
+        sheet.set_value(1, 0, CellValue::Text("Alice".into()));
+        sheet.set_value(1, 1, CellValue::Text("LA".into()));
+        // Row 2: Alice, NYC (duplicate of row 0)
+        sheet.set_value(2, 0, CellValue::Text("Alice".into()));
+        sheet.set_value(2, 1, CellValue::Text("NYC".into()));
+
+        let removed = sheet.remove_duplicates(0, 2, &[0, 1]);
+        assert_eq!(removed, 1);
+        // Row 0 kept, Row 1 kept (shifted to row 1), Row 2 removed
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Text("NYC".into()));
+        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Text("LA".into()));
+        assert!(sheet.get_cell(2, 0).is_none());
+    }
+
+    #[test]
+    fn test_remove_duplicates_shifts_rows_below() {
+        let mut sheet = Sheet::new("T");
+        // Range rows 0-2 with a dup, then row 3 below the range
+        sheet.set_value(0, 0, CellValue::Text("A".into()));
+        sheet.set_value(1, 0, CellValue::Text("A".into())); // dup
+        sheet.set_value(2, 0, CellValue::Text("B".into()));
+        sheet.set_value(3, 0, CellValue::Text("Below".into())); // below range
+
+        let removed = sheet.remove_duplicates(0, 2, &[0]);
+        assert_eq!(removed, 1);
+        // Row 0: A, Row 1: B (shifted up from row 2)
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("A".into()));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("B".into()));
+        // Row 2: "Below" shifted up from row 3
+        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Text("Below".into()));
+        assert!(sheet.get_cell(3, 0).is_none());
+    }
+
+    #[test]
+    fn test_remove_duplicates_empty_columns() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("A".into()));
+        sheet.set_value(1, 0, CellValue::Text("B".into()));
+
+        // Empty columns list should remove nothing
+        let removed = sheet.remove_duplicates(0, 1, &[]);
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_remove_duplicates_empty_cells_are_equal() {
+        let mut sheet = Sheet::new("T");
+        // Both rows have empty col 0
+        sheet.set_value(0, 1, CellValue::Number(1.0));
+        sheet.set_value(1, 1, CellValue::Number(2.0));
+
+        let removed = sheet.remove_duplicates(0, 1, &[0]);
+        assert_eq!(removed, 1);
+        // First row kept
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(1.0));
+    }
+
+    #[test]
+    fn test_remove_duplicates_number_vs_text() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Text("1".into()));
+
+        // These should be treated as different values
+        let removed = sheet.remove_duplicates(0, 1, &[0]);
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_remove_duplicates_single_row() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("Only".into()));
+
+        let removed = sheet.remove_duplicates(0, 0, &[0]);
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_remove_duplicates_invalid_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("A".into()));
+
+        // start_row > end_row
+        let removed = sheet.remove_duplicates(5, 2, &[0]);
+        assert_eq!(removed, 0);
     }
 }
