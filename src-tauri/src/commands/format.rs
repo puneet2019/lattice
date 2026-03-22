@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use tauri::State;
 
-use lattice_core::{CellFormat, HAlign, Operation};
+use lattice_core::{CellFormat, HAlign, Operation, TextWrap};
 
 use crate::state::AppState;
 
@@ -18,6 +18,7 @@ pub struct FormatUpdate {
     pub bg_color: Option<String>,
     pub h_align: Option<String>,
     pub number_format: Option<String>,
+    pub text_wrap: Option<String>,
 }
 
 /// Apply formatting to a range of cells.
@@ -85,6 +86,13 @@ pub async fn format_cells(
             }
             if let Some(ref nf) = format.number_format {
                 cell.format.number_format = Some(nf.clone());
+            }
+            if let Some(ref tw) = format.text_wrap {
+                cell.format.text_wrap = match tw.as_str() {
+                    "Wrap" => TextWrap::Wrap,
+                    "Clip" => TextWrap::Clip,
+                    _ => TextWrap::Overflow,
+                };
             }
 
             let new_format = cell.format.clone();

@@ -217,6 +217,10 @@ const App: Component = () => {
       // Ignore in browser dev mode.
     }
     setActiveSheetLocal(name);
+    // Reset selection when switching sheets to avoid stale range targeting
+    setSelectedCell([0, 0]);
+    setSelRange([0, 0, 0, 0]);
+    setFormulaContent('');
   };
 
   const handleAddSheet = async () => {
