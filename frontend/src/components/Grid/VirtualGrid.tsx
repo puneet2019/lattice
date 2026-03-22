@@ -1353,6 +1353,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   // Drag-to-select state
   let isDragging = false;
+  // Track header drag kind: 'col' for column header drag, 'row' for row header drag, null for cell drag
+  let headerDragKind: 'col' | 'row' | null = null;
+  let headerDragStartIndex = 0;
 
   function handleMouseMove(e: MouseEvent) {
     if (!containerRef) return;
@@ -1375,7 +1378,35 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // If dragging to select, update the range end.
+    // If dragging across column headers, extend column selection.
+    if (isDragging && headerDragKind === 'col') {
+      const effSx = effectiveScrollX(localX);
+      const contentX = Math.max(0, localX - ROW_NUMBER_WIDTH + effSx);
+      const col = colAtX(contentX);
+      const curEnd = rangeEnd();
+      if (!curEnd || curEnd[1] !== col) {
+        setRangeAnchor([0, headerDragStartIndex]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+        scheduleDraw();
+      }
+      return;
+    }
+
+    // If dragging across row headers, extend row selection.
+    if (isDragging && headerDragKind === 'row') {
+      const effSy = effectiveScrollY(localY);
+      const contentY = Math.max(0, localY - HEADER_HEIGHT + effSy);
+      const row = rowAtY(contentY);
+      const curEnd = rangeEnd();
+      if (!curEnd || curEnd[0] !== row) {
+        setRangeAnchor([headerDragStartIndex, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+        scheduleDraw();
+      }
+      return;
+    }
+
+    // If dragging to select cells, update the range end.
     if (isDragging) {
       const hit = hitTest(e.clientX, e.clientY);
       if (hit) {
@@ -1545,7 +1576,80 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // -------------------------------------------------------------------
+    // Header click handling: column headers, row numbers, corner
+    // -------------------------------------------------------------------
+
+    // Click on corner (top-left intersection): select all cells
+    if (localX < ROW_NUMBER_WIDTH && localY < HEADER_HEIGHT) {
+      setSelectedRow(0);
+      setSelectedCol(0);
+      setRangeAnchor([0, 0]);
+      setRangeEnd([TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+      selectCell(0, 0);
+      draw();
+      return;
+    }
+
+    // Click on column header: select entire column
+    if (localY < HEADER_HEIGHT && localX >= ROW_NUMBER_WIDTH) {
+      const effSx = effectiveScrollX(localX);
+      const contentX = localX - ROW_NUMBER_WIDTH + effSx;
+      const col = colAtX(contentX);
+      if (e.shiftKey) {
+        // Extend selection from current column to clicked column
+        const anchor = rangeAnchor();
+        const anchorCol = anchor ? anchor[1] : selectedCol();
+        setRangeAnchor([0, anchorCol]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+      } else {
+        setSelectedRow(0);
+        setSelectedCol(col);
+        setRangeAnchor([0, col]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+        selectCell(0, col);
+      }
+      // Start drag across column headers
+      headerDragKind = 'col';
+      headerDragStartIndex = col;
+      isDragging = true;
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleDragMouseUp);
+      draw();
+      return;
+    }
+
+    // Click on row number: select entire row
+    if (localX < ROW_NUMBER_WIDTH && localY >= HEADER_HEIGHT) {
+      const effSy = effectiveScrollY(localY);
+      const contentY = localY - HEADER_HEIGHT + effSy;
+      const row = rowAtY(contentY);
+      if (e.shiftKey) {
+        // Extend selection from current row to clicked row
+        const anchor = rangeAnchor();
+        const anchorRow = anchor ? anchor[0] : selectedRow();
+        setRangeAnchor([anchorRow, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+      } else {
+        setSelectedRow(row);
+        setSelectedCol(0);
+        setRangeAnchor([row, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+        selectCell(row, 0);
+      }
+      // Start drag across row headers
+      headerDragKind = 'row';
+      headerDragStartIndex = row;
+      isDragging = true;
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleDragMouseUp);
+      draw();
+      return;
+    }
+
+    // -------------------------------------------------------------------
     // Normal cell click handling.
+    // -------------------------------------------------------------------
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
 
@@ -1579,6 +1683,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Start drag-to-select: set anchor and listen for drag
       setRangeAnchor([hit.row, hit.col]);
       setRangeEnd([hit.row, hit.col]);
+      headerDragKind = null;
       isDragging = true;
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleDragMouseUp);
