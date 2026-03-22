@@ -464,6 +464,37 @@ body,
 }
 
 /* -----------------------------------------------------------------------
+   Auto-complete Dropdown
+   ----------------------------------------------------------------------- */
+
+.autocomplete-dropdown {
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  box-shadow: var(--context-menu-shadow);
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.autocomplete-item {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-family);
+  color: var(--context-menu-text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+}
+
+/* -----------------------------------------------------------------------
    Sheet Tabs
    ----------------------------------------------------------------------- */
 

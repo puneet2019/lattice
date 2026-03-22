@@ -3,6 +3,7 @@ import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
 import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
+import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import {
   DEFAULT_COL_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -94,6 +95,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
   let editorRef: HTMLInputElement | undefined;
+
+  // Auto-complete state
+  const [acVisible, setAcVisible] = createSignal(false);
+  const [acSuggestions, setAcSuggestions] = createSignal<string[]>([]);
+  const [acSelectedIdx, setAcSelectedIdx] = createSignal(0);
 
   // Custom column widths / row heights (col/row index -> px).
   // Columns/rows not in the map use the default sizes.
@@ -261,6 +267,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     setEditing(true);
     props.onModeChange('Edit');
     props.onContentChange(content);
+
+    // Populate auto-complete suggestions from the column
+    const suggestions = getColumnSuggestions(cellCache, col);
+    setAcSuggestions(suggestions);
+    setAcVisible(false); // don't show until user types
+    setAcSelectedIdx(0);
+
     requestAnimationFrame(() => {
       if (editorRef) {
         editorRef.focus();
@@ -277,6 +290,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const value = editValue();
 
     setEditing(false);
+    setAcVisible(false);
     props.onModeChange('Ready');
 
     // Write to backend
@@ -314,6 +328,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function cancelEdit() {
     setEditing(false);
+    setAcVisible(false);
     props.onModeChange('Ready');
     containerRef?.focus();
     draw();
@@ -322,9 +337,64 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function handleEditorInput(value: string) {
     setEditValue(value);
     props.onContentChange(value);
+
+    // Show/hide auto-complete based on input
+    const trimmed = value.trim();
+    if (trimmed.length > 0 && !trimmed.startsWith('=')) {
+      // Filter suggestions by prefix
+      const lower = trimmed.toLowerCase();
+      const matches = acSuggestions().filter((s) => {
+        const sl = s.toLowerCase();
+        return sl.startsWith(lower) && sl !== lower;
+      });
+      setAcVisible(matches.length > 0);
+      setAcSelectedIdx(0);
+    } else {
+      setAcVisible(false);
+    }
+  }
+
+  /** Compute the filtered auto-complete list (same logic as AutoComplete). */
+  function acFiltered(): string[] {
+    const input = editValue().toLowerCase().trim();
+    if (!input) return [];
+    return acSuggestions().filter((s) => {
+      const lower = s.toLowerCase();
+      return lower.startsWith(input) && lower !== input;
+    });
   }
 
   function handleEditorKeyDown(e: KeyboardEvent) {
+    // When auto-complete is visible, handle navigation keys
+    if (acVisible()) {
+      const list = acFiltered();
+      if (list.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setAcSelectedIdx((i) => Math.min(i + 1, list.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setAcSelectedIdx((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === 'Tab') {
+          const idx = acSelectedIdx();
+          if (idx >= 0 && idx < list.length) {
+            e.preventDefault();
+            acceptAutoComplete(list[idx]);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setAcVisible(false);
+          return;
+        }
+      }
+    }
+
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       // Cmd+Enter: commit edit but stay in cell (don't move selection)
       e.preventDefault();
@@ -339,6 +409,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       e.preventDefault();
       cancelEdit();
     }
+  }
+
+  function acceptAutoComplete(value: string) {
+    setEditValue(value);
+    props.onContentChange(value);
+    setAcVisible(false);
+    // Keep the editor focused and let user continue editing or commit
+    editorRef?.focus();
   }
 
   /** Calculate editor position in CSS pixels relative to the container. */
@@ -1541,6 +1619,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             }
           }}
           style={editorStyle()}
+        />
+        <AutoComplete
+          inputValue={editValue()}
+          suggestions={acSuggestions()}
+          left={(() => {
+            const col = selectedCol();
+            const fc = props.frozenCols ?? 0;
+            const sx = col < fc ? 0 : scrollX();
+            return ROW_NUMBER_WIDTH + getColX(col) - sx;
+          })()}
+          top={(() => {
+            const row = selectedRow();
+            const fr = props.frozenRows ?? 0;
+            const sy = row < fr ? 0 : scrollY();
+            return HEADER_HEIGHT + getRowY(row) - sy + getRowHeight(row);
+          })()}
+          width={getColWidth(selectedCol())}
+          visible={acVisible()}
+          onAccept={acceptAutoComplete}
+          onDismiss={() => setAcVisible(false)}
         />
       </Show>
     </div>
