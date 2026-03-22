@@ -5,7 +5,7 @@
 //! with trailing numbers, and repeating-cycle patterns.
 
 use crate::cell::CellValue;
-use crate::selection::{CellRef, Range};
+use crate::selection::Range;
 use crate::sheet::Sheet;
 
 /// A detected fill pattern that can generate new values.
@@ -287,6 +287,7 @@ fn target_positions(range: &Range, direction: FillDirection) -> Vec<(u32, u32)> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::selection::CellRef;
 
     // --- Pattern detection ---
 
