@@ -3,19 +3,28 @@ import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
 import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
+import {
+  DEFAULT_COL_WIDTH,
+  DEFAULT_ROW_HEIGHT,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  HEADER_HEIGHT,
+  ROW_NUMBER_WIDTH,
+  TOTAL_COLS,
+  TOTAL_ROWS,
+} from './constants';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_COL_WIDTH = 80;
-export const DEFAULT_ROW_HEIGHT = 21;
-export const MIN_COL_WIDTH = 30;
-export const MIN_ROW_HEIGHT = 12;
-export const HEADER_HEIGHT = 24;
-export const ROW_NUMBER_WIDTH = 50;
-export const TOTAL_COLS = 702; // A..ZZ
-export const TOTAL_ROWS = 10_000;
+// Re-export constants for backward compatibility.
+export {
+  DEFAULT_COL_WIDTH,
+  DEFAULT_ROW_HEIGHT,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  HEADER_HEIGHT,
+  ROW_NUMBER_WIDTH,
+  TOTAL_COLS,
+  TOTAL_ROWS,
+} from './constants';
 
 // Colors — kept in sync with grid.css CSS variables (light mode defaults).
 const COLORS = {
