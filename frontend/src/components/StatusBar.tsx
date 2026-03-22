@@ -35,9 +35,9 @@ const StatusBar: Component<StatusBarProps> = (props) => {
         <input
           class="status-zoom-slider"
           type="range"
-          min="50"
+          min="25"
           max="200"
-          step="10"
+          step="5"
           value={zoomPercent()}
           onInput={handleZoomSlider}
           title={`Zoom: ${zoomPercent()}%`}

@@ -377,7 +377,37 @@ const App: Component = () => {
   };
 
   const handleZoomChange = (z: number) => {
-    setZoom(z);
+    setZoom(Math.max(0.25, Math.min(2.0, z)));
+  };
+
+  const handleZoomIn = () => {
+    handleZoomChange(Math.round((zoom() + 0.1) * 10) / 10);
+  };
+
+  const handleZoomOut = () => {
+    handleZoomChange(Math.round((zoom() - 0.1) * 10) / 10);
+  };
+
+  const handleZoomReset = () => {
+    handleZoomChange(1.0);
+  };
+
+  // Find bar state
+  const [showFindBar, setShowFindBar] = createSignal(false);
+  const [findBarReplace, setFindBarReplace] = createSignal(false);
+
+  const handleFindOpen = () => {
+    setFindBarReplace(false);
+    setShowFindBar(true);
+  };
+
+  const handleFindReplaceOpen = () => {
+    setFindBarReplace(true);
+    setShowFindBar(true);
+  };
+
+  const handleFindClose = () => {
+    setShowFindBar(false);
   };
 
   return (
@@ -411,6 +441,7 @@ const App: Component = () => {
         refreshTrigger={refreshTrigger()}
         frozenRows={frozenRows()}
         frozenCols={frozenCols()}
+        zoom={zoom()}
         onSelectionChange={handleSelectionChange}
         onContentChange={handleContentChange}
         onCellCommit={handleCellCommit}
@@ -419,6 +450,11 @@ const App: Component = () => {
         onBoldToggle={handleBold}
         onItalicToggle={handleItalic}
         onUnderlineToggle={handleUnderline}
+        onFindOpen={handleFindOpen}
+        onFindReplaceOpen={handleFindReplaceOpen}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onZoomReset={handleZoomReset}
       />
       <SheetTabs
         sheets={sheets()}

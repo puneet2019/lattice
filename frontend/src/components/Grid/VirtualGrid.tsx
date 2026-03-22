@@ -50,6 +50,8 @@ export interface VirtualGridProps {
   frozenRows?: number;
   /** Number of columns to freeze at the left (0 = none). */
   frozenCols?: number;
+  /** Zoom level (1.0 = 100%). Applied to the canvas rendering. */
+  zoom?: number;
   onSelectionChange: (row: number, col: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
@@ -58,6 +60,11 @@ export interface VirtualGridProps {
   onBoldToggle: () => void;
   onItalicToggle: () => void;
   onUnderlineToggle: () => void;
+  onFindOpen?: () => void;
+  onFindReplaceOpen?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomReset?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +325,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   function handleEditorKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      // Cmd+Enter: commit edit but stay in cell (don't move selection)
+      e.preventDefault();
+      commitEdit(0, 0);
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       commitEdit(e.shiftKey ? -1 : 1, 0);
     } else if (e.key === 'Tab') {
@@ -375,13 +386,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
+    const zoomLevel = props.zoom ?? 1.0;
     const w = canvasWidth();
     const h = canvasHeight();
 
     canvas.width = w * dpr;
     canvas.height = h * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
+    ctx.scale(dpr * zoomLevel, dpr * zoomLevel);
+    ctx.clearRect(0, 0, w / zoomLevel, h / zoomLevel);
 
     const sx = scrollX();
     const sy = scrollY();
@@ -1160,6 +1172,42 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Pasted from clipboard');
   }
 
+  /** Paste values only: strip formulas, treat '=' prefix as text. */
+  async function handlePasteValuesOnly() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    const rows = text.split('\n');
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        const cellRow = startRow + r;
+        const cellCol = startCol + c;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+        const value = cols[c];
+        // Never treat as formula — always paste as plain text value
+        promises.push(
+          setCell(props.activeSheet, cellRow, cellCol, value, undefined).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Pasted values only');
+  }
+
   /** Clear all cells in the current selection. */
   async function clearSelectedCells() {
     const range = getSelectionRange();
@@ -1228,6 +1276,28 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // Ctrl+Space: select entire column
+    if (e.key === ' ' && e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault();
+      const col = selectedCol();
+      setRangeAnchor([0, col]);
+      setRangeEnd([TOTAL_ROWS - 1, col]);
+      props.onStatusChange(`Column ${col_to_letter(col)} selected`);
+      draw();
+      return;
+    }
+
+    // Shift+Space: select entire row
+    if (e.key === ' ' && e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      const row = selectedRow();
+      setRangeAnchor([row, 0]);
+      setRangeEnd([row, TOTAL_COLS - 1]);
+      props.onStatusChange(`Row ${row + 1} selected`);
+      draw();
+      return;
+    }
+
     // Keyboard shortcuts (Cmd/Ctrl + key)
     if (e.metaKey || e.ctrlKey) {
       if (e.key === 'b') {
@@ -1257,6 +1327,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         handleCut();
         return;
       }
+      // Cmd+Shift+V: paste values only (strip formulas)
+      if (e.key === 'v' && e.shiftKey) {
+        e.preventDefault();
+        handlePasteValuesOnly();
+        return;
+      }
       // Paste
       if (e.key === 'v') {
         e.preventDefault();
@@ -1273,6 +1349,64 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if ((e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey) || e.key === 'y') {
         e.preventDefault();
         handleRedo();
+        return;
+      }
+      // Cmd+A: select all cells
+      if (e.key === 'a') {
+        e.preventDefault();
+        setRangeAnchor([0, 0]);
+        setRangeEnd([TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+        props.onStatusChange('All cells selected');
+        draw();
+        return;
+      }
+      // Cmd+F: open find dialog
+      if (e.key === 'f' && !e.shiftKey) {
+        e.preventDefault();
+        props.onFindOpen?.();
+        return;
+      }
+      // Cmd+H: open find & replace dialog
+      if (e.key === 'h') {
+        e.preventDefault();
+        props.onFindReplaceOpen?.();
+        return;
+      }
+      // Cmd+;: insert current date
+      if (e.key === ';') {
+        e.preventDefault();
+        const today = new Date();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        const dateStr = `${mm}/${dd}/${yyyy}`;
+        setCell(props.activeSheet, selectedRow(), selectedCol(), dateStr, undefined)
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onContentChange(dateStr);
+        props.onStatusChange(`Inserted date: ${dateStr}`);
+        return;
+      }
+      // Cmd+Enter: commit edit but stay in cell (handled in editor, noop here)
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        return;
+      }
+      // Zoom: Cmd+= to zoom in, Cmd+- to zoom out, Cmd+0 to reset
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        props.onZoomIn?.();
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        props.onZoomOut?.();
+        return;
+      }
+      if (e.key === '0') {
+        e.preventDefault();
+        props.onZoomReset?.();
         return;
       }
     }
