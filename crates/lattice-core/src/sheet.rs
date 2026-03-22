@@ -4,7 +4,7 @@
 //! (row, col), along with column widths, row heights, merged regions,
 //! and comment management.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
@@ -38,6 +38,10 @@ pub struct Sheet {
     pub row_heights: HashMap<u32, f64>,
     /// Merged cell regions.
     merged_regions: Vec<MergedRegion>,
+    /// Set of hidden row indices (0-based).
+    pub hidden_rows: HashSet<u32>,
+    /// Set of hidden column indices (0-based).
+    pub hidden_cols: HashSet<u32>,
 }
 
 impl Sheet {
@@ -49,6 +53,8 @@ impl Sheet {
             col_widths: HashMap::new(),
             row_heights: HashMap::new(),
             merged_regions: Vec::new(),
+            hidden_rows: HashSet::new(),
+            hidden_cols: HashSet::new(),
         }
     }
 
@@ -203,6 +209,68 @@ impl Sheet {
         })
     }
 
+    // ----- Hidden Rows / Columns -----
+
+    /// Hide a range of rows starting at `start` for `count` rows.
+    ///
+    /// Already-hidden rows in the range are silently ignored.
+    pub fn hide_rows(&mut self, start: u32, count: u32) {
+        for r in start..start + count {
+            self.hidden_rows.insert(r);
+        }
+    }
+
+    /// Unhide a range of rows starting at `start` for `count` rows.
+    ///
+    /// Rows that are not hidden are silently ignored.
+    pub fn unhide_rows(&mut self, start: u32, count: u32) {
+        for r in start..start + count {
+            self.hidden_rows.remove(&r);
+        }
+    }
+
+    /// Hide a range of columns starting at `start` for `count` columns.
+    ///
+    /// Already-hidden columns in the range are silently ignored.
+    pub fn hide_cols(&mut self, start: u32, count: u32) {
+        for c in start..start + count {
+            self.hidden_cols.insert(c);
+        }
+    }
+
+    /// Unhide a range of columns starting at `start` for `count` columns.
+    ///
+    /// Columns that are not hidden are silently ignored.
+    pub fn unhide_cols(&mut self, start: u32, count: u32) {
+        for c in start..start + count {
+            self.hidden_cols.remove(&c);
+        }
+    }
+
+    /// Check if a row is hidden.
+    pub fn is_row_hidden(&self, row: u32) -> bool {
+        self.hidden_rows.contains(&row)
+    }
+
+    /// Check if a column is hidden.
+    pub fn is_col_hidden(&self, col: u32) -> bool {
+        self.hidden_cols.contains(&col)
+    }
+
+    /// Return all visible row indices in the range `[start, end]` (inclusive).
+    pub fn visible_rows(&self, start: u32, end: u32) -> Vec<u32> {
+        (start..=end)
+            .filter(|r| !self.hidden_rows.contains(r))
+            .collect()
+    }
+
+    /// Return all visible column indices in the range `[start, end]` (inclusive).
+    pub fn visible_cols(&self, start: u32, end: u32) -> Vec<u32> {
+        (start..=end)
+            .filter(|c| !self.hidden_cols.contains(c))
+            .collect()
+    }
+
     // ----- Insert / Delete Rows and Columns -----
 
     /// Insert `count` rows at the given position, shifting existing rows down.
@@ -244,6 +312,14 @@ impl Sheet {
             }
         }
         self.row_heights = new_heights;
+
+        // Shift hidden rows
+        let new_hidden: HashSet<u32> = self
+            .hidden_rows
+            .iter()
+            .map(|&r| if r >= at_row { r + count } else { r })
+            .collect();
+        self.hidden_rows = new_hidden;
     }
 
     /// Delete `count` rows starting at the given position, shifting rows up.
@@ -294,6 +370,22 @@ impl Sheet {
             // Rows in the deleted range are dropped
         }
         self.row_heights = new_heights;
+
+        // Shift hidden rows (remove deleted, shift remaining)
+        let new_hidden: HashSet<u32> = self
+            .hidden_rows
+            .iter()
+            .filter_map(|&r| {
+                if r < at_row {
+                    Some(r)
+                } else if r >= end_row {
+                    Some(r - count)
+                } else {
+                    None // deleted range
+                }
+            })
+            .collect();
+        self.hidden_rows = new_hidden;
     }
 
     /// Insert `count` columns at the given position, shifting existing columns right.
@@ -332,6 +424,14 @@ impl Sheet {
             }
         }
         self.col_widths = new_widths;
+
+        // Shift hidden columns
+        let new_hidden: HashSet<u32> = self
+            .hidden_cols
+            .iter()
+            .map(|&c| if c >= at_col { c + count } else { c })
+            .collect();
+        self.hidden_cols = new_hidden;
     }
 
     /// Delete `count` columns starting at the given position, shifting columns left.
@@ -379,6 +479,22 @@ impl Sheet {
             }
         }
         self.col_widths = new_widths;
+
+        // Shift hidden columns (remove deleted, shift remaining)
+        let new_hidden: HashSet<u32> = self
+            .hidden_cols
+            .iter()
+            .filter_map(|&c| {
+                if c < at_col {
+                    Some(c)
+                } else if c >= end_col {
+                    Some(c - count)
+                } else {
+                    None // deleted range
+                }
+            })
+            .collect();
+        self.hidden_cols = new_hidden;
     }
 }
 
@@ -621,5 +737,161 @@ mod tests {
         sheet.insert_rows(1, 2);
         assert_eq!(sheet.row_heights.get(&4), Some(&30.0));
         assert!(sheet.row_heights.get(&2).is_none());
+    }
+
+    // --- Hidden Rows / Columns ---
+
+    #[test]
+    fn test_hide_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(2, 3); // Hide rows 2, 3, 4
+        assert!(sheet.is_row_hidden(2));
+        assert!(sheet.is_row_hidden(3));
+        assert!(sheet.is_row_hidden(4));
+        assert!(!sheet.is_row_hidden(1));
+        assert!(!sheet.is_row_hidden(5));
+    }
+
+    #[test]
+    fn test_unhide_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(0, 5); // Hide rows 0..4
+        sheet.unhide_rows(2, 2); // Unhide rows 2, 3
+        assert!(sheet.is_row_hidden(0));
+        assert!(sheet.is_row_hidden(1));
+        assert!(!sheet.is_row_hidden(2));
+        assert!(!sheet.is_row_hidden(3));
+        assert!(sheet.is_row_hidden(4));
+    }
+
+    #[test]
+    fn test_hide_cols() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(1, 2); // Hide cols 1, 2
+        assert!(!sheet.is_col_hidden(0));
+        assert!(sheet.is_col_hidden(1));
+        assert!(sheet.is_col_hidden(2));
+        assert!(!sheet.is_col_hidden(3));
+    }
+
+    #[test]
+    fn test_unhide_cols() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(0, 4);
+        sheet.unhide_cols(1, 2); // Unhide cols 1, 2
+        assert!(sheet.is_col_hidden(0));
+        assert!(!sheet.is_col_hidden(1));
+        assert!(!sheet.is_col_hidden(2));
+        assert!(sheet.is_col_hidden(3));
+    }
+
+    #[test]
+    fn test_visible_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(2, 2); // Hide rows 2, 3
+        let visible = sheet.visible_rows(0, 5);
+        assert_eq!(visible, vec![0, 1, 4, 5]);
+    }
+
+    #[test]
+    fn test_visible_cols() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(1, 1); // Hide col 1
+        let visible = sheet.visible_cols(0, 3);
+        assert_eq!(visible, vec![0, 2, 3]);
+    }
+
+    #[test]
+    fn test_visible_rows_none_hidden() {
+        let sheet = Sheet::new("T");
+        let visible = sheet.visible_rows(0, 4);
+        assert_eq!(visible, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_visible_cols_all_hidden() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(0, 3);
+        let visible = sheet.visible_cols(0, 2);
+        assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn test_hide_rows_idempotent() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(1, 2);
+        sheet.hide_rows(1, 2); // hide again — no error
+        assert!(sheet.is_row_hidden(1));
+        assert!(sheet.is_row_hidden(2));
+    }
+
+    #[test]
+    fn test_unhide_rows_no_op() {
+        let mut sheet = Sheet::new("T");
+        // Unhiding rows that are not hidden should be fine
+        sheet.unhide_rows(0, 5);
+        assert!(!sheet.is_row_hidden(0));
+    }
+
+    #[test]
+    fn test_insert_rows_shifts_hidden_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(3, 2); // Hide rows 3, 4
+        sheet.insert_rows(2, 2); // Insert 2 rows at row 2
+        // Hidden rows 3,4 should shift to 5,6
+        assert!(!sheet.is_row_hidden(3));
+        assert!(!sheet.is_row_hidden(4));
+        assert!(sheet.is_row_hidden(5));
+        assert!(sheet.is_row_hidden(6));
+    }
+
+    #[test]
+    fn test_delete_rows_shifts_hidden_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(4, 1); // Hide row 4
+        sheet.delete_rows(1, 2); // Delete rows 1, 2
+        // Row 4 should shift to row 2
+        assert!(sheet.is_row_hidden(2));
+        assert!(!sheet.is_row_hidden(4));
+    }
+
+    #[test]
+    fn test_delete_rows_removes_hidden_in_deleted_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_rows(2, 2); // Hide rows 2, 3
+        sheet.delete_rows(1, 3); // Delete rows 1, 2, 3
+        // Hidden rows 2, 3 were in the deleted range — gone
+        assert!(!sheet.is_row_hidden(2));
+        assert!(!sheet.is_row_hidden(3));
+    }
+
+    #[test]
+    fn test_insert_cols_shifts_hidden_cols() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(2, 1); // Hide col 2
+        sheet.insert_cols(1, 3); // Insert 3 cols at col 1
+        // Col 2 should shift to col 5
+        assert!(!sheet.is_col_hidden(2));
+        assert!(sheet.is_col_hidden(5));
+    }
+
+    #[test]
+    fn test_delete_cols_shifts_hidden_cols() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(5, 1); // Hide col 5
+        sheet.delete_cols(2, 2); // Delete cols 2, 3
+        // Col 5 should shift to col 3
+        assert!(sheet.is_col_hidden(3));
+        assert!(!sheet.is_col_hidden(5));
+    }
+
+    #[test]
+    fn test_delete_cols_removes_hidden_in_deleted_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.hide_cols(1, 2); // Hide cols 1, 2
+        sheet.delete_cols(0, 3); // Delete cols 0, 1, 2
+        assert!(!sheet.is_col_hidden(0));
+        assert!(!sheet.is_col_hidden(1));
+        assert!(!sheet.is_col_hidden(2));
     }
 }
