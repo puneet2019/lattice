@@ -330,3 +330,146 @@ fn expect_next(tokens: &[String], idx: usize, expected: &str, after: &str) -> Re
 fn qerr(msg: &str) -> LatticeError {
     LatticeError::FormulaError(format!("QUERY: {msg}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_select_star() {
+        let q = parse_query("SELECT *").unwrap();
+        assert!(q.select.is_empty());
+        assert!(q.where_clause.is_none());
+    }
+
+    #[test]
+    fn parse_select_columns() {
+        let q = parse_query("SELECT A, B, C").unwrap();
+        assert_eq!(q.select, vec![
+            SelectItem::Column(0), SelectItem::Column(1), SelectItem::Column(2),
+        ]);
+    }
+
+    #[test]
+    fn parse_where_number() {
+        let q = parse_query("SELECT A WHERE B > 100").unwrap();
+        assert_eq!(q.where_clause,
+            Some(WhereExpr::Comparison(1, CompOp::Gt, Literal::Number(100.0))));
+    }
+
+    #[test]
+    fn parse_where_string() {
+        let q = parse_query("SELECT A WHERE B = 'Sales'").unwrap();
+        assert_eq!(q.where_clause,
+            Some(WhereExpr::Comparison(1, CompOp::Eq, Literal::Text("Sales".into()))));
+    }
+
+    #[test]
+    fn parse_where_is_null() {
+        let q = parse_query("SELECT A WHERE C IS NULL").unwrap();
+        assert_eq!(q.where_clause, Some(WhereExpr::IsNull(2)));
+    }
+
+    #[test]
+    fn parse_where_is_not_null() {
+        let q = parse_query("SELECT A WHERE C IS NOT NULL").unwrap();
+        assert_eq!(q.where_clause, Some(WhereExpr::IsNotNull(2)));
+    }
+
+    #[test]
+    fn parse_where_and() {
+        let q = parse_query("SELECT A WHERE B > 10 AND C < 50").unwrap();
+        assert_eq!(q.where_clause, Some(WhereExpr::And(
+            Box::new(WhereExpr::Comparison(1, CompOp::Gt, Literal::Number(10.0))),
+            Box::new(WhereExpr::Comparison(2, CompOp::Lt, Literal::Number(50.0))),
+        )));
+    }
+
+    #[test]
+    fn parse_where_or() {
+        let q = parse_query("SELECT A WHERE B = 1 OR B = 2").unwrap();
+        assert!(matches!(q.where_clause, Some(WhereExpr::Or(_, _))));
+    }
+
+    #[test]
+    fn parse_order_by_desc() {
+        let q = parse_query("SELECT A ORDER BY A DESC").unwrap();
+        assert_eq!(q.order_by, vec![(0, SortOrder::Desc)]);
+    }
+
+    #[test]
+    fn parse_order_by_default_asc() {
+        let q = parse_query("SELECT A ORDER BY B").unwrap();
+        assert_eq!(q.order_by, vec![(1, SortOrder::Asc)]);
+    }
+
+    #[test]
+    fn parse_group_by_with_agg() {
+        let q = parse_query("SELECT A, SUM(B) GROUP BY A").unwrap();
+        assert_eq!(q.select, vec![
+            SelectItem::Column(0), SelectItem::Aggregate(AggFunc::Sum, 1),
+        ]);
+        assert_eq!(q.group_by, vec![0]);
+    }
+
+    #[test]
+    fn parse_limit() {
+        let q = parse_query("SELECT * LIMIT 10").unwrap();
+        assert_eq!(q.limit, Some(10));
+    }
+
+    #[test]
+    fn parse_label() {
+        let q = parse_query("SELECT A, B LABEL A 'Name', B 'Total'").unwrap();
+        assert_eq!(q.labels, vec![(0, "Name".into()), (1, "Total".into())]);
+    }
+
+    #[test]
+    fn parse_combined() {
+        let q = parse_query("SELECT A, B WHERE B > 50 ORDER BY B DESC LIMIT 5").unwrap();
+        assert_eq!(q.select.len(), 2);
+        assert!(q.where_clause.is_some());
+        assert_eq!(q.order_by, vec![(1, SortOrder::Desc)]);
+        assert_eq!(q.limit, Some(5));
+    }
+
+    #[test]
+    fn parse_col_ref_single_and_double() {
+        assert_eq!(parse_col_ref("A").unwrap(), 0);
+        assert_eq!(parse_col_ref("Z").unwrap(), 25);
+        assert_eq!(parse_col_ref("AA").unwrap(), 26);
+    }
+
+    #[test]
+    fn parse_error_unterminated_string() {
+        assert!(parse_query("SELECT A WHERE B = 'bad").is_err());
+    }
+
+    #[test]
+    fn parse_error_missing_limit() {
+        assert!(parse_query("SELECT A LIMIT").is_err());
+    }
+
+    #[test]
+    fn parse_multiple_aggregates() {
+        let q = parse_query("SELECT A, SUM(B), AVG(C), COUNT(D), MIN(E), MAX(F) GROUP BY A")
+            .unwrap();
+        assert_eq!(q.select.len(), 6);
+        assert_eq!(q.select[2], SelectItem::Aggregate(AggFunc::Avg, 2));
+        assert_eq!(q.select[4], SelectItem::Aggregate(AggFunc::Min, 4));
+    }
+
+    #[test]
+    fn parse_neq_operator() {
+        let q = parse_query("SELECT A WHERE B <> 0").unwrap();
+        assert_eq!(q.where_clause,
+            Some(WhereExpr::Comparison(1, CompOp::Neq, Literal::Number(0.0))));
+    }
+
+    #[test]
+    fn parse_boolean_literal() {
+        let q = parse_query("SELECT A WHERE B = TRUE").unwrap();
+        assert_eq!(q.where_clause,
+            Some(WhereExpr::Comparison(1, CompOp::Eq, Literal::Boolean(true))));
+    }
+}

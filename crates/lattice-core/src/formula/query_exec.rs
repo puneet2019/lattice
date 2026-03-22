@@ -47,19 +47,27 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
     };
 
     // 3. ORDER BY (apply in reverse so first spec is primary)
+    // When GROUP BY was applied, columns are already projected to SELECT
+    // order, so we remap ORDER BY column refs to their position in SELECT.
+    let has_group = !query.group_by.is_empty();
     let mut sorted = grouped;
     for &(col, ref ord) in query.order_by.iter().rev() {
+        let effective_col = if has_group {
+            remap_col_to_select(col, &query.select)
+        } else {
+            col
+        };
         sorted.sort_by(|a, b| {
-            let va = a.get(col).unwrap_or(&CellValue::Empty);
-            let vb = b.get(col).unwrap_or(&CellValue::Empty);
+            let va = a.get(effective_col).unwrap_or(&CellValue::Empty);
+            let vb = b.get(effective_col).unwrap_or(&CellValue::Empty);
             let cmp = cmp_cell_values(va, vb);
             if *ord == SortOrder::Desc { cmp.reverse() } else { cmp }
         });
     }
 
-    // 4. SELECT projection
-    let projected = if query.select.is_empty() {
-        sorted // SELECT * keeps all columns
+    // 4. SELECT projection (skip when GROUP BY already projected)
+    let projected = if has_group || query.select.is_empty() {
+        sorted
     } else {
         sorted
             .iter()
@@ -268,11 +276,202 @@ fn cell_to_string(val: &CellValue) -> String {
     }
 }
 
+/// Find the position of an original column ref within the SELECT list.
+/// Falls back to the original index if not found (shouldn't happen in
+/// well-formed queries).
+fn remap_col_to_select(orig_col: ColRef, select: &[SelectItem]) -> usize {
+    select
+        .iter()
+        .position(|item| {
+            let c = match item {
+                SelectItem::Column(c) | SelectItem::Aggregate(_, c) => *c,
+            };
+            c == orig_col
+        })
+        .unwrap_or(orig_col)
+}
+
 fn cmp_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
     match (cell_to_f64(a), cell_to_f64(b)) {
         (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => cell_to_string(a).cmp(&cell_to_string(b)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::formula::query::parse_query;
+
+    /// Helper to build a test dataset with 1 header row and data rows.
+    fn sample_data() -> Vec<Vec<CellValue>> {
+        vec![
+            // Header
+            vec![t("Name"), t("Dept"), n(0.0)], // col C header as number (unusual but valid)
+            // Data rows
+            vec![t("Alice"), t("Sales"), n(150.0)],
+            vec![t("Bob"), t("Eng"), n(200.0)],
+            vec![t("Carol"), t("Sales"), n(50.0)],
+            vec![t("Dave"), t("Eng"), n(300.0)],
+            vec![t("Eve"), t("Sales"), n(100.0)],
+        ]
+    }
+
+    fn t(s: &str) -> CellValue { CellValue::Text(s.into()) }
+    fn n(v: f64) -> CellValue { CellValue::Number(v) }
+
+    fn unwrap_array(v: CellValue) -> Vec<Vec<CellValue>> {
+        match v { CellValue::Array(a) => a, other => panic!("expected Array, got {other:?}") }
+    }
+
+    #[test]
+    fn exec_select_star() {
+        let data = sample_data();
+        let q = parse_query("SELECT *").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + 5 data rows
+        assert_eq!(result.len(), 6);
+        assert_eq!(result[0][0], t("Name")); // header preserved
+    }
+
+    #[test]
+    fn exec_select_columns() {
+        let data = sample_data();
+        let q = parse_query("SELECT A, C").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        assert_eq!(result.len(), 6); // 1 header + 5 data
+        // Each row should have 2 columns
+        assert_eq!(result[1].len(), 2);
+        assert_eq!(result[1][0], t("Alice"));
+        assert_eq!(result[1][1], n(150.0));
+    }
+
+    #[test]
+    fn exec_where_filter() {
+        let data = sample_data();
+        let q = parse_query("SELECT A WHERE C > 100").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + rows where C > 100 (Alice=150, Bob=200, Dave=300)
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[1][0], t("Alice"));
+        assert_eq!(result[2][0], t("Bob"));
+        assert_eq!(result[3][0], t("Dave"));
+    }
+
+    #[test]
+    fn exec_where_string() {
+        let data = sample_data();
+        let q = parse_query("SELECT A WHERE B = 'Eng'").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        assert_eq!(result.len(), 3); // header + Bob + Dave
+    }
+
+    #[test]
+    fn exec_order_by_desc() {
+        let data = sample_data();
+        let q = parse_query("SELECT A, C ORDER BY C DESC").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // First data row should be Dave (300)
+        assert_eq!(result[1][0], t("Dave"));
+        assert_eq!(result[1][1], n(300.0));
+    }
+
+    #[test]
+    fn exec_limit() {
+        let data = sample_data();
+        let q = parse_query("SELECT * LIMIT 3").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + 3 data rows
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn exec_group_by_sum() {
+        let data = sample_data();
+        let q = parse_query("SELECT A, SUM(C) GROUP BY A").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + 5 unique names (each person is unique)
+        assert_eq!(result.len(), 6);
+    }
+
+    #[test]
+    fn exec_group_by_department() {
+        let data = sample_data();
+        let q = parse_query("SELECT B, SUM(C) GROUP BY B").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + 2 departments (Sales, Eng)
+        assert_eq!(result.len(), 3);
+        // Find Sales group: 150 + 50 + 100 = 300
+        let sales_row = result.iter().skip(1)
+            .find(|r| r[0] == t("Sales")).unwrap();
+        assert_eq!(sales_row[1], n(300.0));
+        // Find Eng group: 200 + 300 = 500
+        let eng_row = result.iter().skip(1)
+            .find(|r| r[0] == t("Eng")).unwrap();
+        assert_eq!(eng_row[1], n(500.0));
+    }
+
+    #[test]
+    fn exec_combined_where_order_limit() {
+        let data = sample_data();
+        let q = parse_query("SELECT A, C WHERE C > 50 ORDER BY C DESC LIMIT 2").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + 2 rows (Dave=300, Bob=200)
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[1][0], t("Dave"));
+        assert_eq!(result[2][0], t("Bob"));
+    }
+
+    #[test]
+    fn exec_label_override() {
+        let data = sample_data();
+        let q = parse_query("SELECT A, C LABEL A 'Employee', C 'Score'").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        assert_eq!(result[0][0], t("Employee"));
+        assert_eq!(result[0][1], t("Score"));
+    }
+
+    #[test]
+    fn exec_no_headers() {
+        let data = sample_data();
+        let q = parse_query("SELECT *").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 0).unwrap());
+        // No header row — all 6 rows are treated as data
+        assert_eq!(result.len(), 6);
+    }
+
+    #[test]
+    fn exec_empty_data() {
+        let data: Vec<Vec<CellValue>> = vec![];
+        let q = parse_query("SELECT *").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn exec_where_is_not_null() {
+        let data = vec![
+            vec![t("Name"), t("Value")],
+            vec![t("A"), n(10.0)],
+            vec![t("B"), CellValue::Empty],
+            vec![t("C"), n(30.0)],
+        ];
+        let q = parse_query("SELECT A WHERE B IS NOT NULL").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        // Header + A + C (B has empty value)
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn exec_avg_aggregation() {
+        let data = sample_data();
+        let q = parse_query("SELECT B, AVG(C) GROUP BY B").unwrap();
+        let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
+        let sales_row = result.iter().skip(1)
+            .find(|r| r[0] == t("Sales")).unwrap();
+        // Sales avg: (150 + 50 + 100) / 3 = 100
+        assert_eq!(sales_row[1], n(100.0));
     }
 }
