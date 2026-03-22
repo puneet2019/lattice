@@ -348,6 +348,14 @@ const App: Component = () => {
       setSelectedCell([parsed.row, parsed.col]);
       setSelRange([parsed.row, parsed.col, parsed.row, parsed.col]);
       setStatusMessage(`Cell ${cellRefStr(parsed.row, parsed.col)}`);
+      // Fetch the navigated cell's content for the formula bar
+      getCell(activeSheetName(), parsed.row, parsed.col)
+        .then((cell) => {
+          setFormulaContent(cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+        })
+        .catch(() => {
+          setFormulaContent('');
+        });
     }
   };
 
@@ -657,6 +665,12 @@ const App: Component = () => {
             setSelectedCell([row, col]);
             setSelRange([row, col, row, col]);
             setStatusMessage(`Cell ${cellRefStr(row, col)}`);
+            // Sync formula bar with navigated cell
+            getCell(activeSheetName(), row, col)
+              .then((cell) => {
+                setFormulaContent(cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+              })
+              .catch(() => setFormulaContent(''));
           }}
           onStatusChange={setStatusMessage}
           onDataChanged={() => setRefreshTrigger((n) => n + 1)}
