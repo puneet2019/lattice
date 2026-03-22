@@ -860,6 +860,70 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Selection helpers
   // -----------------------------------------------------------------------
 
+  /** Check if a cell has content in the cache. */
+  function cellHasContent(row: number, col: number): boolean {
+    const cell = cellCache.get(`${row}:${col}`);
+    return !!(cell && cell.value && cell.value.trim() !== '');
+  }
+
+  /**
+   * Jump down from (row, col): if current cell is non-empty, go to the last
+   * non-empty cell in a contiguous run below. If current cell is empty, go to
+   * the next non-empty cell below. If nothing found, go to the bottom.
+   */
+  function jumpDown(row: number, col: number): number {
+    const hasContent = cellHasContent(row, col);
+    if (hasContent) {
+      // Walk down through contiguous non-empty cells
+      let r = row + 1;
+      while (r < TOTAL_ROWS && cellHasContent(r, col)) r++;
+      return Math.min(r - 1, TOTAL_ROWS - 1); // last non-empty, or same row if isolated
+    }
+    // Walk down to the next non-empty cell
+    let r = row + 1;
+    while (r < TOTAL_ROWS && !cellHasContent(r, col)) r++;
+    return r < TOTAL_ROWS ? r : TOTAL_ROWS - 1;
+  }
+
+  /** Jump up: mirror of jumpDown. */
+  function jumpUp(row: number, col: number): number {
+    const hasContent = cellHasContent(row, col);
+    if (hasContent) {
+      let r = row - 1;
+      while (r >= 0 && cellHasContent(r, col)) r--;
+      return Math.max(r + 1, 0);
+    }
+    let r = row - 1;
+    while (r >= 0 && !cellHasContent(r, col)) r--;
+    return r >= 0 ? r : 0;
+  }
+
+  /** Jump right: like jumpDown but along the row axis. */
+  function jumpRight(row: number, col: number): number {
+    const hasContent = cellHasContent(row, col);
+    if (hasContent) {
+      let c = col + 1;
+      while (c < TOTAL_COLS && cellHasContent(row, c)) c++;
+      return Math.min(c - 1, TOTAL_COLS - 1);
+    }
+    let c = col + 1;
+    while (c < TOTAL_COLS && !cellHasContent(row, c)) c++;
+    return c < TOTAL_COLS ? c : TOTAL_COLS - 1;
+  }
+
+  /** Jump left: mirror of jumpRight. */
+  function jumpLeft(row: number, col: number): number {
+    const hasContent = cellHasContent(row, col);
+    if (hasContent) {
+      let c = col - 1;
+      while (c >= 0 && cellHasContent(row, c)) c--;
+      return Math.max(c + 1, 0);
+    }
+    let c = col - 1;
+    while (c >= 0 && !cellHasContent(row, c)) c--;
+    return c >= 0 ? c : 0;
+  }
+
   function getSelectionRange() {
     const anchor = rangeAnchor();
     const end = rangeEnd();
@@ -892,19 +956,32 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function drawSelection(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
     const range = getSelectionRange();
 
+    const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+
     // Draw range fill if multi-cell selection
-    if (range.minRow !== range.maxRow || range.minCol !== range.maxCol) {
+    if (isMulti) {
       const rx = ROW_NUMBER_WIDTH + getColX(range.minCol) - sx;
       const ry = HEADER_HEIGHT + getRowY(range.minRow) - sy;
       const rw = getColX(range.maxCol + 1) - getColX(range.minCol);
       const rh = getRowY(range.maxRow + 1) - getRowY(range.minRow);
       ctx.fillStyle = COLORS.selectionBg;
       ctx.fillRect(rx, ry, rw, rh);
+
+      // Draw border around entire range
+      ctx.strokeStyle = COLORS.selectionBorder;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.lineWidth = 1;
     }
 
-    // Draw active cell border (2px blue)
+    // Draw active cell border (2px blue) — white fill cutout in range mode
     const cx = ROW_NUMBER_WIDTH + getColX(selectedCol()) - sx;
     const cy = HEADER_HEIGHT + getRowY(selectedRow()) - sy;
+    if (isMulti) {
+      // Clear the selection background on the active cell (white cutout)
+      ctx.fillStyle = COLORS.cellBg;
+      ctx.fillRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
+    }
     ctx.strokeStyle = COLORS.selectionBorder;
     ctx.lineWidth = 2;
     ctx.strokeRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
@@ -1258,6 +1335,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     draw();
   }
 
+  // Drag-to-select state
+  let isDragging = false;
+
   function handleMouseMove(e: MouseEvent) {
     if (!containerRef) return;
     const rect = containerRef.getBoundingClientRect();
@@ -1279,6 +1359,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // If dragging to select, update the range end.
+    if (isDragging) {
+      const hit = hitTest(e.clientX, e.clientY);
+      if (hit) {
+        const curEnd = rangeEnd();
+        // Only update and redraw if the cell actually changed
+        if (!curEnd || curEnd[0] !== hit.row || curEnd[1] !== hit.col) {
+          setRangeEnd([hit.row, hit.col]);
+          scheduleDraw();
+        }
+      }
+      return;
+    }
+
     // Update cursor based on hover position.
     if (hitColHeaderBorder(localX, localY) >= 0) {
       containerRef.style.cursor = 'col-resize';
@@ -1287,6 +1381,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } else {
       containerRef.style.cursor = '';
     }
+  }
+
+  function handleDragMouseUp() {
+    if (!isDragging) return;
+    isDragging = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleDragMouseUp);
   }
 
   function handleResizeMouseUp() {
@@ -1437,6 +1538,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     lastClickCol = hit.col;
 
     if (e.shiftKey) {
+      // Shift+Click: extend range from anchor
       if (!rangeAnchor()) {
         setRangeAnchor([selectedRow(), selectedCol()]);
       }
@@ -1452,6 +1554,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         startEditing(false);
         return;
       }
+
+      // Start drag-to-select: set anchor and listen for drag
+      setRangeAnchor([hit.row, hit.col]);
+      setRangeEnd([hit.row, hit.col]);
+      isDragging = true;
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleDragMouseUp);
     }
     draw();
   }
@@ -2091,6 +2200,86 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onZoomReset?.();
         return;
       }
+
+      // Cmd+Arrow / Cmd+Shift+Arrow: jump to edge of data region
+      if (
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown' ||
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowRight'
+      ) {
+        e.preventDefault();
+        const curEnd = rangeEnd();
+        const curRow = curEnd ? curEnd[0] : selectedRow();
+        const curCol = curEnd ? curEnd[1] : selectedCol();
+        let targetRow = curRow;
+        let targetCol = curCol;
+
+        if (e.key === 'ArrowDown') {
+          targetRow = jumpDown(curRow, curCol);
+        } else if (e.key === 'ArrowUp') {
+          targetRow = jumpUp(curRow, curCol);
+        } else if (e.key === 'ArrowRight') {
+          targetCol = jumpRight(curRow, curCol);
+        } else if (e.key === 'ArrowLeft') {
+          targetCol = jumpLeft(curRow, curCol);
+        }
+
+        if (e.shiftKey) {
+          // Cmd+Shift+Arrow: extend selection to edge
+          if (!rangeAnchor()) {
+            setRangeAnchor([selectedRow(), selectedCol()]);
+          }
+          setRangeEnd([targetRow, targetCol]);
+        } else {
+          // Cmd+Arrow: jump without selection
+          setSelectedRow(targetRow);
+          setSelectedCol(targetCol);
+          setRangeAnchor(null);
+          setRangeEnd(null);
+          selectCell(targetRow, targetCol);
+        }
+        ensureCellVisible(targetRow, targetCol);
+        draw();
+        return;
+      }
+    }
+
+    // Arrow keys (with optional Shift for range extension)
+    if (
+      e.key === 'ArrowUp' ||
+      e.key === 'ArrowDown' ||
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowRight'
+    ) {
+      e.preventDefault();
+      // When extending, start from the current cursor (rangeEnd) not the anchor
+      const curEnd = rangeEnd();
+      let row = curEnd ? curEnd[0] : selectedRow();
+      let col = curEnd ? curEnd[1] : selectedCol();
+
+      if (e.key === 'ArrowUp') row = Math.max(0, row - 1);
+      else if (e.key === 'ArrowDown') row = Math.min(TOTAL_ROWS - 1, row + 1);
+      else if (e.key === 'ArrowLeft') col = Math.max(0, col - 1);
+      else if (e.key === 'ArrowRight') col = Math.min(TOTAL_COLS - 1, col + 1);
+
+      if (e.shiftKey) {
+        // Shift+Arrow: extend selection from anchor
+        if (!rangeAnchor()) {
+          setRangeAnchor([selectedRow(), selectedCol()]);
+        }
+        setRangeEnd([row, col]);
+      } else {
+        // Plain arrow: move active cell, clear selection
+        setSelectedRow(row);
+        setSelectedCol(col);
+        setRangeAnchor(null);
+        setRangeEnd(null);
+        selectCell(row, col);
+      }
+      ensureCellVisible(row, col);
+      draw();
+      return;
     }
 
     let row = selectedRow();
@@ -2098,22 +2287,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     let handled = false;
 
     switch (e.key) {
-      case 'ArrowUp':
-        row = Math.max(0, row - 1);
-        handled = true;
-        break;
-      case 'ArrowDown':
-        row = Math.min(TOTAL_ROWS - 1, row + 1);
-        handled = true;
-        break;
-      case 'ArrowLeft':
-        col = Math.max(0, col - 1);
-        handled = true;
-        break;
-      case 'ArrowRight':
-        col = Math.min(TOTAL_COLS - 1, col + 1);
-        handled = true;
-        break;
       case 'Tab':
         e.preventDefault();
         col = Math.max(0, Math.min(TOTAL_COLS - 1, col + (e.shiftKey ? -1 : 1)));
@@ -2230,6 +2403,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     };
     darkModeQuery.addEventListener('change', handleColorSchemeChange);
     onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
+
+    // Clean up drag listeners on unmount
+    onCleanup(() => {
+      if (isDragging) {
+        isDragging = false;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleDragMouseUp);
+      }
+    });
 
     updateSize();
     containerRef.focus();
