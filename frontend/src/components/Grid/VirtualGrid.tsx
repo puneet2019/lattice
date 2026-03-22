@@ -969,10 +969,31 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return row >= minRow && row <= maxRow;
   }
 
+  // Fill handle constants
+  const FILL_HANDLE_SIZE = 6;
+  const FILL_HANDLE_HIT_SIZE = 10; // larger hit area for easier clicking
+
   function drawSelection(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
     const range = getSelectionRange();
 
     const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+
+    // Draw fill drag preview if active
+    if (isFillDragging) {
+      const fillRange = getFillPreviewRange();
+      if (fillRange) {
+        const fx = ROW_NUMBER_WIDTH + getColX(fillRange.minCol) - sx;
+        const fy = HEADER_HEIGHT + getRowY(fillRange.minRow) - sy;
+        const fw = getColX(fillRange.maxCol + 1) - getColX(fillRange.minCol);
+        const fh = getRowY(fillRange.maxRow + 1) - getRowY(fillRange.minRow);
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx, fy, fw, fh);
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+      }
+    }
 
     // Draw range fill if multi-cell selection
     if (isMulti) {
@@ -1002,6 +1023,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.lineWidth = 2;
     ctx.strokeRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
     ctx.lineWidth = 1;
+
+    // Draw fill handle (small blue square at bottom-right of selection)
+    if (!editing()) {
+      const handleX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx - FILL_HANDLE_SIZE / 2;
+      const handleY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy - FILL_HANDLE_SIZE / 2;
+      ctx.fillStyle = COLORS.selectionBorder;
+      ctx.fillRect(handleX - 1, handleY - 1, FILL_HANDLE_SIZE + 2, FILL_HANDLE_SIZE + 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(handleX, handleY, FILL_HANDLE_SIZE, FILL_HANDLE_SIZE);
+      ctx.fillStyle = COLORS.selectionBorder;
+      ctx.fillRect(handleX + 1, handleY + 1, FILL_HANDLE_SIZE - 2, FILL_HANDLE_SIZE - 2);
+    }
   }
 
   /**
@@ -1421,7 +1454,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     // Update cursor based on hover position.
-    if (hitColHeaderBorder(localX, localY) >= 0) {
+    if (fillHandleHit(localX, localY)) {
+      containerRef.style.cursor = 'crosshair';
+    } else if (hitColHeaderBorder(localX, localY) >= 0) {
       containerRef.style.cursor = 'col-resize';
     } else if (hitRowHeaderBorder(localX, localY) >= 0) {
       containerRef.style.cursor = 'row-resize';
@@ -1458,6 +1493,184 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       containerRef.style.cursor = '';
     }
     draw();
+  }
+
+  // -----------------------------------------------------------------------
+  // Fill handle (auto-fill) state
+  // -----------------------------------------------------------------------
+
+  let isFillDragging = false;
+  const [fillDragRow, setFillDragRow] = createSignal(-1);
+  const [fillDragCol, setFillDragCol] = createSignal(-1);
+
+  /** Check if a local (container-relative) coordinate hits the fill handle. */
+  function fillHandleHit(localX: number, localY: number): boolean {
+    const range = getSelectionRange();
+    const sx = effectiveScrollX(localX);
+    const sy = effectiveScrollY(localY);
+    const handleCenterX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx;
+    const handleCenterY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy;
+    return (
+      Math.abs(localX - handleCenterX) <= FILL_HANDLE_HIT_SIZE / 2 &&
+      Math.abs(localY - handleCenterY) <= FILL_HANDLE_HIT_SIZE / 2
+    );
+  }
+
+  /** Get the fill preview range (the cells that will be filled). */
+  function getFillPreviewRange(): { minRow: number; maxRow: number; minCol: number; maxCol: number } | null {
+    if (!isFillDragging) return null;
+    const range = getSelectionRange();
+    const dragR = fillDragRow();
+    const dragC = fillDragCol();
+    if (dragR < 0 || dragC < 0) return null;
+
+    // Determine fill direction by which axis has more displacement
+    const dRow = dragR - range.maxRow;
+    const dRowUp = range.minRow - dragR;
+    const dCol = dragC - range.maxCol;
+    const dColLeft = range.minCol - dragC;
+
+    const maxDisp = Math.max(dRow, dRowUp, dCol, dColLeft);
+    if (maxDisp <= 0) return null;
+
+    if (dRow === maxDisp) {
+      // Fill down
+      return { minRow: range.maxRow + 1, maxRow: dragR, minCol: range.minCol, maxCol: range.maxCol };
+    } else if (dRowUp === maxDisp) {
+      // Fill up
+      return { minRow: dragR, maxRow: range.minRow - 1, minCol: range.minCol, maxCol: range.maxCol };
+    } else if (dCol === maxDisp) {
+      // Fill right
+      return { minRow: range.minRow, maxRow: range.maxRow, minCol: range.maxCol + 1, maxCol: dragC };
+    } else {
+      // Fill left
+      return { minRow: range.minRow, maxRow: range.maxRow, minCol: dragC, maxCol: range.minCol - 1 };
+    }
+  }
+
+  /** Execute auto-fill: detect pattern in source cells and fill target range. */
+  async function executeFill() {
+    const range = getSelectionRange();
+    const fillRange = getFillPreviewRange();
+    if (!fillRange) return;
+
+    // Determine fill direction
+    const isVertical = fillRange.minCol === range.minCol && fillRange.maxCol === range.maxCol;
+    const isDown = isVertical && fillRange.minRow > range.maxRow;
+    const isUp = isVertical && fillRange.maxRow < range.minRow;
+    const isRight = !isVertical && fillRange.minRow === range.minRow;
+    const isLeft = !isVertical && fillRange.maxCol < range.minCol;
+
+    const promises: Promise<void>[] = [];
+
+    if (isVertical) {
+      // Fill each column independently
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        // Collect source values for this column
+        const sourceVals: string[] = [];
+        for (let r = range.minRow; r <= range.maxRow; r++) {
+          const cached = cellCache.get(`${r}:${c}`);
+          sourceVals.push(cached?.value ?? '');
+        }
+
+        // Detect pattern and fill
+        const fillCount = isDown
+          ? fillRange.maxRow - fillRange.minRow + 1
+          : fillRange.maxRow - fillRange.minRow + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isUp);
+
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
+          promises.push(
+            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
+          );
+        }
+      }
+    } else {
+      // Fill each row independently
+      for (let r = range.minRow; r <= range.maxRow; r++) {
+        const sourceVals: string[] = [];
+        for (let c = range.minCol; c <= range.maxCol; c++) {
+          const cached = cellCache.get(`${r}:${c}`);
+          sourceVals.push(cached?.value ?? '');
+        }
+
+        const fillCount = isRight
+          ? fillRange.maxCol - fillRange.minCol + 1
+          : fillRange.maxCol - fillRange.minCol + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
+
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
+          promises.push(
+            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
+          );
+        }
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Auto-filled cells');
+  }
+
+  /** Simple frontend pattern detection and fill value generation. */
+  function detectAndFill(sourceVals: string[], count: number, _reverse: boolean): string[] {
+    const result: string[] = [];
+    const len = sourceVals.length;
+
+    // Try numeric linear pattern
+    const nums = sourceVals.map(Number);
+    const allNumeric = sourceVals.every((v) => v.trim() !== '' && !isNaN(Number(v)));
+
+    if (allNumeric && len >= 2) {
+      const step = nums[len - 1] - nums[len - 2];
+      const isInteger = nums.every((n) => Number.isInteger(n)) && Number.isInteger(step);
+      for (let i = 0; i < count; i++) {
+        const val = nums[len - 1] + step * (i + 1);
+        result.push(isInteger ? String(Math.round(val)) : String(val));
+      }
+      return result;
+    }
+
+    // Single numeric value: repeat (constant fill)
+    if (allNumeric && len === 1) {
+      for (let i = 0; i < count; i++) {
+        result.push(sourceVals[0]);
+      }
+      return result;
+    }
+
+    // Default: repeat the source values cyclically
+    for (let i = 0; i < count; i++) {
+      result.push(sourceVals[i % len]);
+    }
+    return result;
+  }
+
+  function handleFillMouseUp() {
+    if (!isFillDragging) return;
+    isFillDragging = false;
+    document.removeEventListener('mousemove', handleFillMouseMove);
+    document.removeEventListener('mouseup', handleFillMouseUp);
+    if (containerRef) {
+      containerRef.style.cursor = '';
+    }
+    executeFill();
+    setFillDragRow(-1);
+    setFillDragCol(-1);
+    draw();
+  }
+
+  function handleFillMouseMove(e: MouseEvent) {
+    if (!isFillDragging || !containerRef) return;
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit) {
+      setFillDragRow(hit.row);
+      setFillDragCol(hit.col);
+      scheduleDraw();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1572,6 +1785,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       };
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleResizeMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // Check for fill handle drag.
+    if (fillHandleHit(localX, localY)) {
+      isFillDragging = true;
+      const range = getSelectionRange();
+      setFillDragRow(range.maxRow);
+      setFillDragCol(range.maxCol);
+      document.addEventListener('mousemove', handleFillMouseMove);
+      document.addEventListener('mouseup', handleFillMouseUp);
       e.preventDefault();
       return;
     }
