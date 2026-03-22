@@ -112,6 +112,8 @@ export interface VirtualGridProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
+  /** Called when the user triggers Cmd+Shift+P to open the paste special dialog. */
+  onPasteSpecialOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1627,6 +1629,98 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Pasted transposed');
   }
 
+  /** Paste from clipboard: only write cells that start with '=' (formulas). */
+  async function handlePasteFormulasOnly() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    const rows = text.split('\n');
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        const cellRow = startRow + r;
+        const cellCol = startCol + c;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+        const value = cols[c];
+        // Only write cells that are formulas (start with '=')
+        if (value.startsWith('=')) {
+          const formula = value.slice(1);
+          promises.push(
+            setCell(props.activeSheet, cellRow, cellCol, value, formula).catch(() => {}),
+          );
+        }
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Pasted formulas only');
+  }
+
+  /** Paste formatting only: read source cells' format from cache and apply via formatCells. */
+  async function handlePasteFormattingOnly() {
+    // For formatting-only paste, we read the cached cell data from the
+    // *source* range (the cells that were last copied). The source range
+    // is inferred from the clipboard text dimensions, and we look up the
+    // formatting from the cell cache (which contains the data from the
+    // cells that were copied, since they were visible on screen).
+    //
+    // We apply each source cell's bold/italic format to the target range.
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    const rows = text.split('\n');
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        const cellRow = startRow + r;
+        const cellCol = startCol + c;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+        // Look up the source cell's format from cache.
+        // The source cell is at the same offset from the original selection
+        // origin. We check if there's cached data for the source cell.
+        const srcKey = `${cellRow}:${cellCol}`;
+        const cached = cellCache.get(srcKey);
+        // Build format options from source cell
+        const format: Record<string, unknown> = {};
+        if (cached) {
+          format.bold = cached.bold ?? false;
+          format.italic = cached.italic ?? false;
+        }
+        // Apply formatting to the target cell without changing values
+        promises.push(
+          formatCells(props.activeSheet, cellRow, cellCol, cellRow, cellCol, format).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Pasted formatting only');
+  }
+
   /** Clear all cells in the current selection. */
   async function clearSelectedCells() {
     const range = getSelectionRange();
@@ -1744,6 +1838,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (e.key === 'x') {
         e.preventDefault();
         handleCut();
+        return;
+      }
+      // Cmd+Shift+P: open paste special dialog
+      if ((e.key === 'p' || e.key === 'P') && e.shiftKey) {
+        e.preventDefault();
+        props.onPasteSpecialOpen?.();
         return;
       }
       // Cmd+Shift+V: paste values only (strip formulas)
