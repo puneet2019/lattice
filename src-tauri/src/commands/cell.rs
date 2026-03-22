@@ -35,6 +35,8 @@ pub struct CellData {
     pub h_align: String,
     /// Font size in points.
     pub font_size: f64,
+    /// Text wrapping mode: "Overflow", "Wrap", or "Clip".
+    pub text_wrap: String,
 }
 
 /// Get a single cell's data.
@@ -210,6 +212,11 @@ fn cell_to_data(c: &lattice_core::Cell) -> CellData {
             lattice_core::HAlign::Right => "right".to_string(),
         },
         font_size: c.format.font_size,
+        text_wrap: match c.format.text_wrap {
+            lattice_core::TextWrap::Overflow => "Overflow".to_string(),
+            lattice_core::TextWrap::Wrap => "Wrap".to_string(),
+            lattice_core::TextWrap::Clip => "Clip".to_string(),
+        },
     }
 }
 

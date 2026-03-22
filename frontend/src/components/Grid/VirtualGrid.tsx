@@ -116,7 +116,7 @@ export interface VirtualGridProps {
   splitCol?: number;
   /** Zoom level (1.0 = 100%). Applied to the canvas rendering. */
   zoom?: number;
-  onSelectionChange: (row: number, col: number) => void;
+  onSelectionChange: (row: number, col: number, minRow?: number, minCol?: number, maxRow?: number, maxCol?: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
   onStatusChange: (message: string) => void;
@@ -403,6 +403,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
   // Selection change with formula bar sync
   // -----------------------------------------------------------------------
+
+  /** Propagate the current selection range to the parent without re-fetching cell data. */
+  function propagateSelectionRange() {
+    const range = getSelectionRange();
+    props.onSelectionChange(selectedRow(), selectedCol(), range.minRow, range.minCol, range.maxRow, range.maxCol);
+  }
 
   function selectCell(row: number, col: number) {
     // Pass both the active cell and the full selection range to the parent.
@@ -747,6 +753,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
     const y = HEADER_HEIGHT + getRowY(row) - sy;
     const minH = getRowHeight(row);
+    // Match canvas cell's font for visual consistency
+    const cell = cellCache.get(`${row}:${col}`);
+    const fontSize = cell?.font_size || 11;
+    const fontFamily = cell?.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    const fontWeight = cell?.bold ? 'bold' : 'normal';
+    const fontStyleCss = cell?.italic ? 'italic' : 'normal';
     return {
       position: 'absolute' as const,
       left: `${x}px`,
@@ -754,6 +766,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       width: `${getColWidth(col)}px`,
       'min-height': `${minH}px`,
       'z-index': '10',
+      'font-size': `${fontSize}px`,
+      'font-family': fontFamily,
+      'font-weight': fontWeight,
+      'font-style': fontStyleCss,
+      color: cell?.font_color || undefined,
     };
   }
 
@@ -1363,13 +1380,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
         const cell = cellCache.get(`${row}:${col}`);
-        if (!cell || !cell.value) continue;
-
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
-        // Draw cell background color if set
-        if (cell.bg_color) {
+        // Draw cell background color if set (even for empty cells)
+        if (cell?.bg_color) {
           ctx.fillStyle = cell.bg_color;
           ctx.fillRect(x, y, cw, rh);
         }
@@ -1380,6 +1395,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillStyle = isActive ? 'rgba(0, 180, 80, 0.25)' : 'rgba(255, 235, 59, 0.35)';
           ctx.fillRect(x, y, cw, rh);
         }
+
+        // Skip text rendering for cells with no value
+        if (!cell || !cell.value) continue;
 
         // Image cell: value starts with data:image/
         if (cell.value.startsWith('data:image/')) {
@@ -1407,14 +1425,47 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
         ctx.fillStyle = cell.font_color || COLORS.cellText;
 
-        // Right-align numbers, left-align strings (unless h_align is set)
+        // Auto-align: numbers right, text left — unless user explicitly set center/right.
+        // Backend default is "left", so treat "left" as auto (allows number right-align).
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
-        const align = cell.h_align ?? (isNumber ? 'right' : 'left');
+        const userSetAlign = cell.h_align && cell.h_align !== 'left';
+        const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
         const maxTextW = cw - PADDING * 2;
         let displayText = cell.value;
 
+        // Helper to draw underline and strikethrough decorations on a text segment
+        const drawTextDecorations = (textX: number, textY: number, text: string, textAlign: CanvasTextAlign) => {
+          if (!cell.underline && !cell.strikethrough) return;
+          const tw = ctx.measureText(text).width;
+          let lineStartX: number;
+          if (textAlign === 'right') {
+            lineStartX = textX - tw;
+          } else if (textAlign === 'center') {
+            lineStartX = textX - tw / 2;
+          } else {
+            lineStartX = textX;
+          }
+          ctx.strokeStyle = cell.font_color || COLORS.cellText;
+          ctx.lineWidth = Math.max(1, fontSize / 12);
+          if (cell.underline) {
+            const underlineY = textY + fontSize * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(lineStartX, underlineY);
+            ctx.lineTo(lineStartX + tw, underlineY);
+            ctx.stroke();
+          }
+          if (cell.strikethrough) {
+            const strikeY = textY;
+            ctx.beginPath();
+            ctx.moveTo(lineStartX, strikeY);
+            ctx.lineTo(lineStartX + tw, strikeY);
+            ctx.stroke();
+          }
+          ctx.lineWidth = 1;
+        };
+
         // Determine text rendering mode
-        const textWrap = cell.text_wrap ?? 'Overflow';
+        const textWrap = (cell as CellData).text_wrap ?? 'Overflow';
 
         if (textWrap === 'Wrap') {
           // Wrap mode: split text into lines that fit cell width
@@ -1443,6 +1494,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               : align === 'center' ? x + cw / 2
               : x + PADDING;
             ctx.fillText(lines[li], textX, lineY);
+            drawTextDecorations(textX, lineY, lines[li], align as CanvasTextAlign);
           }
         } else {
           // Overflow or Clip mode
@@ -1466,6 +1518,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.clip();
               ctx.textAlign = 'left';
               ctx.fillText(displayText, x + PADDING, y + rh / 2);
+              drawTextDecorations(x + PADDING, y + rh / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -1484,6 +1537,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
                 : align === 'center' ? x + cw / 2
                 : x + PADDING;
               ctx.fillText(displayText, textX, y + rh / 2);
+              drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
             }
           } else {
             ctx.textAlign = align;
@@ -1491,6 +1545,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               : align === 'center' ? x + cw / 2
               : x + PADDING;
             ctx.fillText(displayText, textX, y + rh / 2);
+            drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
           }
         }
       }
@@ -1738,7 +1793,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (!cell || !cell.value) continue;
       const fontWeight = cell.bold ? 'bold' : 'normal';
       const fontStyle = cell.italic ? 'italic' : 'normal';
-      ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+      const fontSize = cell.font_size || 11;
+      const fontFamily = cell.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
       const tw = ctx.measureText(cell.value).width + PADDING * 2 + 4;
       maxW = Math.max(maxW, tw);
     }
@@ -1846,6 +1903,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     isDragging = false;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleDragMouseUp);
+    // Propagate the final selection range to the parent so toolbar operations
+    // (bold, italic, etc.) use the correct range.
+    propagateSelectionRange();
   }
 
   function handleResizeMouseUp() {
@@ -2214,6 +2274,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const anchorCol = anchor ? anchor[1] : selectedCol();
         setRangeAnchor([0, anchorCol]);
         setRangeEnd([TOTAL_ROWS - 1, col]);
+        propagateSelectionRange();
       } else {
         setSelectedRow(0);
         setSelectedCol(col);
@@ -2242,6 +2303,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const anchorRow = anchor ? anchor[0] : selectedRow();
         setRangeAnchor([anchorRow, 0]);
         setRangeEnd([row, TOTAL_COLS - 1]);
+        propagateSelectionRange();
       } else {
         setSelectedRow(row);
         setSelectedCol(0);
@@ -2280,6 +2342,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         setRangeAnchor([selectedRow(), selectedCol()]);
       }
       setRangeEnd([hit.row, hit.col]);
+      propagateSelectionRange();
     } else {
       setSelectedRow(hit.row);
       setSelectedCol(hit.col);
@@ -2789,6 +2852,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const col = selectedCol();
       setRangeAnchor([0, col]);
       setRangeEnd([TOTAL_ROWS - 1, col]);
+      propagateSelectionRange();
       props.onStatusChange(`Column ${col_to_letter(col)} selected`);
       draw();
       return;
@@ -2800,6 +2864,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const row = selectedRow();
       setRangeAnchor([row, 0]);
       setRangeEnd([row, TOTAL_COLS - 1]);
+      propagateSelectionRange();
       props.onStatusChange(`Row ${row + 1} selected`);
       draw();
       return;
@@ -2869,6 +2934,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         e.preventDefault();
         setRangeAnchor([0, 0]);
         setRangeEnd([TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+        propagateSelectionRange();
         props.onStatusChange('All cells selected');
         draw();
         return;
@@ -2985,12 +3051,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const row = selectedRow();
         const col = selectedCol();
         const cell = cellCache.get(`${row}:${col}`);
-        // Toggle strikethrough (we don't have the current state cached, so toggle on)
-        formatCells(props.activeSheet, row, col, row, col, { strikethrough: true })
+        const newStrike = !(cell?.strikethrough ?? false);
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { strikethrough: newStrike })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
-        props.onStatusChange('Strikethrough toggled');
+        props.onStatusChange(newStrike ? 'Strikethrough on' : 'Strikethrough off');
         return;
       }
       // Cmd+Shift+T: paste transposed
@@ -3020,9 +3087,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+E: center align
       if (e.key === 'E' || (e.key === 'e' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'center' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'center' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3032,9 +3098,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+L: left align
       if (e.key === 'L' || (e.key === 'l' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'left' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'left' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3044,9 +3109,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+R: right align (must come after Cmd+R which is not shifted)
       if (e.key === 'R' || (e.key === 'r' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'right' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'right' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3136,6 +3200,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             setRangeAnchor([selectedRow(), selectedCol()]);
           }
           setRangeEnd([targetRow, targetCol]);
+          propagateSelectionRange();
         } else {
           // Cmd+Arrow: jump without selection
           setSelectedRow(targetRow);
@@ -3174,6 +3239,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           setRangeAnchor([selectedRow(), selectedCol()]);
         }
         setRangeEnd([row, col]);
+        propagateSelectionRange();
       } else {
         // Plain arrow: move active cell, clear selection
         setSelectedRow(row);
@@ -3316,6 +3382,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleDragMouseUp);
+      }
+      if (resizeDrag) {
+        resizeDrag = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleResizeMouseUp);
+      }
+      if (isFillDragging) {
+        isFillDragging = false;
+        document.removeEventListener('mousemove', handleFillMouseMove);
+        document.removeEventListener('mouseup', handleFillMouseUp);
       }
     });
 

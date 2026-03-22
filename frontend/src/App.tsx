@@ -87,6 +87,7 @@ const App: Component = () => {
     setActiveSheetLocal(info.active_sheet);
     setRefreshTrigger((n) => n + 1);
     setSelectedCell([0, 0]);
+    setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
   }
 
@@ -216,6 +217,10 @@ const App: Component = () => {
       // Ignore in browser dev mode.
     }
     setActiveSheetLocal(name);
+    // Reset selection when switching sheets to avoid stale range targeting
+    setSelectedCell([0, 0]);
+    setSelRange([0, 0, 0, 0]);
+    setFormulaContent('');
   };
 
   const handleAddSheet = async () => {
@@ -341,7 +346,16 @@ const App: Component = () => {
     const parsed = parse_cell_ref(ref);
     if (parsed) {
       setSelectedCell([parsed.row, parsed.col]);
+      setSelRange([parsed.row, parsed.col, parsed.row, parsed.col]);
       setStatusMessage(`Cell ${cellRefStr(parsed.row, parsed.col)}`);
+      // Fetch the navigated cell's content for the formula bar
+      getCell(activeSheetName(), parsed.row, parsed.col)
+        .then((cell) => {
+          setFormulaContent(cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+        })
+        .catch(() => {
+          setFormulaContent('');
+        });
     }
   };
 
@@ -360,8 +374,8 @@ const App: Component = () => {
       await formatCells(activeSheetName(), minR, minC, maxR, maxC, format);
       // Refresh the grid so the canvas re-fetches and renders the new format.
       setRefreshTrigger((n) => n + 1);
-    } catch {
-      // Ignore in browser dev mode — command may not exist yet.
+    } catch (e) {
+      setStatusMessage(`Format failed: ${e}`);
     }
   };
 
@@ -400,7 +414,9 @@ const App: Component = () => {
   };
 
   const handleBgColor = (color: string) => {
-    applyFormat({ bg_color: color || null });
+    // Send empty string to clear bg_color (backend treats "" as "remove fill").
+    // A non-empty color string sets the fill color.
+    applyFormat({ bg_color: color });
     setStatusMessage(color ? `Fill color: ${color}` : 'Fill removed');
   };
 
@@ -647,7 +663,14 @@ const App: Component = () => {
           onClose={handleFindClose}
           onNavigateToCell={(row, col) => {
             setSelectedCell([row, col]);
+            setSelRange([row, col, row, col]);
             setStatusMessage(`Cell ${cellRefStr(row, col)}`);
+            // Sync formula bar with navigated cell
+            getCell(activeSheetName(), row, col)
+              .then((cell) => {
+                setFormulaContent(cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+              })
+              .catch(() => setFormulaContent(''));
           }}
           onStatusChange={setStatusMessage}
           onDataChanged={() => setRefreshTrigger((n) => n + 1)}
@@ -704,11 +727,16 @@ const App: Component = () => {
       <Show when={showFormatCells()}>
         <FormatCellsDialog
           onApply={(format) => {
-            const [row, col] = selectedCell();
-            formatCells(activeSheetName(), row, col, row, col, format).catch(() => {});
-            setRefreshTrigger((n) => n + 1);
+            const [minR, minC, maxR, maxC] = selRange();
+            formatCells(activeSheetName(), minR, minC, maxR, maxC, format)
+              .then(() => {
+                setRefreshTrigger((n) => n + 1);
+                setStatusMessage('Format applied');
+              })
+              .catch((e) => {
+                setStatusMessage(`Format failed: ${e}`);
+              });
             setShowFormatCells(false);
-            setStatusMessage('Format applied');
           }}
           onClose={() => setShowFormatCells(false)}
         />
