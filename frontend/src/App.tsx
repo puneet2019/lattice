@@ -704,11 +704,16 @@ const App: Component = () => {
       <Show when={showFormatCells()}>
         <FormatCellsDialog
           onApply={(format) => {
-            const [row, col] = selectedCell();
-            formatCells(activeSheetName(), row, col, row, col, format).catch(() => {});
-            setRefreshTrigger((n) => n + 1);
+            const [minR, minC, maxR, maxC] = selRange();
+            formatCells(activeSheetName(), minR, minC, maxR, maxC, format)
+              .then(() => {
+                setRefreshTrigger((n) => n + 1);
+                setStatusMessage('Format applied');
+              })
+              .catch((e) => {
+                setStatusMessage(`Format failed: ${e}`);
+              });
             setShowFormatCells(false);
-            setStatusMessage('Format applied');
           }}
           onClose={() => setShowFormatCells(false)}
         />

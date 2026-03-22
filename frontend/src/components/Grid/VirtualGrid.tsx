@@ -116,7 +116,7 @@ export interface VirtualGridProps {
   splitCol?: number;
   /** Zoom level (1.0 = 100%). Applied to the canvas rendering. */
   zoom?: number;
-  onSelectionChange: (row: number, col: number) => void;
+  onSelectionChange: (row: number, col: number, minRow?: number, minCol?: number, maxRow?: number, maxCol?: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
   onStatusChange: (message: string) => void;
@@ -403,6 +403,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
   // Selection change with formula bar sync
   // -----------------------------------------------------------------------
+
+  /** Propagate the current selection range to the parent without re-fetching cell data. */
+  function propagateSelectionRange() {
+    const range = getSelectionRange();
+    props.onSelectionChange(selectedRow(), selectedCol(), range.minRow, range.minCol, range.maxRow, range.maxCol);
+  }
 
   function selectCell(row: number, col: number) {
     // Pass both the active cell and the full selection range to the parent.
@@ -1846,6 +1852,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     isDragging = false;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleDragMouseUp);
+    // Propagate the final selection range to the parent so toolbar operations
+    // (bold, italic, etc.) use the correct range.
+    propagateSelectionRange();
   }
 
   function handleResizeMouseUp() {
@@ -2214,6 +2223,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const anchorCol = anchor ? anchor[1] : selectedCol();
         setRangeAnchor([0, anchorCol]);
         setRangeEnd([TOTAL_ROWS - 1, col]);
+        propagateSelectionRange();
       } else {
         setSelectedRow(0);
         setSelectedCol(col);
@@ -2242,6 +2252,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const anchorRow = anchor ? anchor[0] : selectedRow();
         setRangeAnchor([anchorRow, 0]);
         setRangeEnd([row, TOTAL_COLS - 1]);
+        propagateSelectionRange();
       } else {
         setSelectedRow(row);
         setSelectedCol(0);
@@ -2280,6 +2291,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         setRangeAnchor([selectedRow(), selectedCol()]);
       }
       setRangeEnd([hit.row, hit.col]);
+      propagateSelectionRange();
     } else {
       setSelectedRow(hit.row);
       setSelectedCol(hit.col);
@@ -2789,6 +2801,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const col = selectedCol();
       setRangeAnchor([0, col]);
       setRangeEnd([TOTAL_ROWS - 1, col]);
+      propagateSelectionRange();
       props.onStatusChange(`Column ${col_to_letter(col)} selected`);
       draw();
       return;
@@ -2800,6 +2813,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const row = selectedRow();
       setRangeAnchor([row, 0]);
       setRangeEnd([row, TOTAL_COLS - 1]);
+      propagateSelectionRange();
       props.onStatusChange(`Row ${row + 1} selected`);
       draw();
       return;
@@ -2869,6 +2883,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         e.preventDefault();
         setRangeAnchor([0, 0]);
         setRangeEnd([TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+        propagateSelectionRange();
         props.onStatusChange('All cells selected');
         draw();
         return;
@@ -2985,12 +3000,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const row = selectedRow();
         const col = selectedCol();
         const cell = cellCache.get(`${row}:${col}`);
-        // Toggle strikethrough (we don't have the current state cached, so toggle on)
-        formatCells(props.activeSheet, row, col, row, col, { strikethrough: true })
+        const newStrike = !(cell?.strikethrough ?? false);
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { strikethrough: newStrike })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
-        props.onStatusChange('Strikethrough toggled');
+        props.onStatusChange(newStrike ? 'Strikethrough on' : 'Strikethrough off');
         return;
       }
       // Cmd+Shift+T: paste transposed
@@ -3020,9 +3036,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+E: center align
       if (e.key === 'E' || (e.key === 'e' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'center' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'center' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3032,9 +3047,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+L: left align
       if (e.key === 'L' || (e.key === 'l' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'left' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'left' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3044,9 +3058,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+R: right align (must come after Cmd+R which is not shifted)
       if (e.key === 'R' || (e.key === 'r' && e.shiftKey)) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        formatCells(props.activeSheet, row, col, row, col, { h_align: 'right' })
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { h_align: 'right' })
           .catch(() => {});
         lastFetchKey = '';
         fetchVisibleData();
@@ -3136,6 +3149,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             setRangeAnchor([selectedRow(), selectedCol()]);
           }
           setRangeEnd([targetRow, targetCol]);
+          propagateSelectionRange();
         } else {
           // Cmd+Arrow: jump without selection
           setSelectedRow(targetRow);
@@ -3174,6 +3188,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           setRangeAnchor([selectedRow(), selectedCol()]);
         }
         setRangeEnd([row, col]);
+        propagateSelectionRange();
       } else {
         // Plain arrow: move active cell, clear selection
         setSelectedRow(row);
