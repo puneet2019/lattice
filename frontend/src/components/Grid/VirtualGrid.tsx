@@ -140,6 +140,8 @@ export interface VirtualGridProps {
   findMatches?: { row: number; col: number }[];
   /** Index of the active find match (highlighted differently). */
   findActiveIndex?: number;
+  /** Called when the user selects "Format cells..." from context menu. */
+  onFormatCellsOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -3460,6 +3462,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxClearContents}>
             Clear contents
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>
+            Format cells...
           </div>
         </div>
       </Show>
