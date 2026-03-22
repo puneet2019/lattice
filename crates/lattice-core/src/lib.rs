@@ -17,6 +17,7 @@ pub mod format;
 pub mod formula;
 pub mod named_range;
 pub mod history;
+pub mod pivot;
 pub mod selection;
 pub mod sheet;
 pub mod sort;
@@ -41,6 +42,7 @@ pub use format::{
 };
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use formula::{FormulaEngine, SheetResolver};
+pub use pivot::{PivotAggregation, PivotConfig, PivotResult, PivotValue, generate_pivot};
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
 pub use sheet::{BandedRows, MergedRegion, ProtectedRange, Sheet, SheetProtection};
