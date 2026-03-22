@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 lattice-core = { path = "../lattice-core" }
+lattice-io = { path = "../lattice-io" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

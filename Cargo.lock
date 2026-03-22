@@ -2110,6 +2110,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "lattice-core",
+ "lattice-io",
  "regex",
  "serde",
  "serde_json",

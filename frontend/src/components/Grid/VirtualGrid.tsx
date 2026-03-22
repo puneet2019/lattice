@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
-import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
+import { getCell, getRange, setCell, undo, redo, formatCells } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import {
   DEFAULT_COL_WIDTH,
@@ -1587,6 +1587,46 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Pasted values only');
   }
 
+  /** Paste from clipboard with rows and columns transposed. */
+  async function handlePasteTransposed() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    const rows = text.split('\n').filter((r) => r.length > 0);
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        // Transpose: source (r, c) -> dest (startRow + c, startCol + r)
+        const cellRow = startRow + c;
+        const cellCol = startCol + r;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+        const value = cols[c];
+        let formula: string | undefined;
+        if (value.startsWith('=')) {
+          formula = value.slice(1);
+        }
+        promises.push(
+          setCell(props.activeSheet, cellRow, cellCol, value, formula).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Pasted transposed');
+  }
+
   /** Clear all cells in the current selection. */
   async function clearSelectedCells() {
     const range = getSelectionRange();
@@ -1752,7 +1792,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         return;
       }
       // Cmd+;: insert current date
-      if (e.key === ';') {
+      if (e.key === ';' && !e.shiftKey) {
         e.preventDefault();
         const today = new Date();
         const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -1765,6 +1805,161 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         fetchVisibleData();
         props.onContentChange(dateStr);
         props.onStatusChange(`Inserted date: ${dateStr}`);
+        return;
+      }
+      // Cmd+Shift+;: insert current time
+      if (e.key === ':' || (e.key === ';' && e.shiftKey)) {
+        e.preventDefault();
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const timeStr = `${hh}:${mm}:${ss}`;
+        setCell(props.activeSheet, selectedRow(), selectedCol(), timeStr, undefined)
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onContentChange(timeStr);
+        props.onStatusChange(`Inserted time: ${timeStr}`);
+        return;
+      }
+      // Cmd+D: fill down (copy cell above into selected cell)
+      if (e.key === 'd' && !e.shiftKey) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        if (row > 0) {
+          const above = cellCache.get(`${row - 1}:${col}`);
+          const value = above?.formula ? `=${above.formula}` : above?.value ?? '';
+          const formula = above?.formula ?? undefined;
+          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+          lastFetchKey = '';
+          fetchVisibleData();
+          props.onContentChange(value);
+          props.onStatusChange('Filled down');
+        }
+        return;
+      }
+      // Cmd+R: fill right (copy cell to the left into selected cell)
+      if (e.key === 'r' && !e.shiftKey) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        if (col > 0) {
+          const left = cellCache.get(`${row}:${col - 1}`);
+          const value = left?.formula ? `=${left.formula}` : left?.value ?? '';
+          const formula = left?.formula ?? undefined;
+          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+          lastFetchKey = '';
+          fetchVisibleData();
+          props.onContentChange(value);
+          props.onStatusChange('Filled right');
+        }
+        return;
+      }
+      // Cmd+Shift+K: strikethrough toggle
+      if (e.key === 'K' || (e.key === 'k' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        const cell = cellCache.get(`${row}:${col}`);
+        // Toggle strikethrough (we don't have the current state cached, so toggle on)
+        formatCells(props.activeSheet, row, col, row, col, { strikethrough: true })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Strikethrough toggled');
+        return;
+      }
+      // Cmd+Shift+T: paste transposed
+      if (e.key === 'T' || (e.key === 't' && e.shiftKey)) {
+        e.preventDefault();
+        handlePasteTransposed();
+        return;
+      }
+      // Cmd+': copy formula from cell above (without evaluating)
+      if (e.key === "'") {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        if (row > 0) {
+          const above = cellCache.get(`${row - 1}:${col}`);
+          if (above?.formula) {
+            const formulaText = `=${above.formula}`;
+            setCell(props.activeSheet, row, col, formulaText, above.formula).catch(() => {});
+            lastFetchKey = '';
+            fetchVisibleData();
+            props.onContentChange(formulaText);
+            props.onStatusChange('Copied formula from above');
+          }
+        }
+        return;
+      }
+      // Cmd+Shift+E: center align
+      if (e.key === 'E' || (e.key === 'e' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        formatCells(props.activeSheet, row, col, row, col, { h_align: 'center' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Align: center');
+        return;
+      }
+      // Cmd+Shift+L: left align
+      if (e.key === 'L' || (e.key === 'l' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        formatCells(props.activeSheet, row, col, row, col, { h_align: 'left' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Align: left');
+        return;
+      }
+      // Cmd+Shift+R: right align (must come after Cmd+R which is not shifted)
+      if (e.key === 'R' || (e.key === 'r' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        formatCells(props.activeSheet, row, col, row, col, { h_align: 'right' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Align: right');
+        return;
+      }
+      // Cmd+Home: go to cell A1
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setSelectedRow(0);
+        setSelectedCol(0);
+        setRangeAnchor(null);
+        setRangeEnd(null);
+        selectCell(0, 0);
+        ensureCellVisible(0, 0);
+        draw();
+        return;
+      }
+      // Cmd+End: go to last used cell
+      if (e.key === 'End') {
+        e.preventDefault();
+        let maxR = 0;
+        let maxC = 0;
+        cellCache.forEach((_v, key) => {
+          const [r, c] = key.split(':').map(Number);
+          if (r > maxR) maxR = r;
+          if (c > maxC) maxC = c;
+        });
+        setSelectedRow(maxR);
+        setSelectedCol(maxC);
+        setRangeAnchor(null);
+        setRangeEnd(null);
+        selectCell(maxR, maxC);
+        ensureCellVisible(maxR, maxC);
+        draw();
         return;
       }
       // Cmd+Enter: commit edit but stay in cell (handled in editor, noop here)
@@ -1820,6 +2015,24 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         row = Math.max(0, Math.min(TOTAL_ROWS - 1, row + (e.shiftKey ? -1 : 1)));
         handled = true;
         break;
+      case 'Home':
+        // Home (without Cmd): go to column A in current row
+        col = 0;
+        handled = true;
+        break;
+      case 'End': {
+        // End (without Cmd): go to last used column in current row
+        let maxCol = 0;
+        cellCache.forEach((_v, key) => {
+          const parts = key.split(':');
+          const r = Number(parts[0]);
+          const c = Number(parts[1]);
+          if (r === row && c > maxCol) maxCol = c;
+        });
+        col = maxCol;
+        handled = true;
+        break;
+      }
     }
 
     if (handled) {

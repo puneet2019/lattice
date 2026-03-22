@@ -2465,6 +2465,41 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             Ok(CellValue::Number(rate))
         }
 
+        // ===== IMPORTRANGE =====
+        "IMPORTRANGE" => {
+            // IMPORTRANGE(file_path, range_string)
+            // Imports data from another spreadsheet file.
+            //
+            // In Google Sheets this opens another spreadsheet. In Lattice the
+            // core engine is I/O-free, so we validate arguments and return
+            // #REF!. The MCP/Tauri layer provides the actual import_range
+            // tool that performs file I/O and returns the data.
+            if args.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "IMPORTRANGE requires exactly 2 arguments: file_path, range_string".into(),
+                ));
+            }
+            let _file_path = match &args[0] {
+                FuncArg::Value(v) => coerce_to_string(v),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "IMPORTRANGE: first argument must be a file path string".into(),
+                    ));
+                }
+            };
+            let _range_string = match &args[1] {
+                FuncArg::Value(v) => coerce_to_string(v),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "IMPORTRANGE: second argument must be a range string".into(),
+                    ));
+                }
+            };
+            // The core engine has no I/O access. Return #REF! to signal that
+            // an external resolver (MCP import_range tool) is needed.
+            Ok(CellValue::Error(CellError::Ref))
+        }
+
         // ===== QUERY =====
         "QUERY" => {
             // QUERY(data_range, query_string, [headers])
@@ -4005,5 +4040,27 @@ mod tests {
         } else {
             panic!("expected Array");
         }
+    }
+
+    // ===== IMPORTRANGE =====
+
+    #[test]
+    fn test_importrange_returns_ref_error() {
+        // IMPORTRANGE should return #REF! because the core engine has no I/O.
+        let sheet = Sheet::new("T");
+        let result = eval(r#"IMPORTRANGE("file.xlsx", "Sheet1!A1:B2")"#, &sheet);
+        assert_eq!(result, CellValue::Error(CellError::Ref));
+    }
+
+    #[test]
+    fn test_importrange_wrong_arg_count() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        // Too few arguments
+        let result = evaluator.evaluate(r#"IMPORTRANGE("file.xlsx")"#, &sheet);
+        assert!(result.is_err());
+        // Too many arguments
+        let result = evaluator.evaluate(r#"IMPORTRANGE("a", "b", "c")"#, &sheet);
+        assert!(result.is_err());
     }
 }
