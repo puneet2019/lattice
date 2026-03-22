@@ -9,8 +9,8 @@ use lattice_core::Workbook;
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, data_ops, file_ops, format_ops, formula_ops,
-    sheet_ops,
+    analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops,
+    formula_ops, sheet_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -269,6 +269,16 @@ impl McpServer {
             }
 
 
+            // ── Find/replace operations (core-backed) ───────────────────
+            "find_in_workbook" => {
+                let wb = self.workbook.read().await;
+                find_replace_ops::handle_find_in_workbook(&wb, arguments)
+            }
+            "replace_in_workbook" => {
+                let mut wb = self.workbook.write().await;
+                find_replace_ops::handle_replace_in_workbook(&mut wb, arguments)
+            }
+
             // ── Analysis operations ──────────────────────────────────────
             "describe_data" => {
                 let wb = self.workbook.read().await;
@@ -393,10 +403,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 28+ tools (all tool modules implemented).
+        // We should have 30+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 28,
-            "Expected at least 28 tools, got {}",
+            tools.len() >= 30,
+            "Expected at least 30 tools, got {}",
             tools.len()
         );
 
@@ -419,6 +429,9 @@ mod tests {
         assert!(tool_names.contains(&"set_cell_format"));
         assert!(tool_names.contains(&"merge_cells"));
         assert!(tool_names.contains(&"unmerge_cells"));
+        // find_replace_ops tools
+        assert!(tool_names.contains(&"find_in_workbook"));
+        assert!(tool_names.contains(&"replace_in_workbook"));
         assert!(tool_names.contains(&"describe_data"));
         assert!(tool_names.contains(&"correlate"));
         assert!(tool_names.contains(&"trend_analysis"));
