@@ -16,6 +16,7 @@ import {
   deleteCols,
 } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
+import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import {
   DEFAULT_COL_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -180,10 +181,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [editValue, setEditValue] = createSignal('');
   let editorRef: HTMLInputElement | undefined;
 
-  // Auto-complete state
+  // Auto-complete state (cell value suggestions)
   const [acVisible, setAcVisible] = createSignal(false);
   const [acSuggestions, setAcSuggestions] = createSignal<string[]>([]);
   const [acSelectedIdx, setAcSelectedIdx] = createSignal(0);
+
+  // Formula auto-complete state (function name suggestions)
+  const [formulaAcVisible, setFormulaAcVisible] = createSignal(false);
+  const [formulaAcSelectedIdx, setFormulaAcSelectedIdx] = createSignal(0);
 
   // Context menu state
   const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
@@ -380,6 +385,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     setEditing(false);
     setAcVisible(false);
+    setFormulaAcVisible(false);
     props.onModeChange('Ready');
 
     // Write to backend
@@ -418,6 +424,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function cancelEdit() {
     setEditing(false);
     setAcVisible(false);
+    setFormulaAcVisible(false);
     props.onModeChange('Ready');
     containerRef?.focus();
     draw();
@@ -429,8 +436,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Show/hide auto-complete based on input
     const trimmed = value.trim();
-    if (trimmed.length > 0 && !trimmed.startsWith('=')) {
-      // Filter suggestions by prefix
+    if (trimmed.startsWith('=')) {
+      // Formula mode: show formula function suggestions
+      setAcVisible(false);
+      const token = extractCurrentToken(trimmed);
+      if (token.length > 0) {
+        const matches = filterFormulaFunctions(token);
+        setFormulaAcVisible(matches.length > 0);
+        setFormulaAcSelectedIdx(0);
+      } else {
+        setFormulaAcVisible(false);
+      }
+    } else if (trimmed.length > 0) {
+      // Non-formula mode: show cell value suggestions
+      setFormulaAcVisible(false);
       const lower = trimmed.toLowerCase();
       const matches = acSuggestions().filter((s) => {
         const sl = s.toLowerCase();
@@ -440,6 +459,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setAcSelectedIdx(0);
     } else {
       setAcVisible(false);
+      setFormulaAcVisible(false);
     }
   }
 
@@ -453,8 +473,44 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     });
   }
 
+  /** Get filtered formula suggestions for current input. */
+  function formulaAcFiltered() {
+    const token = extractCurrentToken(editValue());
+    return filterFormulaFunctions(token);
+  }
+
   function handleEditorKeyDown(e: KeyboardEvent) {
-    // When auto-complete is visible, handle navigation keys
+    // When formula auto-complete is visible, handle navigation keys
+    if (formulaAcVisible()) {
+      const list = formulaAcFiltered();
+      if (list.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setFormulaAcSelectedIdx((i) => Math.min(i + 1, list.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setFormulaAcSelectedIdx((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === 'Tab') {
+          const idx = formulaAcSelectedIdx();
+          if (idx >= 0 && idx < list.length) {
+            e.preventDefault();
+            acceptFormulaAutoComplete(list[idx].name);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setFormulaAcVisible(false);
+          return;
+        }
+      }
+    }
+
+    // When cell value auto-complete is visible, handle navigation keys
     if (acVisible()) {
       const list = acFiltered();
       if (list.length > 0) {
@@ -498,6 +554,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       e.preventDefault();
       cancelEdit();
     }
+  }
+
+  /** Accept a formula function suggestion: replace current token with function name + open paren. */
+  function acceptFormulaAutoComplete(funcName: string) {
+    const current = editValue();
+    const token = extractCurrentToken(current);
+    // Replace the last N chars (the token) with the function name + (
+    const prefix = current.slice(0, current.length - token.length);
+    const newValue = prefix + funcName + '(';
+    setEditValue(newValue);
+    props.onContentChange(newValue);
+    setFormulaAcVisible(false);
+    editorRef?.focus();
+    // Position cursor at the end
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.setSelectionRange(newValue.length, newValue.length);
+      }
+    });
   }
 
   function acceptAutoComplete(value: string) {
@@ -2982,6 +3057,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           visible={acVisible()}
           onAccept={acceptAutoComplete}
           onDismiss={() => setAcVisible(false)}
+        />
+        <FormulaAutoComplete
+          inputValue={editValue()}
+          left={(() => {
+            const col = selectedCol();
+            const fc = props.frozenCols ?? 0;
+            const sx = col < fc ? 0 : scrollX();
+            return ROW_NUMBER_WIDTH + getColX(col) - sx;
+          })()}
+          top={(() => {
+            const row = selectedRow();
+            const fr = props.frozenRows ?? 0;
+            const sy = row < fr ? 0 : scrollY();
+            return HEADER_HEIGHT + getRowY(row) - sy + getRowHeight(row);
+          })()}
+          width={getColWidth(selectedCol())}
+          visible={formulaAcVisible()}
+          selectedIndex={formulaAcSelectedIdx()}
+          onAccept={acceptFormulaAutoComplete}
+          onDismiss={() => setFormulaAcVisible(false)}
         />
       </Show>
       <Show when={ctxMenuVisible()}>
