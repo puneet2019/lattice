@@ -26,6 +26,7 @@ const COLORS = {
   selectionBg: 'rgba(26, 115, 232, 0.08)',
   cornerBg: '#f8f9fa',
   cellText: '#202124',
+  freezeBorder: '#9e9e9e',
 };
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,10 @@ export interface VirtualGridProps {
   activeSheet: string;
   /** Increment to trigger a data refresh (e.g. after formula bar commit). */
   refreshTrigger?: number;
+  /** Number of rows to freeze at the top (0 = none). */
+  frozenRows?: number;
+  /** Number of columns to freeze at the left (0 = none). */
+  frozenCols?: number;
   onSelectionChange: (row: number, col: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
@@ -320,8 +325,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function editorStyle() {
     const col = selectedCol();
     const row = selectedRow();
-    const x = ROW_NUMBER_WIDTH + getColX(col) - scrollX();
-    const y = HEADER_HEIGHT + getRowY(row) - scrollY();
+    const fc = props.frozenCols ?? 0;
+    const fr = props.frozenRows ?? 0;
+    const sx = col < fc ? 0 : scrollX();
+    const sy = row < fr ? 0 : scrollY();
+    const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+    const y = HEADER_HEIGHT + getRowY(row) - sy;
     return {
       position: 'absolute' as const,
       left: `${x}px`,
@@ -335,6 +344,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
   // Drawing
   // -----------------------------------------------------------------------
+
+  /** Width of the frozen columns region in pixels. */
+  function frozenColsPx(): number {
+    const fc = props.frozenCols ?? 0;
+    if (fc <= 0) return 0;
+    return getColX(fc);
+  }
+
+  /** Height of the frozen rows region in pixels. */
+  function frozenRowsPx(): number {
+    const fr = props.frozenRows ?? 0;
+    if (fr <= 0) return 0;
+    return getRowY(fr);
+  }
 
   function draw() {
     const canvas = canvasRef;
@@ -353,17 +376,121 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     const sx = scrollX();
     const sy = scrollY();
-    const startCol = firstVisibleCol();
-    const startRow = firstVisibleRow();
-    const colCount = visibleColCount();
-    const rowCount = visibleRowCount();
+    const fc = props.frozenCols ?? 0;
+    const fr = props.frozenRows ?? 0;
+    const fpx = frozenColsPx();
+    const fpy = frozenRowsPx();
 
-    drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
-    drawSelection(ctx, sx, sy);
-    drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
-    drawColumnHeaders(ctx, sx, startCol, colCount, w);
-    drawRowNumbers(ctx, sy, startRow, rowCount, h);
-    drawCorner(ctx);
+    if (fc <= 0 && fr <= 0) {
+      // No freeze panes: simple single-pass render.
+      const startCol = firstVisibleCol();
+      const startRow = firstVisibleRow();
+      const colCount = visibleColCount();
+      const rowCount = visibleRowCount();
+
+      drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
+      drawSelection(ctx, sx, sy);
+      drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
+      drawColumnHeaders(ctx, sx, startCol, colCount, w);
+      drawRowNumbers(ctx, sy, startRow, rowCount, h);
+      drawCorner(ctx);
+    } else {
+      // Freeze panes: render 4 quadrants with clipping.
+      const startCol = firstVisibleCol();
+      const startRow = firstVisibleRow();
+      const colCount = visibleColCount();
+      const rowCount = visibleRowCount();
+
+      // Q4: Bottom-right (scrollable rows + scrollable cols) — main area
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT + fpy, w - ROW_NUMBER_WIDTH - fpx, h - HEADER_HEIGHT - fpy);
+      ctx.clip();
+      drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
+      drawSelection(ctx, sx, sy);
+      drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
+      ctx.restore();
+
+      // Q2: Top-right (frozen rows, scrollable cols) — scrolls horizontally
+      if (fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT, w - ROW_NUMBER_WIDTH - fpx, fpy);
+        ctx.clip();
+        drawGridLines(ctx, sx, 0, startCol, 0, colCount, fr, w, HEADER_HEIGHT + fpy);
+        drawSelection(ctx, sx, 0);
+        drawCellData(ctx, sx, 0, startCol, 0, colCount, fr);
+        ctx.restore();
+      }
+
+      // Q3: Bottom-left (scrollable rows, frozen cols) — scrolls vertically
+      if (fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, HEADER_HEIGHT + fpy, fpx, h - HEADER_HEIGHT - fpy);
+        ctx.clip();
+        drawGridLines(ctx, 0, sy, 0, startRow, fc, rowCount, ROW_NUMBER_WIDTH + fpx, h);
+        drawSelection(ctx, 0, sy);
+        drawCellData(ctx, 0, sy, 0, startRow, fc, rowCount);
+        ctx.restore();
+      }
+
+      // Q1: Top-left (frozen rows + frozen cols) — always visible
+      if (fc > 0 && fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, HEADER_HEIGHT, fpx, fpy);
+        ctx.clip();
+        drawGridLines(ctx, 0, 0, 0, 0, fc, fr, ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT + fpy);
+        drawSelection(ctx, 0, 0);
+        drawCellData(ctx, 0, 0, 0, 0, fc, fr);
+        ctx.restore();
+      }
+
+      // Headers (drawn on top of quadrants)
+      drawColumnHeaders(ctx, sx, startCol, colCount, w);
+      // Frozen column headers (no scroll)
+      if (fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, 0, fpx, HEADER_HEIGHT);
+        ctx.clip();
+        drawColumnHeaders(ctx, 0, 0, fc, ROW_NUMBER_WIDTH + fpx);
+        ctx.restore();
+      }
+
+      drawRowNumbers(ctx, sy, startRow, rowCount, h);
+      // Frozen row numbers (no scroll)
+      if (fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, HEADER_HEIGHT, ROW_NUMBER_WIDTH, fpy);
+        ctx.clip();
+        drawRowNumbers(ctx, 0, 0, fr, HEADER_HEIGHT + fpy);
+        ctx.restore();
+      }
+
+      drawCorner(ctx);
+
+      // Draw freeze border lines.
+      ctx.strokeStyle = COLORS.freezeBorder;
+      ctx.lineWidth = 2;
+      if (fc > 0) {
+        const fx = ROW_NUMBER_WIDTH + fpx;
+        ctx.beginPath();
+        ctx.moveTo(fx, 0);
+        ctx.lineTo(fx, h);
+        ctx.stroke();
+      }
+      if (fr > 0) {
+        const fy = HEADER_HEIGHT + fpy;
+        ctx.beginPath();
+        ctx.moveTo(0, fy);
+        ctx.lineTo(w, fy);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -622,17 +749,32 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
    * Check if the mouse is over a column header border (right edge).
    * Returns the column index whose right edge is near the mouse, or -1.
    */
+  /** Get the effective scroll-X for a given screen local-X, accounting for freeze. */
+  function effectiveScrollX(localX: number): number {
+    const fc = props.frozenCols ?? 0;
+    if (fc > 0 && localX < ROW_NUMBER_WIDTH + frozenColsPx()) return 0;
+    return scrollX();
+  }
+
+  /** Get the effective scroll-Y for a given screen local-Y, accounting for freeze. */
+  function effectiveScrollY(localY: number): number {
+    const fr = props.frozenRows ?? 0;
+    if (fr > 0 && localY < HEADER_HEIGHT + frozenRowsPx()) return 0;
+    return scrollY();
+  }
+
   function hitColHeaderBorder(localX: number, localY: number): number {
     if (localY >= HEADER_HEIGHT || localY < 0) return -1;
     if (localX < ROW_NUMBER_WIDTH) return -1;
-    const contentX = localX - ROW_NUMBER_WIDTH + scrollX();
+    const effSx = effectiveScrollX(localX);
+    const contentX = localX - ROW_NUMBER_WIDTH + effSx;
     // Check nearby columns
     const approxCol = Math.floor(contentX / DEFAULT_COL_WIDTH);
     const start = Math.max(0, approxCol - 2);
     const end = Math.min(TOTAL_COLS, approxCol + 3);
     for (let c = start; c < end; c++) {
       const rightEdge = getColX(c + 1);
-      const screenRight = ROW_NUMBER_WIDTH + rightEdge - scrollX();
+      const screenRight = ROW_NUMBER_WIDTH + rightEdge - effSx;
       if (Math.abs(localX - screenRight) <= RESIZE_HANDLE_PX) {
         return c;
       }
@@ -647,13 +789,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function hitRowHeaderBorder(localX: number, localY: number): number {
     if (localX >= ROW_NUMBER_WIDTH || localX < 0) return -1;
     if (localY < HEADER_HEIGHT) return -1;
-    const contentY = localY - HEADER_HEIGHT + scrollY();
+    const effSy = effectiveScrollY(localY);
+    const contentY = localY - HEADER_HEIGHT + effSy;
     const approxRow = Math.floor(contentY / DEFAULT_ROW_HEIGHT);
     const start = Math.max(0, approxRow - 2);
     const end = Math.min(TOTAL_ROWS, approxRow + 3);
     for (let r = start; r < end; r++) {
       const bottomEdge = getRowY(r + 1);
-      const screenBottom = HEADER_HEIGHT + bottomEdge - scrollY();
+      const screenBottom = HEADER_HEIGHT + bottomEdge - effSy;
       if (Math.abs(localY - screenBottom) <= RESIZE_HANDLE_PX) {
         return r;
       }
@@ -792,8 +935,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if (x < ROW_NUMBER_WIDTH || y < HEADER_HEIGHT) return null;
-    const contentX = x - ROW_NUMBER_WIDTH + scrollX();
-    const contentY = y - HEADER_HEIGHT + scrollY();
+    const contentX = x - ROW_NUMBER_WIDTH + effectiveScrollX(x);
+    const contentY = y - HEADER_HEIGHT + effectiveScrollY(y);
     const col = colAtX(contentX);
     const row = rowAtY(contentY);
     if (col < 0 || col >= TOTAL_COLS || row < 0 || row >= TOTAL_ROWS) return null;
