@@ -10,6 +10,7 @@ use crate::formula::parser::{Token, tokenize};
 use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
+use regex::Regex;
 
 /// A recursive formula evaluator that supports 70+ spreadsheet functions,
 /// arithmetic, comparisons, string concatenation, and nested expressions.
@@ -1399,6 +1400,233 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             }
             Ok(vals[index].clone())
         }
+        "XLOOKUP" => {
+            // XLOOKUP(search_value, lookup_range, return_range, [not_found], [match_mode])
+            // match_mode: 0 = exact (default), -1 = exact or next smaller, 1 = exact or next larger
+            if args.len() < 3 || args.len() > 5 {
+                return Err(LatticeError::FormulaError(
+                    "XLOOKUP requires 3 to 5 arguments".into(),
+                ));
+            }
+            let search_key = match &args[0] {
+                FuncArg::Value(v) => v.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "XLOOKUP: first argument must be a value".into(),
+                    ));
+                }
+            };
+            let lookup_vals = match &args[1] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "XLOOKUP: second argument must be a range".into(),
+                    ));
+                }
+            };
+            let return_vals = match &args[2] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "XLOOKUP: third argument must be a range".into(),
+                    ));
+                }
+            };
+            let not_found = if args.len() > 3 {
+                match &args[3] {
+                    FuncArg::Value(v) => Some(v.clone()),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let match_mode = if args.len() > 4 {
+                match &args[4] {
+                    FuncArg::Value(v) => coerce_to_number(v)? as i32,
+                    _ => 0,
+                }
+            } else {
+                0
+            };
+
+            // Exact match first
+            for (i, val) in lookup_vals.iter().enumerate() {
+                if compare_values(val, &search_key, "=") {
+                    return if i < return_vals.len() {
+                        Ok(return_vals[i].clone())
+                    } else {
+                        Ok(CellValue::Error(CellError::Ref))
+                    };
+                }
+            }
+            // Approximate match modes
+            if match_mode == -1 {
+                // Next smaller: find largest value <= search_key
+                let search_num = try_as_number(&search_key);
+                if let Ok(sn) = search_num {
+                    let mut best_idx: Option<usize> = None;
+                    let mut best_val = f64::NEG_INFINITY;
+                    for (i, val) in lookup_vals.iter().enumerate() {
+                        if let Ok(n) = try_as_number(val)
+                            && n <= sn
+                            && n > best_val
+                        {
+                            best_val = n;
+                            best_idx = Some(i);
+                        }
+                    }
+                    if let Some(idx) = best_idx {
+                        return if idx < return_vals.len() {
+                            Ok(return_vals[idx].clone())
+                        } else {
+                            Ok(CellValue::Error(CellError::Ref))
+                        };
+                    }
+                }
+            } else if match_mode == 1 {
+                // Next larger: find smallest value >= search_key
+                let search_num = try_as_number(&search_key);
+                if let Ok(sn) = search_num {
+                    let mut best_idx: Option<usize> = None;
+                    let mut best_val = f64::INFINITY;
+                    for (i, val) in lookup_vals.iter().enumerate() {
+                        if let Ok(n) = try_as_number(val)
+                            && n >= sn
+                            && n < best_val
+                        {
+                            best_val = n;
+                            best_idx = Some(i);
+                        }
+                    }
+                    if let Some(idx) = best_idx {
+                        return if idx < return_vals.len() {
+                            Ok(return_vals[idx].clone())
+                        } else {
+                            Ok(CellValue::Error(CellError::Ref))
+                        };
+                    }
+                }
+            }
+            // Not found
+            match not_found {
+                Some(v) => Ok(v),
+                None => Ok(CellValue::Error(CellError::NA)),
+            }
+        }
+        "FILTER" => {
+            // FILTER(range, condition_range) — return rows matching TRUE values.
+            // Returns a comma-separated string since the evaluator returns CellValue.
+            // NOTE: Array return is a limitation; we serialize to comma-separated text.
+            if args.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "FILTER requires exactly 2 arguments".into(),
+                ));
+            }
+            let data_vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "FILTER: first argument must be a range".into(),
+                    ));
+                }
+            };
+            let cond_vals = match &args[1] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "FILTER: second argument must be a range".into(),
+                    ));
+                }
+            };
+            let mut results: Vec<String> = Vec::new();
+            for (i, cond) in cond_vals.iter().enumerate() {
+                let is_true = match cond {
+                    CellValue::Boolean(true) => true,
+                    CellValue::Number(n) => *n != 0.0,
+                    _ => false,
+                };
+                if is_true
+                    && let Some(v) = data_vals.get(i)
+                {
+                    results.push(coerce_to_string(v));
+                }
+            }
+            if results.is_empty() {
+                Ok(CellValue::Error(CellError::NA))
+            } else {
+                Ok(CellValue::Text(results.join(",")))
+            }
+        }
+        "SORT" => {
+            // SORT(range, sort_index, [order])
+            // sort_index: 1-based column index within the range (for 1D, always 1)
+            // order: 1 = ascending (default), -1 = descending
+            // Returns comma-separated string (array limitation).
+            if args.is_empty() || args.len() > 3 {
+                return Err(LatticeError::FormulaError(
+                    "SORT requires 1 to 3 arguments".into(),
+                ));
+            }
+            let mut vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "SORT: first argument must be a range".into(),
+                    ));
+                }
+            };
+            let order = if args.len() > 2 {
+                match &args[2] {
+                    FuncArg::Value(v) => coerce_to_number(v)? as i32,
+                    _ => 1,
+                }
+            } else {
+                1
+            };
+            // Sort by numeric value first, then by string
+            vals.sort_by(|a, b| {
+                let na = try_as_number(a);
+                let nb = try_as_number(b);
+                match (na, nb) {
+                    (Ok(x), Ok(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                    _ => coerce_to_string(a).cmp(&coerce_to_string(b)),
+                }
+            });
+            if order == -1 {
+                vals.reverse();
+            }
+            let strs: Vec<String> = vals.iter().map(coerce_to_string).collect();
+            Ok(CellValue::Text(strs.join(",")))
+        }
+        "UNIQUE" => {
+            // UNIQUE(range) — return unique values from a range.
+            // Returns comma-separated string (array limitation).
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "UNIQUE requires exactly 1 argument".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "UNIQUE: argument must be a range".into(),
+                    ));
+                }
+            };
+            let mut seen = Vec::new();
+            let mut unique_strs = Vec::new();
+            for v in &vals {
+                let s = coerce_to_string(v);
+                if !seen.contains(&s) {
+                    seen.push(s.clone());
+                    unique_strs.push(s);
+                }
+            }
+            Ok(CellValue::Text(unique_strs.join(",")))
+        }
 
         // ===== DATE =====
         "TODAY" => {
@@ -1665,6 +1893,283 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             }
         }
         "NA" => Ok(CellValue::Error(CellError::NA)),
+
+        // ===== REGEX TEXT =====
+        "REGEXMATCH" => {
+            // REGEXMATCH(text, pattern) — returns TRUE if text matches regex
+            let a = require_args(&args, 2, "REGEXMATCH")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            match Regex::new(&pattern) {
+                Ok(re) => Ok(CellValue::Boolean(re.is_match(&text))),
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "REGEXEXTRACT" => {
+            // REGEXEXTRACT(text, pattern) — returns first match
+            let a = require_args(&args, 2, "REGEXEXTRACT")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            match Regex::new(&pattern) {
+                Ok(re) => {
+                    if let Some(caps) = re.captures(&text) {
+                        // Return first capture group if present, else full match
+                        let result = caps
+                            .get(1)
+                            .or_else(|| caps.get(0))
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default();
+                        Ok(CellValue::Text(result))
+                    } else {
+                        Ok(CellValue::Error(CellError::NA))
+                    }
+                }
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "REGEXREPLACE" => {
+            // REGEXREPLACE(text, pattern, replacement) — replace regex matches
+            let a = require_args(&args, 3, "REGEXREPLACE")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            let replacement = coerce_to_string(&a[2]);
+            match Regex::new(&pattern) {
+                Ok(re) => {
+                    let result = re.replace_all(&text, replacement.as_str()).to_string();
+                    Ok(CellValue::Text(result))
+                }
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+
+        // ===== ARRAY =====
+        "TRANSPOSE" => {
+            // TRANSPOSE(range) — swap rows and columns, return as CSV text.
+            // Each row separated by semicolons, values within a row by commas.
+            // NOTE: Array return limitation; we serialize to text.
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "TRANSPOSE requires exactly 1 argument".into(),
+                ));
+            }
+            let grid = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "TRANSPOSE: argument must be a range".into(),
+                    ));
+                }
+            };
+            if grid.is_empty() {
+                return Ok(CellValue::Text(String::new()));
+            }
+            let num_rows = grid.len();
+            let num_cols = grid.iter().map(|r| r.len()).max().unwrap_or(0);
+            let mut transposed_strs: Vec<String> = Vec::new();
+            for c in 0..num_cols {
+                let mut row_vals: Vec<String> = Vec::new();
+                for row in grid.iter().take(num_rows) {
+                    let val = row.get(c).cloned().unwrap_or(CellValue::Empty);
+                    row_vals.push(coerce_to_string(&val));
+                }
+                transposed_strs.push(row_vals.join(","));
+            }
+            Ok(CellValue::Text(transposed_strs.join(";")))
+        }
+        "SEQUENCE" => {
+            // SEQUENCE(rows, [cols], [start], [step])
+            // Returns a comma-separated sequence of numbers.
+            // Multiple rows separated by semicolons.
+            if args.is_empty() || args.len() > 4 {
+                return Err(LatticeError::FormulaError(
+                    "SEQUENCE requires 1 to 4 arguments".into(),
+                ));
+            }
+            let a = require_min_args(&args, 1, "SEQUENCE")?;
+            let rows = coerce_to_number(&a[0])? as usize;
+            let cols = if a.len() > 1 {
+                coerce_to_number(&a[1])? as usize
+            } else {
+                1
+            };
+            let start = if a.len() > 2 {
+                coerce_to_number(&a[2])?
+            } else {
+                1.0
+            };
+            let step = if a.len() > 3 {
+                coerce_to_number(&a[3])?
+            } else {
+                1.0
+            };
+            if rows == 0 || cols == 0 {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            let mut current = start;
+            let mut row_strs: Vec<String> = Vec::new();
+            for _ in 0..rows {
+                let mut col_vals: Vec<String> = Vec::new();
+                for _ in 0..cols {
+                    if current == current.floor() && current.abs() < 1e15 {
+                        col_vals.push(format!("{}", current as i64));
+                    } else {
+                        col_vals.push(format!("{current}"));
+                    }
+                    current += step;
+                }
+                row_strs.push(col_vals.join(","));
+            }
+            if rows == 1 {
+                Ok(CellValue::Text(row_strs.join(",")))
+            } else {
+                Ok(CellValue::Text(row_strs.join(";")))
+            }
+        }
+        "FLATTEN" => {
+            // FLATTEN(range) — flatten a 2D range to a 1D comma-separated list.
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "FLATTEN requires exactly 1 argument".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "FLATTEN: argument must be a range".into(),
+                    ));
+                }
+            };
+            let strs: Vec<String> = vals.iter().map(coerce_to_string).collect();
+            Ok(CellValue::Text(strs.join(",")))
+        }
+
+        // ===== DATABASE =====
+        // Database functions operate on a "database" range where row 0 is
+        // headers. "field" is a column name (text) or 1-based index (number).
+        // "criteria" is a range where row 0 is a header matching a database
+        // column, and row 1+ are criteria values.
+        "DSUM" | "DAVERAGE" | "DCOUNT" | "DMAX" | "DMIN" => {
+            if args.len() != 3 {
+                return Err(LatticeError::FormulaError(format!(
+                    "{name} requires exactly 3 arguments"
+                )));
+            }
+            let database = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: first argument must be a range"
+                    )));
+                }
+            };
+            let field = match &args[1] {
+                FuncArg::Value(v) => v.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: second argument must be a field name or index"
+                    )));
+                }
+            };
+            let criteria = match &args[2] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: third argument must be a range"
+                    )));
+                }
+            };
+
+            if database.is_empty() {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            let headers = &database[0];
+
+            // Resolve the field to a 0-based column index
+            let field_col = match &field {
+                CellValue::Number(n) => {
+                    let idx = *n as usize;
+                    if idx == 0 || idx > headers.len() {
+                        return Ok(CellValue::Error(CellError::Value));
+                    }
+                    idx - 1
+                }
+                CellValue::Text(s) => {
+                    let field_upper = s.to_ascii_uppercase();
+                    match headers.iter().position(|h| {
+                        coerce_to_string(h).to_ascii_uppercase() == field_upper
+                    }) {
+                        Some(i) => i,
+                        None => return Ok(CellValue::Error(CellError::Value)),
+                    }
+                }
+                _ => return Ok(CellValue::Error(CellError::Value)),
+            };
+
+            // Build criteria matching: criteria row 0 = header names,
+            // criteria rows 1+ = values to match (OR across rows, AND within a row)
+            let matching_values =
+                database_matching_values(&database, field_col, &criteria, headers);
+
+            match name {
+                "DSUM" => {
+                    let sum: f64 = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .sum();
+                    Ok(CellValue::Number(sum))
+                }
+                "DAVERAGE" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Error(CellError::DivZero));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().sum::<f64>() / nums.len() as f64,
+                    ))
+                }
+                "DCOUNT" => {
+                    let count = matching_values
+                        .iter()
+                        .filter(|v| matches!(v, CellValue::Number(_)))
+                        .count();
+                    Ok(CellValue::Number(count as f64))
+                }
+                "DMAX" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Number(0.0));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                    ))
+                }
+                "DMIN" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Number(0.0));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().cloned().fold(f64::INFINITY, f64::min),
+                    ))
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        // TODO: XIRR(values, dates, [guess]) — IRR for irregular dates.
+        // Skipped due to complexity of date serial number handling.
+        // TODO: XNPV(rate, values, dates) — NPV for irregular dates.
+        // Skipped due to complexity of date serial number handling.
 
         // ===== FINANCIAL =====
         "PMT" => {
@@ -1978,6 +2483,71 @@ fn require_min_args_mixed(
         }
     }
     Ok(result)
+}
+
+/// Extract values from a database column that match the given criteria.
+///
+/// The database is a 2D grid where row 0 is headers. The criteria is a 2D
+/// grid where row 0 has header names matching database columns, and rows 1+
+/// contain match values. Multiple criteria rows are OR'd; multiple criteria
+/// columns within a row are AND'd.
+fn database_matching_values(
+    database: &[Vec<CellValue>],
+    field_col: usize,
+    criteria: &[Vec<CellValue>],
+    headers: &[CellValue],
+) -> Vec<CellValue> {
+    if criteria.is_empty() || database.len() < 2 {
+        return Vec::new();
+    }
+
+    let criteria_headers = &criteria[0];
+
+    // Map criteria columns to database column indices
+    let mut criteria_col_mapping: Vec<Option<usize>> = Vec::new();
+    for ch in criteria_headers {
+        let ch_str = coerce_to_string(ch).to_ascii_uppercase();
+        let db_col = headers.iter().position(|h| {
+            coerce_to_string(h).to_ascii_uppercase() == ch_str
+        });
+        criteria_col_mapping.push(db_col);
+    }
+
+    let mut result = Vec::new();
+
+    // For each data row (skip header row 0)
+    for data_row in database.iter().skip(1) {
+        // Check criteria rows (OR logic across rows)
+        let mut matches_any_criteria_row = criteria.len() <= 1; // If no criteria data rows, nothing matches
+        for criteria_row in criteria.iter().skip(1) {
+            // AND logic within a single criteria row
+            let mut matches_all_in_row = true;
+            for (ci, crit_val) in criteria_row.iter().enumerate() {
+                // Skip empty criteria values
+                if matches!(crit_val, CellValue::Empty) {
+                    continue;
+                }
+                if let Some(Some(db_col)) = criteria_col_mapping.get(ci) {
+                    let db_val = data_row.get(*db_col).cloned().unwrap_or(CellValue::Empty);
+                    if !matches_criteria(&db_val, crit_val) {
+                        matches_all_in_row = false;
+                        break;
+                    }
+                }
+            }
+            if matches_all_in_row {
+                matches_any_criteria_row = true;
+                break;
+            }
+        }
+
+        if matches_any_criteria_row {
+            let val = data_row.get(field_col).cloned().unwrap_or(CellValue::Empty);
+            result.push(val);
+        }
+    }
+
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -2750,5 +3320,406 @@ mod tests {
             eval(r#"DATEDIF("2020-01-01", "2024-01-01", "Y")"#, &sheet),
             CellValue::Number(4.0)
         );
+    }
+
+    // === XLOOKUP ===
+
+    #[test]
+    fn test_xlookup_exact_match() {
+        let mut sheet = Sheet::new("T");
+        // Lookup range A1:A3 = [10, 20, 30]
+        // Return range B1:B3 = ["a", "b", "c"]
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(1, 0, CellValue::Number(20.0));
+        sheet.set_value(2, 0, CellValue::Number(30.0));
+        sheet.set_value(0, 1, CellValue::Text("a".to_string()));
+        sheet.set_value(1, 1, CellValue::Text("b".to_string()));
+        sheet.set_value(2, 1, CellValue::Text("c".to_string()));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("XLOOKUP(20, A1:A3, B1:B3)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("b".to_string()));
+    }
+
+    #[test]
+    fn test_xlookup_not_found_with_default() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(1, 0, CellValue::Number(20.0));
+        sheet.set_value(0, 1, CellValue::Text("a".to_string()));
+        sheet.set_value(1, 1, CellValue::Text("b".to_string()));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate(r#"XLOOKUP(99, A1:A2, B1:B2, "missing")"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("missing".to_string()));
+    }
+
+    #[test]
+    fn test_xlookup_not_found_no_default() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(0, 1, CellValue::Text("a".to_string()));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("XLOOKUP(99, A1:A1, B1:B1)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Error(CellError::NA));
+    }
+
+    #[test]
+    fn test_xlookup_approximate_next_smaller() {
+        let mut sheet = Sheet::new("T");
+        // Lookup: [10, 20, 30], Return: ["a", "b", "c"]
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(1, 0, CellValue::Number(20.0));
+        sheet.set_value(2, 0, CellValue::Number(30.0));
+        sheet.set_value(0, 1, CellValue::Text("a".to_string()));
+        sheet.set_value(1, 1, CellValue::Text("b".to_string()));
+        sheet.set_value(2, 1, CellValue::Text("c".to_string()));
+
+        let eval_engine = SimpleEvaluator;
+        // Search for 25 with match_mode -1 => should find 20 -> "b"
+        let result = eval_engine
+            .evaluate(r#"XLOOKUP(25, A1:A3, B1:B3, "none", -1)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("b".to_string()));
+    }
+
+    // === FILTER ===
+
+    #[test]
+    fn test_filter_basic() {
+        let mut sheet = Sheet::new("T");
+        // Data A1:A4 = [10, 20, 30, 40]
+        // Condition B1:B4 = [TRUE, FALSE, TRUE, FALSE]
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(1, 0, CellValue::Number(20.0));
+        sheet.set_value(2, 0, CellValue::Number(30.0));
+        sheet.set_value(3, 0, CellValue::Number(40.0));
+        sheet.set_value(0, 1, CellValue::Boolean(true));
+        sheet.set_value(1, 1, CellValue::Boolean(false));
+        sheet.set_value(2, 1, CellValue::Boolean(true));
+        sheet.set_value(3, 1, CellValue::Boolean(false));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("FILTER(A1:A4, B1:B4)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("10,30".to_string()));
+    }
+
+    #[test]
+    fn test_filter_no_matches() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        sheet.set_value(0, 1, CellValue::Boolean(false));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("FILTER(A1:A1, B1:B1)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Error(CellError::NA));
+    }
+
+    // === SORT ===
+
+    #[test]
+    fn test_sort_ascending() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(30.0));
+        sheet.set_value(1, 0, CellValue::Number(10.0));
+        sheet.set_value(2, 0, CellValue::Number(20.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("SORT(A1:A3, 1)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("10,20,30".to_string()));
+    }
+
+    #[test]
+    fn test_sort_descending() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(30.0));
+        sheet.set_value(1, 0, CellValue::Number(10.0));
+        sheet.set_value(2, 0, CellValue::Number(20.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("SORT(A1:A3, 1, -1)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("30,20,10".to_string()));
+    }
+
+    // === UNIQUE ===
+
+    #[test]
+    fn test_unique() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(1.0));
+        sheet.set_value(3, 0, CellValue::Number(3.0));
+        sheet.set_value(4, 0, CellValue::Number(2.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("UNIQUE(A1:A5)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Text("1,2,3".to_string()));
+    }
+
+    // === REGEXMATCH ===
+
+    #[test]
+    fn test_regexmatch_true() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("hello world", "world")"#, &sheet),
+            CellValue::Boolean(true)
+        );
+    }
+
+    #[test]
+    fn test_regexmatch_false() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("hello world", "^world")"#, &sheet),
+            CellValue::Boolean(false)
+        );
+    }
+
+    #[test]
+    fn test_regexmatch_pattern() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("abc123", "\d+")"#, &sheet),
+            CellValue::Boolean(true)
+        );
+    }
+
+    // === REGEXEXTRACT ===
+
+    #[test]
+    fn test_regexextract_basic() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("abc123def", "\d+")"#, &sheet),
+            CellValue::Text("123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexextract_capture_group() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("hello world", "(\w+) world")"#, &sheet),
+            CellValue::Text("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexextract_no_match() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("hello", "\d+")"#, &sheet),
+            CellValue::Error(CellError::NA)
+        );
+    }
+
+    // === REGEXREPLACE ===
+
+    #[test]
+    fn test_regexreplace_basic() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXREPLACE("hello 123 world 456", "\d+", "NUM")"#, &sheet),
+            CellValue::Text("hello NUM world NUM".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexreplace_no_match() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXREPLACE("hello", "\d+", "X")"#, &sheet),
+            CellValue::Text("hello".to_string())
+        );
+    }
+
+    // === TRANSPOSE ===
+
+    #[test]
+    fn test_transpose_2x3() {
+        let mut sheet = Sheet::new("T");
+        // 2 rows x 3 cols:
+        // A1=1, B1=2, C1=3
+        // A2=4, B2=5, C2=6
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(0, 2, CellValue::Number(3.0));
+        sheet.set_value(1, 0, CellValue::Number(4.0));
+        sheet.set_value(1, 1, CellValue::Number(5.0));
+        sheet.set_value(1, 2, CellValue::Number(6.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("TRANSPOSE(A1:C2)", &sheet)
+            .unwrap();
+        // Transposed: 3 rows x 2 cols -> "1,4;2,5;3,6"
+        assert_eq!(result, CellValue::Text("1,4;2,5;3,6".to_string()));
+    }
+
+    // === SEQUENCE ===
+
+    #[test]
+    fn test_sequence_simple() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(5)", &sheet),
+            CellValue::Text("1;2;3;4;5".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sequence_with_cols() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(2, 3)", &sheet),
+            CellValue::Text("1,2,3;4,5,6".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sequence_with_start_step() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(1, 4, 10, 5)", &sheet),
+            CellValue::Text("10,15,20,25".to_string())
+        );
+    }
+
+    // === FLATTEN ===
+
+    #[test]
+    fn test_flatten() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine.evaluate("FLATTEN(A1:B2)", &sheet).unwrap();
+        assert_eq!(result, CellValue::Text("1,2,3,4".to_string()));
+    }
+
+    // === DATABASE FUNCTIONS ===
+
+    /// Helper to create a database sheet for testing database functions.
+    /// Layout:
+    ///   A1="Name",  B1="Dept",    C1="Salary"
+    ///   A2="Alice", B2="Eng",     C2=80000
+    ///   A3="Bob",   B3="Sales",   C3=60000
+    ///   A4="Carol", B4="Eng",     C4=90000
+    ///   A5="Dave",  B5="Sales",   C5=70000
+    ///
+    /// Criteria in E1:E2:
+    ///   E1="Dept", E2="Eng"
+    fn make_database_sheet() -> Sheet {
+        let mut sheet = Sheet::new("T");
+        // Headers
+        sheet.set_value(0, 0, CellValue::Text("Name".to_string()));
+        sheet.set_value(0, 1, CellValue::Text("Dept".to_string()));
+        sheet.set_value(0, 2, CellValue::Text("Salary".to_string()));
+        // Data rows
+        sheet.set_value(1, 0, CellValue::Text("Alice".to_string()));
+        sheet.set_value(1, 1, CellValue::Text("Eng".to_string()));
+        sheet.set_value(1, 2, CellValue::Number(80000.0));
+        sheet.set_value(2, 0, CellValue::Text("Bob".to_string()));
+        sheet.set_value(2, 1, CellValue::Text("Sales".to_string()));
+        sheet.set_value(2, 2, CellValue::Number(60000.0));
+        sheet.set_value(3, 0, CellValue::Text("Carol".to_string()));
+        sheet.set_value(3, 1, CellValue::Text("Eng".to_string()));
+        sheet.set_value(3, 2, CellValue::Number(90000.0));
+        sheet.set_value(4, 0, CellValue::Text("Dave".to_string()));
+        sheet.set_value(4, 1, CellValue::Text("Sales".to_string()));
+        sheet.set_value(4, 2, CellValue::Number(70000.0));
+        // Criteria: E1="Dept", E2="Eng"
+        sheet.set_value(0, 4, CellValue::Text("Dept".to_string()));
+        sheet.set_value(1, 4, CellValue::Text("Eng".to_string()));
+        sheet
+    }
+
+    #[test]
+    fn test_dsum() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DSUM(A1:C5, "Salary", E1:E2) should sum Salary where Dept="Eng"
+        // = 80000 + 90000 = 170000
+        let result = eval_engine
+            .evaluate(r#"DSUM(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(170000.0));
+    }
+
+    #[test]
+    fn test_daverage() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DAVERAGE(A1:C5, "Salary", E1:E2) = (80000+90000)/2 = 85000
+        let result = eval_engine
+            .evaluate(r#"DAVERAGE(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(85000.0));
+    }
+
+    #[test]
+    fn test_dcount() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DCOUNT(A1:C5, "Salary", E1:E2) = 2 (two Eng rows with numeric Salary)
+        let result = eval_engine
+            .evaluate(r#"DCOUNT(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_dmax() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DMAX(A1:C5, "Salary", E1:E2) = 90000
+        let result = eval_engine
+            .evaluate(r#"DMAX(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(90000.0));
+    }
+
+    #[test]
+    fn test_dmin() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DMIN(A1:C5, "Salary", E1:E2) = 80000
+        let result = eval_engine
+            .evaluate(r#"DMIN(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(80000.0));
+    }
+
+    #[test]
+    fn test_dsum_with_field_index() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DSUM(A1:C5, 3, E1:E2) — field 3 = "Salary" column
+        let result = eval_engine
+            .evaluate("DSUM(A1:C5, 3, E1:E2)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(170000.0));
     }
 }
