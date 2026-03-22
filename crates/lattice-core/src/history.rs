@@ -1,4 +1,5 @@
-use crate::cell::CellValue;
+use crate::cell::{Cell, CellValue};
+use crate::format::CellFormat;
 
 /// A reversible operation recorded in the undo/redo stack.
 #[derive(Debug, Clone)]
@@ -17,6 +18,40 @@ pub enum Operation {
     RemoveSheet { name: String },
     /// A sheet was renamed.
     RenameSheet { old_name: String, new_name: String },
+    /// Cell formatting was changed.
+    FormatCells {
+        sheet: String,
+        /// Each entry stores (row, col, old_format, new_format).
+        cells: Vec<(u32, u32, CellFormat, CellFormat)>,
+    },
+    /// Rows were inserted.
+    InsertRows {
+        sheet: String,
+        row: u32,
+        count: u32,
+    },
+    /// Rows were deleted (with the deleted cell data for undo).
+    DeleteRows {
+        sheet: String,
+        row: u32,
+        count: u32,
+        /// Deleted cells: Vec<(row, col, Cell)>.
+        deleted_cells: Vec<(u32, u32, Cell)>,
+    },
+    /// Columns were inserted.
+    InsertCols {
+        sheet: String,
+        col: u32,
+        count: u32,
+    },
+    /// Columns were deleted (with the deleted cell data for undo).
+    DeleteCols {
+        sheet: String,
+        col: u32,
+        count: u32,
+        /// Deleted cells: Vec<(row, col, Cell)>.
+        deleted_cells: Vec<(u32, u32, Cell)>,
+    },
 }
 
 /// A fixed-capacity undo/redo stack.
@@ -127,5 +162,79 @@ mod tests {
         stack.push(Operation::AddSheet { name: "B".into() });
         stack.push(Operation::AddSheet { name: "C".into() });
         assert_eq!(stack.undo_count(), 2);
+    }
+
+    #[test]
+    fn test_format_cells_operation() {
+        use crate::format::CellFormat;
+        let mut stack = UndoStack::new(100);
+
+        let old_fmt = CellFormat::default();
+        let mut new_fmt = CellFormat::default();
+        new_fmt.bold = true;
+
+        stack.push(Operation::FormatCells {
+            sheet: "Sheet1".into(),
+            cells: vec![(0, 0, old_fmt.clone(), new_fmt.clone())],
+        });
+
+        assert_eq!(stack.undo_count(), 1);
+        let op = stack.undo().unwrap();
+        assert!(matches!(op, Operation::FormatCells { .. }));
+    }
+
+    #[test]
+    fn test_insert_rows_operation() {
+        let mut stack = UndoStack::new(100);
+        stack.push(Operation::InsertRows {
+            sheet: "Sheet1".into(),
+            row: 5,
+            count: 3,
+        });
+        assert_eq!(stack.undo_count(), 1);
+        let op = stack.undo().unwrap();
+        assert!(matches!(op, Operation::InsertRows { row: 5, count: 3, .. }));
+    }
+
+    #[test]
+    fn test_delete_rows_operation() {
+        use crate::cell::Cell;
+        let mut stack = UndoStack::new(100);
+        let cell = Cell::default();
+        stack.push(Operation::DeleteRows {
+            sheet: "Sheet1".into(),
+            row: 2,
+            count: 1,
+            deleted_cells: vec![(2, 0, cell)],
+        });
+        assert_eq!(stack.undo_count(), 1);
+        let op = stack.undo().unwrap();
+        assert!(matches!(op, Operation::DeleteRows { row: 2, count: 1, .. }));
+    }
+
+    #[test]
+    fn test_insert_cols_operation() {
+        let mut stack = UndoStack::new(100);
+        stack.push(Operation::InsertCols {
+            sheet: "Sheet1".into(),
+            col: 3,
+            count: 2,
+        });
+        let op = stack.undo().unwrap();
+        assert!(matches!(op, Operation::InsertCols { col: 3, count: 2, .. }));
+    }
+
+    #[test]
+    fn test_delete_cols_operation() {
+        use crate::cell::Cell;
+        let mut stack = UndoStack::new(100);
+        stack.push(Operation::DeleteCols {
+            sheet: "Sheet1".into(),
+            col: 1,
+            count: 1,
+            deleted_cells: vec![(0, 1, Cell::default())],
+        });
+        let op = stack.undo().unwrap();
+        assert!(matches!(op, Operation::DeleteCols { col: 1, count: 1, .. }));
     }
 }

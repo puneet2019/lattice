@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use tauri::State;
 
-use lattice_core::HAlign;
+use lattice_core::{CellFormat, HAlign, Operation};
 
 use crate::state::AppState;
 
@@ -13,12 +13,17 @@ pub struct FormatUpdate {
     pub underline: Option<bool>,
     pub strikethrough: Option<bool>,
     pub font_size: Option<f64>,
+    pub font_family: Option<String>,
     pub font_color: Option<String>,
     pub bg_color: Option<String>,
     pub h_align: Option<String>,
 }
 
 /// Apply formatting to a range of cells.
+///
+/// Creates default cells for empty positions so users can pre-format
+/// cells before typing. Pushes a `FormatCells` operation to the undo
+/// stack so the change is reversible.
 #[tauri::command]
 pub async fn format_cells(
     state: State<'_, AppState>,
@@ -32,41 +37,65 @@ pub async fn format_cells(
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
 
+    // Collect old/new formats for undo.
+    let mut changed: Vec<(u32, u32, CellFormat, CellFormat)> = Vec::new();
+
     for row in start_row..=end_row {
         for col in start_col..=end_col {
-            if let Some(cell) = s.get_cell(row, col) {
-                let mut cell = cell.clone();
-                if let Some(bold) = format.bold {
-                    cell.format.bold = bold;
-                }
-                if let Some(italic) = format.italic {
-                    cell.format.italic = italic;
-                }
-                if let Some(size) = format.font_size {
-                    cell.format.font_size = size;
-                }
-                if let Some(ref color) = format.font_color {
-                    cell.format.font_color = color.clone();
-                }
-                if let Some(underline) = format.underline {
-                    cell.format.underline = underline;
-                }
-                if let Some(strikethrough) = format.strikethrough {
-                    cell.format.strikethrough = strikethrough;
-                }
-                if let Some(ref bg) = format.bg_color {
-                    cell.format.bg_color = Some(bg.clone());
-                }
-                if let Some(ref align) = format.h_align {
-                    cell.format.h_align = match align.as_str() {
-                        "center" => HAlign::Center,
-                        "right" => HAlign::Right,
-                        _ => HAlign::Left,
-                    };
-                }
-                s.set_cell(row, col, cell);
+            // Get existing cell or create a default one for empty positions.
+            let mut cell = s.get_cell(row, col).cloned().unwrap_or_default();
+            let old_format = cell.format.clone();
+
+            if let Some(bold) = format.bold {
+                cell.format.bold = bold;
             }
+            if let Some(italic) = format.italic {
+                cell.format.italic = italic;
+            }
+            if let Some(size) = format.font_size {
+                cell.format.font_size = size;
+            }
+            if let Some(ref family) = format.font_family {
+                cell.format.font_family = family.clone();
+            }
+            if let Some(ref color) = format.font_color {
+                cell.format.font_color = color.clone();
+            }
+            if let Some(underline) = format.underline {
+                cell.format.underline = underline;
+            }
+            if let Some(strikethrough) = format.strikethrough {
+                cell.format.strikethrough = strikethrough;
+            }
+            if let Some(ref bg) = format.bg_color {
+                cell.format.bg_color = Some(bg.clone());
+            }
+            if let Some(ref align) = format.h_align {
+                cell.format.h_align = match align.as_str() {
+                    "center" => HAlign::Center,
+                    "right" => HAlign::Right,
+                    _ => HAlign::Left,
+                };
+            }
+
+            let new_format = cell.format.clone();
+
+            // Only record if format actually changed.
+            if old_format != new_format {
+                changed.push((row, col, old_format, new_format));
+            }
+
+            s.set_cell(row, col, cell);
         }
+    }
+
+    // Push to undo stack if any formats changed.
+    if !changed.is_empty() {
+        let mut stack = state.undo_stack.write().await;
+        stack.push(Operation::FormatCells {
+            sheet,
+            cells: changed,
+        });
     }
 
     Ok(())

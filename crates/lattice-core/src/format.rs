@@ -125,6 +125,8 @@ pub struct CellFormat {
     pub strikethrough: bool,
     /// Font size in points (e.g. 11.0).
     pub font_size: f64,
+    /// Font family name (e.g. `"Arial"`, `"Helvetica"`).
+    pub font_family: String,
     /// Font colour as a CSS-style hex string (e.g. `"#000000"`).
     pub font_color: String,
     /// Background / fill colour.
@@ -153,6 +155,7 @@ impl Default for CellFormat {
             underline: false,
             strikethrough: false,
             font_size: 11.0,
+            font_family: "Arial".to_string(),
             font_color: "#000000".to_string(),
             bg_color: None,
             h_align: HAlign::default(),
@@ -798,6 +801,21 @@ mod tests {
     }
 
     // ── Underline & Strikethrough ──────────────────────────────────────
+
+    #[test]
+    fn test_cell_format_default_font_family() {
+        let fmt = CellFormat::default();
+        assert_eq!(fmt.font_family, "Arial");
+    }
+
+    #[test]
+    fn test_cell_format_custom_font_family() {
+        let fmt = CellFormat {
+            font_family: "Helvetica".to_string(),
+            ..CellFormat::default()
+        };
+        assert_eq!(fmt.font_family, "Helvetica");
+    }
 
     #[test]
     fn test_cell_format_default_underline_strikethrough() {
