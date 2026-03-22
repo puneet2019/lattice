@@ -50,11 +50,7 @@ pub fn read_tsv(path: &Path) -> Result<Workbook> {
             if value != CellValue::Empty {
                 let cell = Cell {
                     value,
-                    formula: None,
-                    format: Default::default(),
-                    style_id: 0,
-                    comment: None,
-                    hyperlink: None,
+                    ..Default::default()
                 };
                 sheet.set_cell(row_idx as u32, col_idx as u32, cell);
             }

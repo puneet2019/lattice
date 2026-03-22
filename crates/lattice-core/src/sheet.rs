@@ -726,6 +726,9 @@ impl Sheet {
                         style_id: 0,
                         comment: None,
                         hyperlink: None,
+                        is_array_formula: false,
+                        array_formula_range: None,
+                        dropdown: None,
                     };
                     self.cells.insert((row, target_col), cell);
                 }
@@ -912,9 +915,10 @@ fn cell_value_to_key(value: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Text(s) => format!("T:{s}"),
         CellValue::Number(n) => format!("N:{n}"),
-        CellValue::Boolean(b) => format!("B:{b}"),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => format!("B:{b}"),
         CellValue::Error(e) => format!("E:{e}"),
         CellValue::Date(d) => format!("D:{d}"),
+        CellValue::Array(_) => "ARR".to_string(),
     }
 }
 

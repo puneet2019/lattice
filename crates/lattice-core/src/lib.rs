@@ -27,7 +27,7 @@ pub mod workbook;
 // Re-export key types at the crate root for ergonomic imports.
 pub use autofill::{FillDirection, FillPattern, detect_pattern, fill_range};
 pub use autosave::AutoSaveConfig;
-pub use cell::{Cell, CellError, CellValue};
+pub use cell::{Cell, CellError, CellValue, DropdownConfig};
 pub use clipboard::{ClipboardContent, PasteMode};
 pub use conditional_format::{
     ComparisonOperator, ConditionalFormatRange, ConditionalFormatStore, ConditionalRule,

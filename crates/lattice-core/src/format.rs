@@ -383,6 +383,14 @@ pub fn format_value(value: &CellValue, format: &NumberFormat) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Number(n) => format_number(*n, format),
+        CellValue::Checkbox(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        CellValue::Array(rows) => {
+            // Show the first element of the array, or "{array}" if empty.
+            rows.first()
+                .and_then(|row| row.first())
+                .map(|v| format_value(v, format))
+                .unwrap_or_else(|| "{array}".to_string())
+        }
     }
 }
 
@@ -838,5 +846,64 @@ mod tests {
             ..CellFormat::default()
         };
         assert_eq!(fmt.text_wrap, TextWrap::Wrap);
+    }
+
+    // -- Checkbox formatting ---------------------------------------------------
+
+    #[test]
+    fn test_format_checkbox_true() {
+        assert_eq!(
+            format_value(&CellValue::Checkbox(true), &NumberFormat::General),
+            "TRUE"
+        );
+    }
+
+    #[test]
+    fn test_format_checkbox_false() {
+        assert_eq!(
+            format_value(&CellValue::Checkbox(false), &NumberFormat::General),
+            "FALSE"
+        );
+    }
+
+    // -- Array formatting ------------------------------------------------------
+
+    #[test]
+    fn test_format_array_shows_first_element() {
+        let arr = CellValue::Array(vec![
+            vec![CellValue::Number(42.0), CellValue::Number(99.0)],
+        ]);
+        assert_eq!(format_value(&arr, &NumberFormat::General), "42");
+    }
+
+    #[test]
+    fn test_format_array_empty_shows_placeholder() {
+        let arr = CellValue::Array(vec![]);
+        assert_eq!(format_value(&arr, &NumberFormat::General), "{array}");
+    }
+
+    #[test]
+    fn test_format_array_empty_row_shows_placeholder() {
+        let arr = CellValue::Array(vec![vec![]]);
+        assert_eq!(format_value(&arr, &NumberFormat::General), "{array}");
+    }
+
+    #[test]
+    fn test_format_array_with_text_first() {
+        let arr = CellValue::Array(vec![
+            vec![CellValue::Text("hello".into())],
+        ]);
+        assert_eq!(format_value(&arr, &NumberFormat::General), "hello");
+    }
+
+    #[test]
+    fn test_format_array_respects_number_format() {
+        let arr = CellValue::Array(vec![
+            vec![CellValue::Number(1234.5)],
+        ]);
+        assert_eq!(
+            format_value(&arr, &NumberFormat::Currency { symbol: "$".into(), decimal_places: 2 }),
+            "$1,234.50"
+        );
     }
 }

@@ -306,9 +306,10 @@ fn cell_value_sort_key(value: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Text(s) => s.clone(),
         CellValue::Number(n) => n.to_string(),
-        CellValue::Boolean(b) => b.to_string(),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => b.to_string(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(d) => d.clone(),
+        CellValue::Array(_) => "{array}".to_string(),
     }
 }
 

@@ -350,20 +350,27 @@ fn parse_function_args(
 fn coerce_to_number(val: &CellValue) -> Result<f64> {
     match val {
         CellValue::Number(n) => Ok(*n),
-        CellValue::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Ok(if *b { 1.0 } else { 0.0 }),
         CellValue::Empty => Ok(0.0),
         CellValue::Text(s) => s
             .parse::<f64>()
             .map_err(|_| LatticeError::FormulaError(format!("cannot convert \"{s}\" to number"))),
         CellValue::Error(e) => Err(LatticeError::FormulaError(format!("cell error: {e}"))),
         CellValue::Date(_) => Ok(0.0),
+        CellValue::Array(rows) => {
+            // Coerce first element of array
+            rows.first()
+                .and_then(|r| r.first())
+                .map(|v| coerce_to_number(v))
+                .unwrap_or(Ok(0.0))
+        }
     }
 }
 
 /// Coerce a CellValue to a boolean.
 fn coerce_to_bool(val: &CellValue) -> Result<bool> {
     match val {
-        CellValue::Boolean(b) => Ok(*b),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => Ok(*b),
         CellValue::Number(n) => Ok(*n != 0.0),
         CellValue::Text(s) => match s.to_ascii_uppercase().as_str() {
             "TRUE" => Ok(true),
@@ -375,6 +382,12 @@ fn coerce_to_bool(val: &CellValue) -> Result<bool> {
         CellValue::Empty => Ok(false),
         CellValue::Error(e) => Err(LatticeError::FormulaError(format!("cell error: {e}"))),
         CellValue::Date(_) => Ok(true),
+        CellValue::Array(rows) => {
+            rows.first()
+                .and_then(|r| r.first())
+                .map(|v| coerce_to_bool(v))
+                .unwrap_or(Ok(false))
+        }
     }
 }
 
@@ -389,7 +402,7 @@ fn coerce_to_string(val: &CellValue) -> String {
                 format!("{n}")
             }
         }
-        CellValue::Boolean(b) => {
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
             if *b {
                 "TRUE".to_string()
             } else {
@@ -399,6 +412,12 @@ fn coerce_to_string(val: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
+        CellValue::Array(rows) => {
+            rows.first()
+                .and_then(|r| r.first())
+                .map(|v| coerce_to_string(v))
+                .unwrap_or_default()
+        }
     }
 }
 
@@ -1984,10 +2003,11 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let type_num = match &a[0] {
                 CellValue::Number(_) => 1.0,
                 CellValue::Text(_) => 2.0,
-                CellValue::Boolean(_) => 4.0,
+                CellValue::Boolean(_) | CellValue::Checkbox(_) => 4.0,
                 CellValue::Error(_) => 16.0,
                 CellValue::Empty => 1.0,   // Empty is treated as number 0
                 CellValue::Date(_) => 1.0, // Dates are numbers internally
+                CellValue::Array(_) => 64.0, // Array type
             };
             Ok(CellValue::Number(type_num))
         }

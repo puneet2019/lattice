@@ -228,10 +228,11 @@ async fn extract_chart_data(state: &AppState, chart: &Chart) -> Result<ChartData
                 Some(cell) => match &cell.value {
                     lattice_core::CellValue::Text(t) => t.clone(),
                     lattice_core::CellValue::Number(n) => n.to_string(),
-                    lattice_core::CellValue::Boolean(b) => b.to_string(),
+                    lattice_core::CellValue::Boolean(b) | lattice_core::CellValue::Checkbox(b) => b.to_string(),
                     lattice_core::CellValue::Date(d) => d.clone(),
                     lattice_core::CellValue::Empty => String::new(),
                     lattice_core::CellValue::Error(e) => e.to_string(),
+                    lattice_core::CellValue::Array(_) => "{array}".to_string(),
                 },
                 None => String::new(),
             };

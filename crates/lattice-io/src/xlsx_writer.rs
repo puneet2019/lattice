@@ -54,7 +54,7 @@ pub fn write_xlsx(workbook: &Workbook, path: &Path) -> Result<()> {
                         .write_number_with_format(row, col as u16, *n, &fmt)
                         .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                 }
-                CellValue::Boolean(b) => {
+                CellValue::Boolean(b) | CellValue::Checkbox(b) => {
                     worksheet
                         .write_boolean_with_format(row, col as u16, *b, &fmt)
                         .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
@@ -83,6 +83,12 @@ pub fn write_xlsx(workbook: &Workbook, path: &Path) -> Result<()> {
                             .write_string_with_format(row, col as u16, s, &date_fmt)
                             .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                     }
+                }
+                CellValue::Array(_) => {
+                    // Array values are written as their first element display
+                    worksheet
+                        .write_string_with_format(row, col as u16, "{array}", &fmt)
+                        .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                 }
             }
 

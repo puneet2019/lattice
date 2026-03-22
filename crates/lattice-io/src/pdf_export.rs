@@ -184,7 +184,7 @@ fn cell_value_to_html(value: &CellValue) -> String {
                 format!("{}", n)
             }
         }
-        CellValue::Boolean(b) => {
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
             if *b {
                 "TRUE".to_string()
             } else {
@@ -193,6 +193,7 @@ fn cell_value_to_html(value: &CellValue) -> String {
         }
         CellValue::Error(e) => escape_html(&e.to_string()),
         CellValue::Date(s) => escape_html(s),
+        CellValue::Array(_) => escape_html("{array}"),
     }
 }
 

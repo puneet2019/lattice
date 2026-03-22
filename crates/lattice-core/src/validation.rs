@@ -192,10 +192,11 @@ fn cell_value_display_len(value: &CellValue) -> usize {
     match value {
         CellValue::Text(s) => s.len(),
         CellValue::Number(n) => n.to_string().len(),
-        CellValue::Boolean(b) => if *b { 4 } else { 5 }, // TRUE / FALSE
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => if *b { 4 } else { 5 }, // TRUE / FALSE
         CellValue::Empty => 0,
         CellValue::Error(e) => e.to_string().len(),
         CellValue::Date(s) => s.len(),
+        CellValue::Array(_) => 7, // "{array}"
     }
 }
 
