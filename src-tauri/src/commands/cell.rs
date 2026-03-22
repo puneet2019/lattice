@@ -19,8 +19,22 @@ pub struct CellData {
     pub bold: bool,
     /// Whether the cell is italic.
     pub italic: bool,
+    /// Whether the cell is underlined.
+    pub underline: bool,
+    /// Whether the cell has strikethrough.
+    pub strikethrough: bool,
     /// The number format pattern string, if any.
     pub number_format: Option<String>,
+    /// Font color as CSS hex string (e.g. "#ff0000").
+    pub font_color: String,
+    /// Background/fill color as CSS hex string, if set.
+    pub bg_color: Option<String>,
+    /// Font family name.
+    pub font_family: String,
+    /// Horizontal alignment: "left", "center", or "right".
+    pub h_align: String,
+    /// Font size in points.
+    pub font_size: f64,
 }
 
 /// Get a single cell's data.
@@ -36,14 +50,7 @@ pub async fn get_cell(
         .get_cell(&sheet, row, col)
         .map_err(|e| e.to_string())?;
 
-    Ok(cell.map(|c| CellData {
-        value: format_cell_display(&c.value, &c.format.number_format),
-        formula: c.formula.clone(),
-        format_id: c.style_id,
-        bold: c.format.bold,
-        italic: c.format.italic,
-        number_format: c.format.number_format.clone(),
-    }))
+    Ok(cell.map(|c| cell_to_data(c)))
 }
 
 /// Set a cell's value (and optionally a formula).
@@ -177,19 +184,35 @@ pub async fn get_range(
         let mut row_data = Vec::new();
         for c in start_col..=end_col {
             let cell = s.get_cell(r, c);
-            row_data.push(cell.map(|c| CellData {
-                value: format_cell_display(&c.value, &c.format.number_format),
-                formula: c.formula.clone(),
-                format_id: c.style_id,
-                bold: c.format.bold,
-                italic: c.format.italic,
-                number_format: c.format.number_format.clone(),
-            }));
+            row_data.push(cell.map(|c| cell_to_data(c)));
         }
         rows.push(row_data);
     }
 
     Ok(rows)
+}
+
+/// Convert a core `Cell` into a frontend `CellData` with all format fields.
+fn cell_to_data(c: &lattice_core::Cell) -> CellData {
+    CellData {
+        value: format_cell_display(&c.value, &c.format.number_format),
+        formula: c.formula.clone(),
+        format_id: c.style_id,
+        bold: c.format.bold,
+        italic: c.format.italic,
+        underline: c.format.underline,
+        strikethrough: c.format.strikethrough,
+        number_format: c.format.number_format.clone(),
+        font_color: c.format.font_color.clone(),
+        bg_color: c.format.bg_color.clone(),
+        font_family: c.format.font_family.clone(),
+        h_align: match c.format.h_align {
+            lattice_core::HAlign::Left => "left".to_string(),
+            lattice_core::HAlign::Center => "center".to_string(),
+            lattice_core::HAlign::Right => "right".to_string(),
+        },
+        font_size: c.format.font_size,
+    }
 }
 
 /// Format a cell value for display, using the core engine's `format_value`.

@@ -1400,9 +1400,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         // Determine font style
         const fontWeight = cell.bold ? 'bold' : 'normal';
         const fontStyle = cell.italic ? 'italic' : 'normal';
-        const fontFamily = cell.font_family ?? '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
-        ctx.font = `${fontStyle} ${fontWeight} 13px ${fontFamily}`;
-        ctx.fillStyle = cell.font_color ?? COLORS.cellText;
+        const fontFamily = cell.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+        const fontSize = cell.font_size || 11;
+        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+        ctx.fillStyle = cell.font_color || COLORS.cellText;
 
         // Right-align numbers, left-align strings (unless h_align is set)
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';

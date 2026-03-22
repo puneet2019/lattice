@@ -7,15 +7,14 @@ export interface CellData {
   format_id: number;
   bold: boolean;
   italic: boolean;
-  /** Font family name (optional -- returned from backend when set). */
-  font_family?: string;
-  /** Font color hex string (optional). */
-  font_color?: string;
-  /** Background color hex string (optional). */
-  bg_color?: string;
-  /** Horizontal alignment (optional). */
-  h_align?: 'left' | 'center' | 'right';
-  /** Text wrap mode (optional). */
+  underline: boolean;
+  strikethrough: boolean;
+  number_format: string | null;
+  font_color: string;
+  bg_color: string | null;
+  font_family: string;
+  h_align: string;
+  font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
 }
 
