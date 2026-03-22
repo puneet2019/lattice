@@ -6,6 +6,7 @@ pub mod csv_io;
 pub mod format_detect;
 pub mod json_export;
 pub mod tsv_io;
+pub mod watcher;
 pub mod xlsx_reader;
 pub mod xlsx_writer;
 
@@ -50,6 +51,10 @@ pub enum IoError {
     #[error("corrupt file: {0}")]
     CorruptFile(String),
 
+    /// The file was modified externally since it was last read or saved.
+    #[error("conflict detected: file was modified externally")]
+    ConflictDetected,
+
     /// Core engine error (e.g. sheet not found).
     #[error("core error: {0}")]
     Core(#[from] lattice_core::LatticeError),
@@ -63,5 +68,6 @@ pub use csv_io::{read_csv, write_csv};
 pub use format_detect::{FileFormat, detect_format};
 pub use json_export::{export_json, export_range_json};
 pub use tsv_io::{read_tsv, write_tsv};
+pub use watcher::FileWatcher;
 pub use xlsx_reader::read_xlsx;
 pub use xlsx_writer::write_xlsx;
