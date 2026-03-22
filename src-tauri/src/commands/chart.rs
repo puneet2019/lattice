@@ -160,8 +160,9 @@ fn parse_chart_type(s: &str) -> Result<ChartType, String> {
         "combo" => Ok(ChartType::Combo),
         "histogram" => Ok(ChartType::Histogram),
         "candlestick" => Ok(ChartType::Candlestick),
+        "treemap" => Ok(ChartType::Treemap),
         _ => Err(format!(
-            "Invalid chart type '{}'. Valid: bar, line, pie, scatter, area, combo, histogram, candlestick",
+            "Invalid chart type '{}'. Valid: bar, line, pie, scatter, area, combo, histogram, candlestick, treemap",
             s
         )),
     }

@@ -24,6 +24,7 @@ pub fn render_chart(chart_type: &ChartType, data: &ChartData, options: &ChartOpt
         ChartType::Combo => types::combo::render(data, options),
         ChartType::Histogram => types::histogram::render(data, options),
         ChartType::Candlestick => types::candlestick::render(data, options),
+        ChartType::Treemap => types::treemap::render(data, options),
     }
 }
 

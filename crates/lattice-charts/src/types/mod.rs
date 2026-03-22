@@ -11,3 +11,4 @@ pub mod histogram;
 pub mod line;
 pub mod pie;
 pub mod scatter;
+pub mod treemap;

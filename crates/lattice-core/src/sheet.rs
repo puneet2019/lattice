@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
+use crate::sparkline::SparklineStore;
 
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +112,8 @@ pub struct Sheet {
     pub tab_color: Option<String>,
     /// Optional alternating row colour configuration.
     pub banded_rows: Option<BandedRows>,
+    /// Sparklines attached to cells in this sheet.
+    pub sparklines: SparklineStore,
 }
 
 impl Sheet {
@@ -128,6 +131,7 @@ impl Sheet {
             protected_ranges: Vec::new(),
             tab_color: None,
             banded_rows: None,
+            sparklines: SparklineStore::new(),
         }
     }
 

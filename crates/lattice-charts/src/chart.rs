@@ -26,6 +26,8 @@ pub enum ChartType {
     Histogram,
     /// Candlestick chart (financial: open/high/low/close).
     Candlestick,
+    /// Treemap chart (hierarchical area chart).
+    Treemap,
 }
 
 impl std::fmt::Display for ChartType {
@@ -39,6 +41,7 @@ impl std::fmt::Display for ChartType {
             ChartType::Combo => write!(f, "combo"),
             ChartType::Histogram => write!(f, "histogram"),
             ChartType::Candlestick => write!(f, "candlestick"),
+            ChartType::Treemap => write!(f, "treemap"),
         }
     }
 }

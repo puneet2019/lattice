@@ -116,6 +116,7 @@ pub fn handle_create_chart(args: Value) -> Result<Value, String> {
         "combo",
         "histogram",
         "candlestick",
+        "treemap",
     ];
     if !valid_types.contains(&args.chart_type.as_str()) {
         return Err(format!(

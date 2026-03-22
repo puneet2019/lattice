@@ -20,6 +20,7 @@ pub mod history;
 pub mod pivot;
 pub mod selection;
 pub mod sheet;
+pub mod sparkline;
 pub mod sort;
 pub mod validation;
 pub mod workbook;
@@ -46,6 +47,7 @@ pub use pivot::{PivotAggregation, PivotConfig, PivotResult, PivotValue, generate
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
 pub use sheet::{BandedRows, MergedRegion, ProtectedRange, Sheet, SheetProtection};
+pub use sparkline::{SparklineConfig, SparklineStore, SparklineType, render_sparkline_svg};
 pub use sort::{SortDirection, SortKey};
 pub use validation::{ValidationRule, ValidationStore, ValidationType};
 pub use workbook::Workbook;
