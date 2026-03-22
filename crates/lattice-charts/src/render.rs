@@ -22,6 +22,7 @@ pub fn render_chart(chart_type: &ChartType, data: &ChartData, options: &ChartOpt
         ChartType::Scatter => types::scatter::render(data, options),
         ChartType::Area => types::area::render(data, options),
         ChartType::Combo => types::combo::render(data, options),
+        ChartType::Histogram => types::histogram::render(data, options),
         _ => placeholder_svg(chart_type, options),
     }
 }
