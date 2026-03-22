@@ -43,7 +43,7 @@ pub use named_range::{NamedRange, NamedRangeStore};
 pub use formula::{FormulaEngine, SheetResolver};
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
-pub use sheet::{MergedRegion, ProtectedRange, Sheet, SheetProtection};
+pub use sheet::{BandedRows, MergedRegion, ProtectedRange, Sheet, SheetProtection};
 pub use sort::{SortDirection, SortKey};
 pub use validation::{ValidationRule, ValidationStore, ValidationType};
 pub use workbook::Workbook;

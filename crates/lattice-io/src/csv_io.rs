@@ -53,6 +53,7 @@ pub fn read_csv(path: &Path) -> Result<Workbook> {
                     format: Default::default(),
                     style_id: 0,
                     comment: None,
+                    hyperlink: None,
                 };
                 sheet.set_cell(row_idx as u32, col_idx as u32, cell);
             }

@@ -230,6 +230,7 @@ mod tests {
             format: Default::default(),
             style_id: 0,
             comment: None,
+            hyperlink: None,
         };
         sheet.set_cell(0, 0, cell);
 
