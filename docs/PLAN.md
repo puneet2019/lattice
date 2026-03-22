@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Planning
+**Status**: Phase 2 — In Progress
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-21
+**Last Updated**: 2026-03-22
 
 ---
 
@@ -386,57 +386,57 @@ lattice/
 ## 6. Google Sheets Feature Parity Checklist
 
 ### Cell & Data
-- [ ] Cell types: text, number, boolean, date, currency, percentage, error
-- [ ] Cell editing: inline, formula bar, F2 to edit
+- [x] Cell types: text, number, boolean, date, currency, percentage, error
+- [x] Cell editing: inline, formula bar, F2 to edit
 - [ ] Auto-complete suggestions
-- [ ] Cell references: A1, $A$1, A1:B10, Sheet2!A1, named ranges
+- [x] Cell references: A1, $A$1, A1:B10, Sheet2!A1, named ranges
 - [ ] Array formulas (Ctrl+Shift+Enter and dynamic arrays)
-- [ ] Data validation: dropdowns, number ranges, date ranges, custom formulas
-- [ ] Conditional formatting: color scales, data bars, icon sets, custom rules
-- [ ] Cell comments/notes
+- [x] Data validation: dropdowns, number ranges, date ranges, custom formulas
+- [x] Conditional formatting: color scales, data bars, icon sets, custom rules
+- [x] Cell comments/notes
 - [ ] Cell links (hyperlinks)
 - [ ] Images in cells
 - [ ] Checkboxes
 - [ ] Dropdown chips
 
 ### Formatting
-- [ ] Font: family, size, bold, italic, underline, strikethrough, color
+- [x] Font: family, size, bold, italic, underline, strikethrough, color _(done: bold, italic, size, font color, bg color; family/underline/strikethrough pending)_
 - [ ] Cell: background color, borders (all styles), padding
-- [ ] Alignment: horizontal (left/center/right), vertical (top/middle/bottom)
+- [x] Alignment: horizontal (left/center/right), vertical (top/middle/bottom)
 - [ ] Text wrapping: overflow, wrap, clip
-- [ ] Number formats: currency, percentage, scientific, date, time, custom
-- [ ] Merge cells
+- [x] Number formats: currency, percentage, scientific, date, time, custom
+- [x] Merge cells
 - [ ] Alternating row colors
 - [ ] Cell borders (all edge combinations)
 
 ### Layout
-- [ ] Column resize (drag + auto-fit)
-- [ ] Row resize
-- [ ] Insert/delete rows and columns
-- [ ] Hide/unhide rows and columns
-- [ ] Freeze rows and columns
+- [x] Column resize (drag + auto-fit)
+- [x] Row resize
+- [x] Insert/delete rows and columns
+- [x] Hide/unhide rows and columns
+- [x] Freeze rows and columns
 - [ ] Split panes
 - [ ] Zoom (25% - 200%)
 
 ### Formulas (400+ Google Sheets compatible)
-- [ ] Math: SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, CEILING, FLOOR, MOD, POWER, SQRT, etc.
-- [ ] Statistical: STDEV, VAR, MEDIAN, PERCENTILE, CORREL, FORECAST, TREND, etc.
-- [ ] Logical: IF, AND, OR, NOT, IFS, SWITCH, IFERROR, IFNA
-- [ ] Lookup: VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP, FILTER, SORT, UNIQUE
-- [ ] Text: CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER, SUBSTITUTE, REGEXMATCH
-- [ ] Date: TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF, EDATE, EOMONTH, NETWORKDAYS
-- [ ] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE
+- [x] Math: SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, CEILING, FLOOR, MOD, POWER, SQRT, etc. _(70+ formulas implemented)_
+- [x] Statistical: STDEV, VAR, MEDIAN, PERCENTILE, CORREL, FORECAST, TREND, etc.
+- [x] Logical: IF, AND, OR, NOT, IFS, SWITCH, IFERROR, IFNA
+- [ ] Lookup: VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP, FILTER, SORT, UNIQUE _(VLOOKUP/HLOOKUP/INDEX/MATCH done; XLOOKUP/FILTER/SORT/UNIQUE pending)_
+- [x] Text: CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER, SUBSTITUTE, REGEXMATCH
+- [x] Date: TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF, EDATE, EOMONTH, NETWORKDAYS
+- [ ] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE _(PMT/FV/PV done; NPV/IRR/XIRR/XNPV/RATE pending)_
 - [ ] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE
-- [ ] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
+- [x] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
 - [ ] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
 - [ ] Google-specific equivalents: QUERY (via custom implementation), IMPORTRANGE (via file linking)
 
 ### Data Operations
-- [ ] Sort (single and multi-column)
-- [ ] Filter / Auto-filter
-- [ ] Find & Replace (with regex)
+- [x] Sort (single and multi-column)
+- [x] Filter / Auto-filter
+- [x] Find & Replace (with regex)
 - [ ] Pivot tables
-- [ ] Data validation
+- [x] Data validation
 - [ ] Remove duplicates
 - [ ] Text to columns
 - [ ] Transpose
@@ -459,15 +459,15 @@ lattice/
 - [ ] Chart themes / color palettes
 
 ### Sheets
-- [ ] Multiple sheets (tabs)
-- [ ] Add / Delete / Rename / Duplicate / Move sheets
+- [x] Multiple sheets (tabs)
+- [x] Add / Delete / Rename / Duplicate / Move sheets
 - [ ] Sheet tab colors
 - [ ] Cross-sheet references
 - [ ] Protected sheets / ranges
 
 ### File Operations
-- [ ] Open .xlsx, .xls, .csv, .tsv, .ods
-- [ ] Save as .xlsx, .csv, .tsv, .pdf
+- [x] Open .xlsx, .xls, .csv, .tsv, .ods _(xlsx and csv done; xls/tsv/ods pending)_
+- [x] Save as .xlsx, .csv, .tsv, .pdf _(xlsx and csv done; tsv/pdf pending)_
 - [ ] Auto-save
 - [ ] Recent files
 - [ ] File info / properties
@@ -475,17 +475,17 @@ lattice/
 - [ ] Export to PDF
 
 ### Keyboard Shortcuts (Google Sheets compatible)
-- [ ] Cmd+C/V/X — Copy/Paste/Cut
-- [ ] Cmd+Z/Shift+Z — Undo/Redo
+- [x] Cmd+C/V/X — Copy/Paste/Cut
+- [x] Cmd+Z/Shift+Z — Undo/Redo
 - [ ] Cmd+B/I/U — Bold/Italic/Underline
 - [ ] Cmd+F — Find
 - [ ] Cmd+H — Find & Replace
 - [ ] Cmd+A — Select all
-- [ ] Tab/Shift+Tab — Move right/left
-- [ ] Enter/Shift+Enter — Move down/up
+- [x] Tab/Shift+Tab — Move right/left
+- [x] Enter/Shift+Enter — Move down/up
 - [ ] Cmd+Enter — Stay in cell after input
-- [ ] F2 — Edit cell
-- [ ] Escape — Cancel editing
+- [x] F2 — Edit cell
+- [x] Escape — Cancel editing
 - [ ] Ctrl+Space — Select column
 - [ ] Shift+Space — Select row
 - [ ] Cmd+Shift+V — Paste values only
@@ -504,57 +504,57 @@ lattice/
 
 ## 7. Phase Breakdown
 
-### Phase 1: MVP — "It Works" (8-10 weeks)
+### Phase 1: MVP — "It Works" (8-10 weeks) -- COMPLETE
 
 Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 
-| Feature | Size | Description |
-|---------|------|-------------|
-| Sparse cell storage (HashMap) | M | `HashMap<(u32, u32), Cell>` |
-| Basic cell types (string, number, boolean, empty) | S | Core cell value enum |
-| In-cell editing (Enter/Tab/Escape) | M | Cell editor with keyboard |
-| Virtual scrolling grid (10k+ rows) | L | Canvas-based, only render visible |
-| Column/row headers | S | A, B, C... + row numbers |
-| Cell selection (single, range, multi-range) | M | Click, Shift+Click, Cmd+Click |
-| Basic formatting (bold, italic, font size, color) | M | Format properties per cell |
-| 50 essential formulas | L | SUM, AVERAGE, IF, VLOOKUP, etc. |
-| Formula bar | S | Display/edit formula |
-| Dependency graph + auto-recalc | L | Topological sort, cycle detection |
-| Undo/redo (command pattern) | M | Operation stack |
-| Open/save .xlsx | M | calamine + rust_xlsxwriter |
-| CSV import/export | S | Standard CSV |
-| Multiple sheets (tabs) | M | Sheet management, tab bar |
-| MCP server (stdio) | L | 10 core tools |
-| MCP tools: cell + sheet ops | M | read/write cell/range, list_sheets |
-| MCP resources: workbook info, sheet data | M | Resource endpoints |
-| macOS .dmg bundling | M | Tauri build |
-| macOS menu bar | S | File, Edit, View menus |
-| Copy/paste (internal + clipboard) | M | TSV clipboard interop |
+| Feature | Size | Status | Description |
+|---------|------|--------|-------------|
+| Sparse cell storage (HashMap) | M | Done | `HashMap<(u32, u32), Cell>` |
+| Basic cell types (string, number, boolean, empty) | S | Done | Core cell value enum |
+| In-cell editing (Enter/Tab/Escape) | M | Done | Cell editor with keyboard |
+| Virtual scrolling grid (10k+ rows) | L | Done | Canvas-based, only render visible |
+| Column/row headers | S | Done | A, B, C... + row numbers |
+| Cell selection (single, range, multi-range) | M | Done | Click, Shift+Click, Cmd+Click |
+| Basic formatting (bold, italic, font size, color) | M | Done | Format properties per cell |
+| 50 essential formulas | L | Done | 70+ implemented (SUM, AVERAGE, IF, VLOOKUP, etc.) |
+| Formula bar | S | Done | Display/edit formula |
+| Dependency graph + auto-recalc | L | Done | Topological sort, cycle detection |
+| Undo/redo (command pattern) | M | Done | Operation stack |
+| Open/save .xlsx | M | Done | calamine + rust_xlsxwriter |
+| CSV import/export | S | Done | Standard CSV |
+| Multiple sheets (tabs) | M | Done | Sheet management, tab bar |
+| MCP server (stdio) | L | Done | 40 tools (exceeded 10-tool target) |
+| MCP tools: cell + sheet ops | M | Done | read/write cell/range, list_sheets |
+| MCP resources: workbook info, sheet data | M | Done | Resource endpoints |
+| macOS .dmg bundling | M | Done | Tauri build, 4.7MB DMG |
+| macOS menu bar | S | Done | File, Edit, View menus |
+| Copy/paste (internal + clipboard) | M | Done | TSV clipboard interop |
 
-### Phase 2: Full Formula Engine + Rich Editing (6-8 weeks)
+### Phase 2: Full Formula Engine + Rich Editing (6-8 weeks) -- IN PROGRESS
 
-| Feature | Size | Description |
-|---------|------|-------------|
-| 400+ formulas (IronCalc) | XL | Full Google Sheets formula parity |
-| Cell references ($A$1, cross-sheet) | L | Relative, absolute, cross-sheet |
-| Auto-fill (drag handle) | M | Pattern detection |
-| Number formatting (currency, %, dates) | L | Format codes |
-| Conditional formatting | L | Rules + visual rendering |
-| Column/row resize | M | Drag + auto-fit |
-| Freeze panes | M | Split viewport |
-| Find & Replace (regex) | M | Cross-sheet search |
-| Named ranges | M | Named references |
-| Data validation (dropdowns) | M | Validation rules |
-| Sort (multi-column) | M | Stable sort |
-| Auto-filter | L | Dropdown filters |
-| MCP data/analysis tools | M | sort, filter, describe_data |
-| MCP prompts | S | Portfolio, clean-data templates |
-| Keyboard shortcuts (full set) | M | Google Sheets compatible |
-| Cell merging | M | Merge/unmerge |
-| Cell comments | S | Notes per cell |
-| Print / PDF export | M | Print layout |
-| Insert/delete rows/columns | M | With formula adjustment |
-| Hide/unhide rows/columns | S | Toggle visibility |
+| Feature | Size | Status | Description |
+|---------|------|--------|-------------|
+| 400+ formulas (IronCalc) | XL | Partial | 70+ formulas done; full parity pending |
+| Cell references ($A$1, cross-sheet) | L | Done | Relative, absolute, cross-sheet |
+| Auto-fill (drag handle) | M | Done | Pattern detection (linear, text+number, repeating) |
+| Number formatting (currency, %, dates) | L | Done | Format codes |
+| Conditional formatting | L | Done | Comparison, text rules, color scales, data bars, icon sets |
+| Column/row resize | M | Done | Drag + auto-fit |
+| Freeze panes | M | Done | 4-quadrant rendering |
+| Find & Replace (regex) | M | Done | With regex support |
+| Named ranges | M | Done | Named references + MCP tools |
+| Data validation (dropdowns) | M | Done | List, number ranges, date ranges, text length, custom |
+| Sort (multi-column) | M | Done | Stable sort |
+| Auto-filter | L | Done | Dropdown filters |
+| MCP data/analysis tools | M | Done | sort, filter, describe_data, correlate, trend, portfolio |
+| MCP prompts | S | Done | Portfolio, clean-data, dashboard, financial-model, explain-formulas |
+| Keyboard shortcuts (full set) | M | Partial | Core shortcuts done; full set pending |
+| Cell merging | M | Done | Merge/unmerge |
+| Cell comments | S | Done | Notes per cell |
+| Print / PDF export | M | | Print layout |
+| Insert/delete rows/columns | M | Done | With formula adjustment |
+| Hide/unhide rows/columns | S | Done | Toggle visibility |
 
 ### Phase 3: Charts, Visualization, Polish (6-8 weeks)
 
