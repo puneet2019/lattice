@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 
 use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
+use crate::formula::SheetResolver;
 use crate::named_range::NamedRangeStore;
 use crate::sheet::Sheet;
 use crate::validation::ValidationStore;
@@ -120,6 +121,16 @@ impl Workbook {
     }
 }
 
+impl SheetResolver for Workbook {
+    fn resolve_cell(&self, sheet_name: &str, row: u32, col: u32) -> Result<CellValue> {
+        let sheet = self.get_sheet(sheet_name)?;
+        Ok(sheet
+            .get_cell(row, col)
+            .map(|c| c.value.clone())
+            .unwrap_or(CellValue::Empty))
+    }
+}
+
 impl Default for Workbook {
     fn default() -> Self {
         Self::new()
@@ -183,5 +194,111 @@ mod tests {
         wb.add_sheet("Other").unwrap();
         let err = wb.rename_sheet("Sheet1", "Other").unwrap_err();
         assert_eq!(err, LatticeError::SheetAlreadyExists("Other".to_string()));
+    }
+
+    // --- Cross-sheet formula evaluation ---
+
+    #[test]
+    fn test_cross_sheet_simple_ref() {
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let mut wb = Workbook::new();
+        wb.add_sheet("Sheet2").unwrap();
+        wb.set_cell("Sheet2", 0, 0, CellValue::Number(42.0)).unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("Sheet2!A1", sheet1, Some(&wb)).unwrap();
+        assert_eq!(result, CellValue::Number(42.0));
+    }
+
+    #[test]
+    fn test_cross_sheet_in_expression() {
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let mut wb = Workbook::new();
+        wb.add_sheet("Sheet2").unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Sheet2", 0, 0, CellValue::Number(20.0)).unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("A1 + Sheet2!A1", sheet1, Some(&wb)).unwrap();
+        assert_eq!(result, CellValue::Number(30.0));
+    }
+
+    #[test]
+    fn test_cross_sheet_nonexistent_returns_error() {
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let wb = Workbook::new();
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("NoSheet!A1", sheet1, Some(&wb));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cross_sheet_no_resolver_returns_ref_error() {
+        use crate::cell::CellError;
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let wb = Workbook::new();
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        // Without resolver, cross-sheet refs produce #REF!
+        let result = eval.evaluate_with_context("Sheet2!A1", sheet1, None).unwrap();
+        assert_eq!(result, CellValue::Error(CellError::Ref));
+    }
+
+    #[test]
+    fn test_cross_sheet_sum_range() {
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let mut wb = Workbook::new();
+        wb.add_sheet("Data").unwrap();
+        wb.set_cell("Data", 0, 0, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Data", 1, 0, CellValue::Number(20.0)).unwrap();
+        wb.set_cell("Data", 2, 0, CellValue::Number(30.0)).unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("SUM(Data!A1:A3)", sheet1, Some(&wb)).unwrap();
+        assert_eq!(result, CellValue::Number(60.0));
+    }
+
+    #[test]
+    fn test_cross_sheet_empty_cell() {
+        use crate::formula::evaluator::SimpleEvaluator;
+        use crate::formula::FormulaEngine;
+
+        let mut wb = Workbook::new();
+        wb.add_sheet("Sheet2").unwrap();
+        // Sheet2!A1 is empty
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("Sheet2!A1", sheet1, Some(&wb)).unwrap();
+        assert_eq!(result, CellValue::Empty);
+    }
+
+    #[test]
+    fn test_sheet_resolver_impl() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(99.0)).unwrap();
+
+        let val = wb.resolve_cell("Sheet1", 0, 0).unwrap();
+        assert_eq!(val, CellValue::Number(99.0));
+
+        let val = wb.resolve_cell("Sheet1", 5, 5).unwrap();
+        assert_eq!(val, CellValue::Empty);
+
+        let err = wb.resolve_cell("NoSuchSheet", 0, 0);
+        assert!(err.is_err());
     }
 }
