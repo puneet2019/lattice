@@ -4,6 +4,8 @@
 //! sends JSON-RPC 2.0 strings via `handle_message()`, and asserts on the
 //! parsed response values — not just `isError: false`.
 
+use lattice_core::{CellValue, FillDirection, FillPattern, Sheet, detect_pattern, fill_range};
+use lattice_core::selection::{CellRef, Range};
 use lattice_mcp::McpServer;
 use serde_json::{Value, json};
 
@@ -1652,3 +1654,152 @@ async fn test_formula_cell_ref_and_recalculation() {
         "read_cell A6 must reflect the recalculated value"
     );
 }
+
+// ── 22. CellData format round-trip ────────────────────────────────────────────
+// Regression: CellData from backend was missing font_color, bg_color, and
+// font_size fields.  These tests verify that every format field survives a
+// write → set_format → get_cell_format round-trip via MCP.
+
+/// All five format fields — bold, font_color, bg_color, font_size, italic —
+/// must be returned by get_cell_format after a single set_cell_format call.
+#[tokio::test]
+async fn test_cell_format_all_fields_round_trip() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "formatted"}),
+    )
+    .await;
+
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bold": true,
+            "italic": true,
+            "font_color": "#ff0000",
+            "bg_color": "#00ff00",
+            "font_size": 18.0
+        }),
+    )
+    .await;
+
+    let fmt_result = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+
+    let fmt = &fmt_result["format"];
+
+    assert_eq!(fmt["bold"], true, "bold must be returned");
+    assert_eq!(fmt["italic"], true, "italic must be returned");
+    assert_eq!(fmt["font_color"], "#ff0000", "font_color must be returned");
+    assert_eq!(fmt["bg_color"], "#00ff00", "bg_color must be returned");
+    assert_eq!(
+        fmt["font_size"].as_f64().unwrap(),
+        18.0,
+        "font_size must be returned"
+    );
+}
+
+/// Default (unformatted) cell must return well-defined values for all fields,
+/// not null or missing keys — guards against partial serialization bugs.
+#[tokio::test]
+async fn test_cell_format_default_values_are_present() {
+    let mut server = McpServer::new_default();
+
+    let fmt_result = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "Z99"}),
+    )
+    .await;
+
+    let fmt = &fmt_result["format"];
+
+    // None of the standard format keys should be absent.
+    assert!(!fmt["bold"].is_null(), "bold must not be null");
+    assert!(!fmt["italic"].is_null(), "italic must not be null");
+    assert!(!fmt["font_size"].is_null(), "font_size must not be null");
+    assert!(!fmt["font_color"].is_null(), "font_color must not be null");
+    assert!(!fmt["h_align"].is_null(), "h_align must not be null");
+    assert!(!fmt["v_align"].is_null(), "v_align must not be null");
+
+    // Check expected defaults.
+    assert_eq!(fmt["bold"], false);
+    assert_eq!(fmt["italic"], false);
+    assert_eq!(fmt["font_size"].as_f64().unwrap(), 11.0);
+    assert_eq!(fmt["font_color"], "#000000");
+}
+
+/// bg_color cleared via null must persist as null (not the previous colour).
+/// This guards the fix to set_cell_format where serde's Option<Value>
+/// collapsed explicit null and field absence into the same None, preventing
+/// the null-means-clear contract from working.
+#[tokio::test]
+async fn test_cell_format_bg_color_clear() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 1}),
+    )
+    .await;
+
+    // Set a bg_color first.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bg_color": "#ffff00"
+        }),
+    )
+    .await;
+
+    // Verify it was actually set.
+    let before = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(
+        before["format"]["bg_color"], "#ffff00",
+        "bg_color must be set before the clear step"
+    );
+
+    // Now clear it with null.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bg_color": null
+        }),
+    )
+    .await;
+
+    let fmt_result = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+
+    assert!(
+        fmt_result["format"]["bg_color"].is_null(),
+        "bg_color must be null after clearing with null, got: {}",
+        fmt_result["format"]["bg_color"]
+    );
+}
+
