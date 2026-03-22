@@ -134,6 +134,8 @@ export interface VirtualGridProps {
   pasteSpecialMode?: PasteMode | null;
   /** Called after a paste special operation completes so App can reset the signal. */
   onPasteSpecialDone?: () => void;
+  /** Called when selection summary (Sum/Average/Count) changes for the status bar. */
+  onSelectionSummary?: (summary: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [selectedCol, setSelectedCol] = createSignal(0);
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
+
+  // Marching ants (copy indicator) state
+  let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
+  let marchingAntOffset = 0;
+  let marchingAntAnimId: number | null = null;
+
+  function startMarchingAnts() {
+    if (marchingAntAnimId !== null) return;
+    const animate = () => {
+      marchingAntOffset = (marchingAntOffset + 0.5) % 16;
+      scheduleDraw();
+      marchingAntAnimId = requestAnimationFrame(animate);
+    };
+    marchingAntAnimId = requestAnimationFrame(animate);
+  }
+
+  function stopMarchingAnts() {
+    if (marchingAntAnimId !== null) {
+      cancelAnimationFrame(marchingAntAnimId);
+      marchingAntAnimId = null;
+    }
+    copiedRange = null;
+    marchingAntOffset = 0;
+  }
 
   // Cell data cache: maps "row:col" to CellData
   const cellCache = new Map<string, CellData>();
@@ -353,6 +379,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function startEditing(clearContent: boolean) {
+    // Clear marching ants when editing starts
+    stopMarchingAnts();
+
     const row = selectedRow();
     const col = selectedCol();
     const cell = cellCache.get(`${row}:${col}`);
@@ -945,6 +974,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       }
       ctx.lineWidth = 1;
     }
+
+    // Update status bar selection summary after each draw
+    updateSelectionSummary();
   }
 
   // -----------------------------------------------------------------------
@@ -1034,6 +1066,45 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     };
   }
 
+  /** Compute selection summary (Sum, Average, Count) and notify parent. */
+  function updateSelectionSummary() {
+    if (!props.onSelectionSummary) return;
+    const range = getSelectionRange();
+    const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+    if (!isMulti) {
+      props.onSelectionSummary('');
+      return;
+    }
+
+    let sum = 0;
+    let count = 0;
+    let numericCount = 0;
+
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        const cell = cellCache.get(`${r}:${c}`);
+        if (cell && cell.value && cell.value.trim() !== '') {
+          count++;
+          const num = Number(cell.value);
+          if (!isNaN(num)) {
+            sum += num;
+            numericCount++;
+          }
+        }
+      }
+    }
+
+    if (numericCount > 0) {
+      const avg = sum / numericCount;
+      const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      props.onSelectionSummary(`Sum: ${sum}  Average: ${avgStr}  Count: ${count}`);
+    } else if (count > 0) {
+      props.onSelectionSummary(`Count: ${count}`);
+    } else {
+      props.onSelectionSummary('');
+    }
+  }
+
   function isColInSelection(col: number): boolean {
     const { minCol, maxCol } = getSelectionRange();
     return col >= minCol && col <= maxCol;
@@ -1109,6 +1180,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.fillRect(handleX, handleY, FILL_HANDLE_SIZE, FILL_HANDLE_SIZE);
       ctx.fillStyle = COLORS.selectionBorder;
       ctx.fillRect(handleX + 1, handleY + 1, FILL_HANDLE_SIZE - 2, FILL_HANDLE_SIZE - 2);
+    }
+
+    // Draw marching ants around copied range
+    if (copiedRange) {
+      const cr = copiedRange;
+      const mx = ROW_NUMBER_WIDTH + getColX(cr.minCol) - sx;
+      const my = HEADER_HEIGHT + getRowY(cr.minRow) - sy;
+      const mw = getColX(cr.maxCol + 1) - getColX(cr.minCol);
+      const mh = getRowY(cr.maxRow + 1) - getRowY(cr.minRow);
+      ctx.strokeStyle = COLORS.selectionBorder;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.lineDashOffset = -marchingAntOffset;
+      ctx.strokeRect(mx, my, mw, mh);
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.lineWidth = 1;
     }
   }
 
@@ -1187,12 +1275,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
         // Right-align numbers, left-align strings
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
+        const maxTextW = cw - PADDING * 2;
+        let displayText = cell.value;
+
+        // Truncate with ellipsis if text overflows cell width
+        const measured = ctx.measureText(displayText);
+        if (measured.width > maxTextW && maxTextW > 0) {
+          const ellipsis = '\u2026';
+          const ellipsisW = ctx.measureText(ellipsis).width;
+          let truncLen = displayText.length;
+          while (truncLen > 0) {
+            truncLen--;
+            if (ctx.measureText(displayText.slice(0, truncLen)).width + ellipsisW <= maxTextW) {
+              break;
+            }
+          }
+          displayText = displayText.slice(0, truncLen) + ellipsis;
+        }
+
         if (isNumber) {
           ctx.textAlign = 'right';
-          ctx.fillText(cell.value, x + cw - PADDING, y + rh / 2, cw - PADDING * 2);
+          ctx.fillText(displayText, x + cw - PADDING, y + rh / 2);
         } else {
           ctx.textAlign = 'left';
-          ctx.fillText(cell.value, x + PADDING, y + rh / 2, cw - PADDING * 2);
+          ctx.fillText(displayText, x + PADDING, y + rh / 2);
         }
       }
     }
@@ -2038,6 +2144,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const tsv = await getSelectionTSV();
     try {
       await navigator.clipboard.writeText(tsv);
+      copiedRange = { ...getSelectionRange() };
+      startMarchingAnts();
       props.onStatusChange('Copied to clipboard');
     } catch {
       props.onStatusChange('Copy failed');
@@ -2436,6 +2544,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     if (editing()) return; // editor handles its own keys
 
+    // Escape: clear marching ants (copy indicator)
+    if (e.key === 'Escape') {
+      if (copiedRange) {
+        e.preventDefault();
+        stopMarchingAnts();
+        draw();
+        return;
+      }
+    }
+
     // F2 enters edit mode without clearing
     if (e.key === 'F2') {
       e.preventDefault();
@@ -2593,38 +2711,66 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onStatusChange(`Inserted time: ${timeStr}`);
         return;
       }
-      // Cmd+D: fill down (copy cell above into selected cell)
+      // Cmd+D: fill down — copy first row of selection into all rows below
       if (e.key === 'd' && !e.shiftKey) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        if (row > 0) {
-          const above = cellCache.get(`${row - 1}:${col}`);
-          const value = above?.formula ? `=${above.formula}` : above?.value ?? '';
-          const formula = above?.formula ?? undefined;
-          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+        const range = getSelectionRange();
+        const promises: Promise<void>[] = [];
+        for (let c = range.minCol; c <= range.maxCol; c++) {
+          const source = cellCache.get(`${range.minRow}:${c}`);
+          const value = source?.formula ? `=${source.formula}` : source?.value ?? '';
+          const formula = source?.formula ?? undefined;
+          for (let r = range.minRow + 1; r <= range.maxRow; r++) {
+            promises.push(
+              setCell(props.activeSheet, r, c, value, formula).catch(() => {}),
+            );
+          }
+          // If single row selected and there's a row above, fill from above
+          if (range.minRow === range.maxRow && range.minRow > 0) {
+            const above = cellCache.get(`${range.minRow - 1}:${c}`);
+            const aboveVal = above?.formula ? `=${above.formula}` : above?.value ?? '';
+            const aboveFormula = above?.formula ?? undefined;
+            promises.push(
+              setCell(props.activeSheet, range.minRow, c, aboveVal, aboveFormula).catch(() => {}),
+            );
+          }
+        }
+        void Promise.all(promises).then(() => {
           lastFetchKey = '';
           fetchVisibleData();
-          props.onContentChange(value);
-          props.onStatusChange('Filled down');
-        }
+        });
+        props.onStatusChange('Filled down');
         return;
       }
-      // Cmd+R: fill right (copy cell to the left into selected cell)
+      // Cmd+R: fill right — copy first column of selection into all columns right
       if (e.key === 'r' && !e.shiftKey) {
         e.preventDefault();
-        const row = selectedRow();
-        const col = selectedCol();
-        if (col > 0) {
-          const left = cellCache.get(`${row}:${col - 1}`);
-          const value = left?.formula ? `=${left.formula}` : left?.value ?? '';
-          const formula = left?.formula ?? undefined;
-          setCell(props.activeSheet, row, col, value, formula).catch(() => {});
+        const range = getSelectionRange();
+        const promises: Promise<void>[] = [];
+        for (let r = range.minRow; r <= range.maxRow; r++) {
+          const source = cellCache.get(`${r}:${range.minCol}`);
+          const value = source?.formula ? `=${source.formula}` : source?.value ?? '';
+          const formula = source?.formula ?? undefined;
+          for (let c = range.minCol + 1; c <= range.maxCol; c++) {
+            promises.push(
+              setCell(props.activeSheet, r, c, value, formula).catch(() => {}),
+            );
+          }
+          // If single column selected and there's a column to the left, fill from left
+          if (range.minCol === range.maxCol && range.minCol > 0) {
+            const left = cellCache.get(`${r}:${range.minCol - 1}`);
+            const leftVal = left?.formula ? `=${left.formula}` : left?.value ?? '';
+            const leftFormula = left?.formula ?? undefined;
+            promises.push(
+              setCell(props.activeSheet, r, range.minCol, leftVal, leftFormula).catch(() => {}),
+            );
+          }
+        }
+        void Promise.all(promises).then(() => {
           lastFetchKey = '';
           fetchVisibleData();
-          props.onContentChange(value);
-          props.onStatusChange('Filled right');
-        }
+        });
+        props.onStatusChange('Filled right');
         return;
       }
       // Cmd+Shift+K: strikethrough toggle
@@ -2957,8 +3103,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     darkModeQuery.addEventListener('change', handleColorSchemeChange);
     onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
 
-    // Clean up drag listeners on unmount
+    // Clean up drag listeners and marching ants on unmount
     onCleanup(() => {
+      stopMarchingAnts();
       if (isDragging) {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);

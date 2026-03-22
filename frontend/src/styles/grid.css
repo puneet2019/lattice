@@ -432,7 +432,7 @@ body,
   flex: 1;
   position: relative;
   overflow: hidden;
-  cursor: cell;
+  cursor: default;
 }
 
 .virtual-grid-canvas {
@@ -455,7 +455,7 @@ body,
   font-family: var(--font-family);
   color: var(--cell-text);
   background: var(--cell-bg);
-  line-height: 25px;
+  line-height: 21px;
   resize: none;
   overflow: hidden;
   box-sizing: border-box;

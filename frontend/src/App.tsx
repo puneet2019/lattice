@@ -18,6 +18,7 @@ import {
   addSheet,
   setActiveSheet,
   setCell,
+  getCell,
   renameSheet,
   deleteSheet,
   duplicateSheet,
@@ -51,7 +52,7 @@ const App: Component = () => {
   const [formulaContent, setFormulaContent] = createSignal('');
   const [statusMessage, setStatusMessage] = createSignal('Ready');
   const [mode, setMode] = createSignal<'Ready' | 'Edit'>('Ready');
-  const [selectionSummary] = createSignal('');
+  const [selectionSummary, setSelectionSummary] = createSignal('');
   const [zoom, setZoom] = createSignal(1.0);
   const [refreshTrigger, setRefreshTrigger] = createSignal(0);
   const [boldActive, setBoldActive] = createSignal(false);
@@ -266,6 +267,19 @@ const App: Component = () => {
   const handleSelectionChange = (row: number, col: number) => {
     setSelectedCell([row, col]);
     setStatusMessage(`Cell ${cellRefStr(row, col)}`);
+    // Sync toolbar format state from the selected cell
+    getCell(activeSheetName(), row, col)
+      .then((cell) => {
+        setBoldActive(cell?.bold ?? false);
+        setItalicActive(cell?.italic ?? false);
+        // underline is not yet in CellData, default to false
+        setUnderlineActive(false);
+      })
+      .catch(() => {
+        setBoldActive(false);
+        setItalicActive(false);
+        setUnderlineActive(false);
+      });
   };
 
   const handleFormulaCommit = async (value: string) => {
@@ -349,6 +363,11 @@ const App: Component = () => {
   const handleAlign = (align: 'left' | 'center' | 'right') => {
     applyFormat({ h_align: align });
     setStatusMessage(`Align: ${align}`);
+  };
+
+  const handleNumberFormat = (fmt: string) => {
+    applyFormat({ number_format: fmt });
+    setStatusMessage(`Number format: ${fmt}`);
   };
 
   const handleUndo = async () => {
@@ -550,6 +569,7 @@ const App: Component = () => {
         onFontColor={handleFontColor}
         onBgColor={handleBgColor}
         onAlign={handleAlign}
+        onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onFreezeToggle={handleFreezeToggle}
@@ -592,6 +612,7 @@ const App: Component = () => {
           splitCol={splitCol()}
           zoom={zoom()}
           onSelectionChange={handleSelectionChange}
+          onSelectionSummary={setSelectionSummary}
           onContentChange={handleContentChange}
           onCellCommit={handleCellCommit}
           onStatusChange={setStatusMessage}

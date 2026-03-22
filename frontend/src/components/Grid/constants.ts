@@ -1,6 +1,6 @@
 /** Grid layout constants shared across grid components and tests. */
 
-export const DEFAULT_COL_WIDTH = 80;
+export const DEFAULT_COL_WIDTH = 100;
 export const DEFAULT_ROW_HEIGHT = 21;
 export const MIN_COL_WIDTH = 30;
 export const MIN_ROW_HEIGHT = 12;
