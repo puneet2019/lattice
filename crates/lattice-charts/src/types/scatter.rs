@@ -7,7 +7,7 @@
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
     compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close, svg_open,
-    svg_text, svg_title, xml_escape, Margins,
+    svg_text, svg_title, Margins,
 };
 
 /// Render scatter plot data as an SVG string.
