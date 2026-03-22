@@ -68,6 +68,7 @@ pub fn read_xlsx(path: &Path) -> Result<Workbook> {
                         format: Default::default(),
                         style_id: 0,
                         comment: None,
+                        hyperlink: None,
                     };
                     sheet.set_cell(row_idx as u32, col_idx as u32, cell);
                 }
@@ -132,6 +133,7 @@ pub fn read_ods(path: &Path) -> Result<Workbook> {
                         format: Default::default(),
                         style_id: 0,
                         comment: None,
+                        hyperlink: None,
                     };
                     sheet.set_cell(row_idx as u32, col_idx as u32, cell);
                 }
@@ -211,6 +213,7 @@ pub fn read_xls(path: &Path) -> Result<Workbook> {
                         format: Default::default(),
                         style_id: 0,
                         comment: None,
+                        hyperlink: None,
                     };
                     sheet.set_cell(row_idx as u32, col_idx as u32, cell);
                 }

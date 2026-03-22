@@ -66,6 +66,8 @@ pub struct Cell {
     pub style_id: u32,
     /// Optional comment / note.
     pub comment: Option<String>,
+    /// Optional hyperlink URL (e.g. `"https://example.com"`).
+    pub hyperlink: Option<String>,
 }
 
 impl Default for Cell {
@@ -76,6 +78,7 @@ impl Default for Cell {
             format: CellFormat::default(),
             style_id: 0,
             comment: None,
+            hyperlink: None,
         }
     }
 }

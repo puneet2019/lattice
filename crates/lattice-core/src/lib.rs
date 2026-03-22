@@ -35,12 +35,15 @@ pub use conditional_format::{
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
-pub use format::{CellFormat, HAlign, NumberFormat, VAlign, format_value};
+pub use format::{
+    Border, BorderStyle, CellBorders, CellFormat, HAlign, NumberFormat, TextWrap, VAlign,
+    format_value,
+};
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use formula::{FormulaEngine, SheetResolver};
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
-pub use sheet::{MergedRegion, ProtectedRange, Sheet, SheetProtection};
+pub use sheet::{BandedRows, MergedRegion, ProtectedRange, Sheet, SheetProtection};
 pub use sort::{SortDirection, SortKey};
 pub use validation::{ValidationRule, ValidationStore, ValidationType};
 pub use workbook::Workbook;

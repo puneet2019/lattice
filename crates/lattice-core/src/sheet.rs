@@ -69,6 +69,23 @@ pub struct ProtectedRange {
     pub description: Option<String>,
 }
 
+/// Alternating row colour configuration for a sheet.
+///
+/// When enabled, rows are shaded with alternating even/odd colours
+/// to improve readability. An optional header colour can be set
+/// for the first row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BandedRows {
+    /// Whether banded row colouring is active.
+    pub enabled: bool,
+    /// Background colour for even rows (0-indexed), e.g. `"#F3F3F3"`.
+    pub even_color: String,
+    /// Background colour for odd rows (0-indexed), e.g. `"#FFFFFF"`.
+    pub odd_color: String,
+    /// Optional distinct colour for the header (row 0).
+    pub header_color: Option<String>,
+}
+
 /// A single sheet inside a workbook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sheet {
@@ -92,6 +109,8 @@ pub struct Sheet {
     protected_ranges: Vec<ProtectedRange>,
     /// Optional tab color as a CSS hex string (e.g. `"#FF0000"`).
     pub tab_color: Option<String>,
+    /// Optional alternating row colour configuration.
+    pub banded_rows: Option<BandedRows>,
 }
 
 impl Sheet {
@@ -108,6 +127,7 @@ impl Sheet {
             protection: None,
             protected_ranges: Vec::new(),
             tab_color: None,
+            banded_rows: None,
         }
     }
 
@@ -705,6 +725,7 @@ impl Sheet {
                         format: Default::default(),
                         style_id: 0,
                         comment: None,
+                        hyperlink: None,
                     };
                     self.cells.insert((row, target_col), cell);
                 }
@@ -712,6 +733,44 @@ impl Sheet {
         }
 
         max_parts
+    }
+
+    // ----- Hyperlinks -----
+
+    /// Set a hyperlink URL on a cell. Creates the cell if it does not exist.
+    ///
+    /// The URL is stored on the cell itself (e.g. `"https://example.com"`).
+    pub fn set_hyperlink(&mut self, row: u32, col: u32, url: impl Into<String>) {
+        let cell = self.cells.entry((row, col)).or_default();
+        cell.hyperlink = Some(url.into());
+    }
+
+    /// Get the hyperlink URL on a cell, if any.
+    pub fn get_hyperlink(&self, row: u32, col: u32) -> Option<&str> {
+        self.cells
+            .get(&(row, col))
+            .and_then(|c| c.hyperlink.as_deref())
+    }
+
+    /// Remove the hyperlink from a cell.
+    pub fn remove_hyperlink(&mut self, row: u32, col: u32) {
+        if let Some(cell) = self.cells.get_mut(&(row, col)) {
+            cell.hyperlink = None;
+        }
+    }
+
+    // ----- Banded Rows -----
+
+    /// Set alternating row colour configuration.
+    ///
+    /// Pass `None` to disable banded rows.
+    pub fn set_banded_rows(&mut self, config: Option<BandedRows>) {
+        self.banded_rows = config;
+    }
+
+    /// Return the banded row configuration, if any.
+    pub fn get_banded_rows(&self) -> Option<&BandedRows> {
+        self.banded_rows.as_ref()
     }
 }
 
@@ -1399,5 +1458,107 @@ mod tests {
         sheet.set_tab_color(Some("#00FF00".into()));
         sheet.set_tab_color(None);
         assert!(sheet.tab_color.is_none());
+    }
+
+    // --- Hyperlinks ---
+
+    #[test]
+    fn test_set_get_hyperlink() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("Google".into()));
+        sheet.set_hyperlink(0, 0, "https://google.com");
+        assert_eq!(sheet.get_hyperlink(0, 0), Some("https://google.com"));
+    }
+
+    #[test]
+    fn test_hyperlink_on_new_cell() {
+        let mut sheet = Sheet::new("T");
+        // Setting a hyperlink on a non-existent cell should create it
+        sheet.set_hyperlink(5, 5, "https://example.com");
+        assert!(sheet.get_cell(5, 5).is_some());
+        assert_eq!(sheet.get_hyperlink(5, 5), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_remove_hyperlink() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_hyperlink(0, 0, "https://example.com");
+        assert!(sheet.get_hyperlink(0, 0).is_some());
+        sheet.remove_hyperlink(0, 0);
+        assert_eq!(sheet.get_hyperlink(0, 0), None);
+    }
+
+    #[test]
+    fn test_remove_hyperlink_no_cell() {
+        let mut sheet = Sheet::new("T");
+        // Removing a hyperlink from a non-existent cell should not panic
+        sheet.remove_hyperlink(0, 0);
+        assert_eq!(sheet.get_hyperlink(0, 0), None);
+    }
+
+    #[test]
+    fn test_get_hyperlink_no_cell() {
+        let sheet = Sheet::new("T");
+        assert_eq!(sheet.get_hyperlink(0, 0), None);
+    }
+
+    #[test]
+    fn test_hyperlink_overwrite() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_hyperlink(0, 0, "https://first.com");
+        sheet.set_hyperlink(0, 0, "https://second.com");
+        assert_eq!(sheet.get_hyperlink(0, 0), Some("https://second.com"));
+    }
+
+    // --- Banded Rows ---
+
+    #[test]
+    fn test_banded_rows_default_none() {
+        let sheet = Sheet::new("T");
+        assert!(sheet.get_banded_rows().is_none());
+    }
+
+    #[test]
+    fn test_set_banded_rows() {
+        let mut sheet = Sheet::new("T");
+        let config = BandedRows {
+            enabled: true,
+            even_color: "#F3F3F3".into(),
+            odd_color: "#FFFFFF".into(),
+            header_color: Some("#CCCCCC".into()),
+        };
+        sheet.set_banded_rows(Some(config.clone()));
+        let banded = sheet.get_banded_rows().unwrap();
+        assert!(banded.enabled);
+        assert_eq!(banded.even_color, "#F3F3F3");
+        assert_eq!(banded.odd_color, "#FFFFFF");
+        assert_eq!(banded.header_color.as_deref(), Some("#CCCCCC"));
+    }
+
+    #[test]
+    fn test_clear_banded_rows() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_banded_rows(Some(BandedRows {
+            enabled: true,
+            even_color: "#F3F3F3".into(),
+            odd_color: "#FFFFFF".into(),
+            header_color: None,
+        }));
+        assert!(sheet.get_banded_rows().is_some());
+        sheet.set_banded_rows(None);
+        assert!(sheet.get_banded_rows().is_none());
+    }
+
+    #[test]
+    fn test_banded_rows_no_header() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_banded_rows(Some(BandedRows {
+            enabled: true,
+            even_color: "#EEEEEE".into(),
+            odd_color: "#FFFFFF".into(),
+            header_color: None,
+        }));
+        let banded = sheet.get_banded_rows().unwrap();
+        assert!(banded.header_color.is_none());
     }
 }

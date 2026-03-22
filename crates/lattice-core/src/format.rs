@@ -59,6 +59,59 @@ impl Default for NumberFormat {
     }
 }
 
+/// Style of a cell border line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BorderStyle {
+    /// No border.
+    None,
+    /// Thin solid line (1px).
+    Thin,
+    /// Medium solid line (2px).
+    Medium,
+    /// Thick solid line (3px).
+    Thick,
+    /// Dashed line.
+    Dashed,
+    /// Dotted line.
+    Dotted,
+    /// Double line.
+    Double,
+}
+
+/// A single border edge with style and colour.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Border {
+    /// The line style of this border edge.
+    pub style: BorderStyle,
+    /// CSS hex colour string (e.g. `"#000000"`).
+    pub color: String,
+}
+
+/// Borders on all four edges of a cell.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CellBorders {
+    /// Top edge border.
+    pub top: Option<Border>,
+    /// Bottom edge border.
+    pub bottom: Option<Border>,
+    /// Left edge border.
+    pub left: Option<Border>,
+    /// Right edge border.
+    pub right: Option<Border>,
+}
+
+/// Text wrapping mode for cell content.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub enum TextWrap {
+    /// Text overflows into adjacent empty cells (default).
+    #[default]
+    Overflow,
+    /// Text wraps within the cell, expanding row height as needed.
+    Wrap,
+    /// Text is clipped at the cell boundary.
+    Clip,
+}
+
 /// Visual formatting for a cell.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CellFormat {
@@ -66,6 +119,10 @@ pub struct CellFormat {
     pub bold: bool,
     /// Whether the cell text is italic.
     pub italic: bool,
+    /// Whether the cell text is underlined.
+    pub underline: bool,
+    /// Whether the cell text has a strikethrough.
+    pub strikethrough: bool,
     /// Font size in points (e.g. 11.0).
     pub font_size: f64,
     /// Font colour as a CSS-style hex string (e.g. `"#000000"`).
@@ -82,6 +139,10 @@ pub struct CellFormat {
     /// and file I/O. For structured format operations, convert to/from
     /// [`NumberFormat`] using [`NumberFormat::to_pattern`].
     pub number_format: Option<String>,
+    /// Cell border configuration.
+    pub borders: CellBorders,
+    /// Text wrapping mode.
+    pub text_wrap: TextWrap,
 }
 
 impl Default for CellFormat {
@@ -89,12 +150,16 @@ impl Default for CellFormat {
         Self {
             bold: false,
             italic: false,
+            underline: false,
+            strikethrough: false,
             font_size: 11.0,
             font_color: "#000000".to_string(),
             bg_color: None,
             h_align: HAlign::default(),
             v_align: VAlign::default(),
             number_format: None,
+            borders: CellBorders::default(),
+            text_wrap: TextWrap::default(),
         }
     }
 }
@@ -664,5 +729,114 @@ mod tests {
     fn test_custom_format_fallback() {
         // Custom patterns fall back to General formatting for now
         assert_eq!(format_value(&CellValue::Number(42.0), &NumberFormat::Custom("#,##0.00".into())), "42");
+    }
+
+    // ── Borders ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cell_borders_default() {
+        let borders = CellBorders::default();
+        assert!(borders.top.is_none());
+        assert!(borders.bottom.is_none());
+        assert!(borders.left.is_none());
+        assert!(borders.right.is_none());
+    }
+
+    #[test]
+    fn test_cell_borders_with_edges() {
+        let borders = CellBorders {
+            top: Some(Border { style: BorderStyle::Thin, color: "#000000".into() }),
+            bottom: Some(Border { style: BorderStyle::Thick, color: "#FF0000".into() }),
+            left: None,
+            right: Some(Border { style: BorderStyle::Dashed, color: "#00FF00".into() }),
+        };
+        assert_eq!(borders.top.as_ref().unwrap().style, BorderStyle::Thin);
+        assert_eq!(borders.bottom.as_ref().unwrap().color, "#FF0000");
+        assert!(borders.left.is_none());
+        assert_eq!(borders.right.as_ref().unwrap().style, BorderStyle::Dashed);
+    }
+
+    #[test]
+    fn test_border_style_variants() {
+        // Ensure all variants are distinct
+        let styles = vec![
+            BorderStyle::None, BorderStyle::Thin, BorderStyle::Medium,
+            BorderStyle::Thick, BorderStyle::Dashed, BorderStyle::Dotted,
+            BorderStyle::Double,
+        ];
+        for (i, a) in styles.iter().enumerate() {
+            for (j, b) in styles.iter().enumerate() {
+                if i == j {
+                    assert_eq!(a, b);
+                } else {
+                    assert_ne!(a, b);
+                }
+            }
+        }
+    }
+
+    // ── Text Wrap ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_text_wrap_default() {
+        assert_eq!(TextWrap::default(), TextWrap::Overflow);
+    }
+
+    #[test]
+    fn test_text_wrap_variants() {
+        assert_ne!(TextWrap::Overflow, TextWrap::Wrap);
+        assert_ne!(TextWrap::Wrap, TextWrap::Clip);
+        assert_ne!(TextWrap::Overflow, TextWrap::Clip);
+    }
+
+    // ── Underline & Strikethrough ──────────────────────────────────────
+
+    #[test]
+    fn test_cell_format_default_underline_strikethrough() {
+        let fmt = CellFormat::default();
+        assert!(!fmt.underline);
+        assert!(!fmt.strikethrough);
+    }
+
+    #[test]
+    fn test_cell_format_with_underline_strikethrough() {
+        let fmt = CellFormat {
+            underline: true,
+            strikethrough: true,
+            ..CellFormat::default()
+        };
+        assert!(fmt.underline);
+        assert!(fmt.strikethrough);
+    }
+
+    // ── CellFormat default includes new fields ─────────────────────────
+
+    #[test]
+    fn test_cell_format_default_has_borders_and_wrap() {
+        let fmt = CellFormat::default();
+        assert_eq!(fmt.borders, CellBorders::default());
+        assert_eq!(fmt.text_wrap, TextWrap::Overflow);
+    }
+
+    #[test]
+    fn test_cell_format_with_borders() {
+        let fmt = CellFormat {
+            borders: CellBorders {
+                top: Some(Border { style: BorderStyle::Medium, color: "#333333".into() }),
+                ..CellBorders::default()
+            },
+            ..CellFormat::default()
+        };
+        assert!(fmt.borders.top.is_some());
+        assert!(fmt.borders.bottom.is_none());
+    }
+
+    #[test]
+    fn test_cell_format_with_text_wrap() {
+        let fmt = CellFormat {
+            text_wrap: TextWrap::Wrap,
+            ..CellFormat::default()
+        };
+        assert_eq!(fmt.text_wrap, TextWrap::Wrap);
     }
 }

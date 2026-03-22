@@ -275,9 +275,11 @@ mod tests {
                 h_align: HAlign::Center,
                 v_align: VAlign::Middle,
                 number_format: Some("#,##0.00".to_string()),
+                ..CellFormat::default()
             },
             style_id: 0,
             comment: None,
+            hyperlink: None,
         };
         sheet.set_cell(0, 0, cell);
 
@@ -298,6 +300,7 @@ mod tests {
             format: Default::default(),
             style_id: 0,
             comment: Some("This is a comment".to_string()),
+            hyperlink: None,
         };
         sheet.set_cell(0, 0, cell);
 
