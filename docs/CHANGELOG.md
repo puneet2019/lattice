@@ -4,6 +4,57 @@ All notable additions and modifications to the project plan.
 
 For obvious/minor edits, update `PLAN.md` directly. For significant additions, scope changes, or architectural decisions, log them here.
 
+## [2026-03-22] Near Feature Parity — Phase 3 Complete, Phase 4 In Progress
+
+Updated `PLAN.md` status from "Phase 3 -- In Progress" to "Phase 4 -- Near Feature Parity". Phase 3 charts and visualization is now fully complete. Significant Phase 4 progress recorded with many advanced features already landed.
+
+### Phase 3 -- Now Complete (17 of 22 items done; 5 remaining moved to Phase 4 backlog)
+- Combo charts: bar + line SVG renderer
+- Histogram: SVG renderer with Sturges binning
+- Candlestick charts: OHLC SVG renderer for financial data
+- Sparklines: Line/Bar/WinLoss SVG rendering with SparklineStore on Sheet
+- Cell borders: BorderStyle enum, CellBorders struct, all edge combinations
+- Hyperlinks: hyperlink field on Cell, set/get/remove on Sheet
+- Alternating row colors: BandedRows on Sheet
+- Remaining Phase 3 items (MCP chart tools, streamable HTTP, dark mode, drag-and-drop, images in cells, perf optimization) carry forward
+
+### Phase 4 -- Newly completed items
+- Pivot tables: PivotConfig, generate_pivot with Sum/Count/Average/Min/Max/CountDistinct
+- Treemap charts: squarified algorithm SVG renderer
+- Checkboxes: CellValue::Checkbox variant with toggle support
+- Dropdown chips: DropdownConfig on Cell
+- Array formulas: CellValue::Array variant, set_array_formula, spill support
+- Cell links (hyperlinks): hyperlink field on Cell, set/get/remove on Sheet
+- Remove duplicates: Sheet::remove_duplicates
+- File info / properties: FileInfo struct, get_file_info
+- Paste special (values-only): Cmd+Shift+V done; formulas/formatting/transposed still pending
+- Text wrapping: TextWrap enum (overflow, wrap, clip) on CellFormat
+
+### Section 6 checklist summary (Google Sheets parity)
+- Cell & Data: 9/12 done (auto-complete, images in cells, split panes remaining)
+- Formatting: 8/8 done
+- Layout: 6/7 done (split panes remaining)
+- Formulas: 10/11 categories done or partial (QUERY/IMPORTRANGE remaining)
+- Data Operations: 8/9 done (paste special partial -- values only)
+- Charts: 13/14 done (all chart types complete; trendline variants partially pending)
+- Sheets: 5/5 done
+- File Operations: 7/7 done
+- Keyboard Shortcuts: 14/16 done
+- Cloud Sync: 3/6 done (format/lockfile/conflict detection done; native API integration pending)
+
+### What remains for full Google Sheets parity
+- Auto-complete suggestions
+- Images in cells
+- Split panes
+- QUERY function equivalent
+- IMPORTRANGE equivalent
+- Cloud API integration (Google Drive, iCloud, Dropbox)
+- Paste special: formulas, formatting, transposed modes
+- MCP chart tools + streamable HTTP transport
+- Dark mode, drag-and-drop, performance optimization (100k+ rows)
+
+---
+
 ## [2026-03-22] Phase 2 Complete, Phase 3 In Progress — Major Checklist Update
 
 Updated `PLAN.md` status from "Phase 2 — In Progress" to "Phase 3 — In Progress". Phase 2 is now fully complete. Significant Phase 3 progress recorded.

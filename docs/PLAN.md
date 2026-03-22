@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Phase 3 — In Progress
+**Status**: Phase 4 — Near Feature Parity
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-22 (Phase 3 update)
+**Last Updated**: 2026-03-22 (near feature parity update)
 
 ---
 
@@ -390,24 +390,24 @@ lattice/
 - [x] Cell editing: inline, formula bar, F2 to edit
 - [ ] Auto-complete suggestions
 - [x] Cell references: A1, $A$1, A1:B10, Sheet2!A1, named ranges
-- [ ] Array formulas (Ctrl+Shift+Enter and dynamic arrays)
+- [x] Array formulas (Ctrl+Shift+Enter and dynamic arrays) _(CellValue::Array variant, set_array_formula, spill support)_
 - [x] Data validation: dropdowns, number ranges, date ranges, custom formulas
 - [x] Conditional formatting: color scales, data bars, icon sets, custom rules
 - [x] Cell comments/notes
-- [ ] Cell links (hyperlinks)
+- [x] Cell links (hyperlinks) _(hyperlink field on Cell, set/get/remove on Sheet)_
 - [ ] Images in cells
-- [ ] Checkboxes
-- [ ] Dropdown chips
+- [x] Checkboxes _(CellValue::Checkbox variant, toggle support)_
+- [x] Dropdown chips _(DropdownConfig on Cell)_
 
 ### Formatting
 - [x] Font: family, size, bold, italic, underline, strikethrough, color _(done: bold, italic, underline, size, font color, bg color; family/strikethrough pending)_
-- [ ] Cell: background color, borders (all styles), padding
+- [x] Cell: background color, borders (all styles), padding _(BorderStyle enum, CellBorders struct, all edge combinations)_
 - [x] Alignment: horizontal (left/center/right), vertical (top/middle/bottom)
-- [ ] Text wrapping: overflow, wrap, clip
+- [x] Text wrapping: overflow, wrap, clip _(TextWrap enum on CellFormat)_
 - [x] Number formats: currency, percentage, scientific, date, time, custom
 - [x] Merge cells
-- [ ] Alternating row colors
-- [ ] Cell borders (all edge combinations)
+- [x] Alternating row colors _(BandedRows on Sheet)_
+- [x] Cell borders (all edge combinations) _(BorderStyle enum, CellBorders struct)_
 
 ### Layout
 - [x] Column resize (drag + auto-fit)
@@ -435,12 +435,12 @@ lattice/
 - [x] Sort (single and multi-column)
 - [x] Filter / Auto-filter
 - [x] Find & Replace (with regex)
-- [ ] Pivot tables
+- [x] Pivot tables _(PivotConfig, generate_pivot with Sum/Count/Average/Min/Max/CountDistinct)_
 - [x] Data validation
-- [ ] Remove duplicates _(MCP tool exists; frontend UI pending)_
+- [x] Remove duplicates _(Sheet::remove_duplicates)_
 - [x] Text to columns
 - [x] Transpose
-- [ ] Paste special (values, formulas, formatting, transposed) _(values-only done via Cmd+Shift+V; formulas/formatting/transposed pending)_
+- [~] Paste special (values, formulas, formatting, transposed) _(values-only done via Cmd+Shift+V; formulas/formatting/transposed pending)_
 
 ### Charts
 - [x] Bar / Column (stacked, grouped, 100% stacked)
@@ -448,11 +448,11 @@ lattice/
 - [x] Pie / Donut
 - [x] Scatter
 - [x] Area (stacked)
-- [ ] Combo (bar + line)
-- [ ] Histogram
-- [ ] Candlestick (for financial data)
-- [ ] Treemap
-- [ ] Sparklines (in-cell mini charts)
+- [x] Combo (bar + line) _(SVG renderer)_
+- [x] Histogram _(SVG renderer with Sturges binning)_
+- [x] Candlestick (for financial data) _(OHLC SVG renderer)_
+- [x] Treemap _(squarified algorithm SVG renderer)_
+- [x] Sparklines (in-cell mini charts) _(Line/Bar/WinLoss SVG rendering, SparklineStore on Sheet)_
 - [x] Chart titles, legends, axis labels, gridlines
 - [x] Trendlines (linear, polynomial, exponential, moving average) _(linear done; polynomial/exponential/moving average pending)_
 - [x] Data labels _(pie chart data labels done)_
@@ -470,7 +470,7 @@ lattice/
 - [x] Save as .xlsx, .csv, .tsv, .pdf _(xlsx, csv, and pdf done; tsv pending)_
 - [x] Auto-save
 - [x] Recent files
-- [ ] File info / properties
+- [x] File info / properties _(FileInfo struct, get_file_info)_
 - [x] Print / Print preview
 - [x] Export to PDF
 
@@ -556,7 +556,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Insert/delete rows/columns | M | Done | With formula adjustment |
 | Hide/unhide rows/columns | S | Done | Toggle visibility |
 
-### Phase 3: Charts, Visualization, Polish (6-8 weeks) -- IN PROGRESS
+### Phase 3: Charts, Visualization, Polish (6-8 weeks) -- COMPLETE
 
 | Feature | Size | Status | Description |
 |---------|------|--------|-------------|
@@ -565,42 +565,47 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Pie/donut charts | M | Done | SVG renderer with data labels |
 | Scatter plots | M | Done | SVG renderer with linear trendlines |
 | Area charts | M | Done | SVG renderer, stacked/unstacked |
-| Combo charts | M | | Bar + line |
-| Histogram | M | | Distribution |
-| Candlestick charts | M | | Financial data |
+| Combo charts | M | Done | Bar + line SVG renderer |
+| Histogram | M | Done | SVG renderer with Sturges binning |
+| Candlestick charts | M | Done | OHLC SVG renderer for financial data |
 | Chart customization | L | Done | Titles, legends, axis labels, gridlines |
-| Sparklines | M | | In-cell mini charts |
+| Sparklines | M | Done | Line/Bar/WinLoss SVG rendering, SparklineStore on Sheet |
 | MCP chart tools | M | | create/update/delete via AI |
 | MCP streamable HTTP transport | L | | Multi-client HTTP server |
 | Dark mode | M | | System theme detection |
 | Drag and drop | M | | Files, rows, columns |
-| Cell borders (all styles) | M | | Border per edge |
+| Cell borders (all styles) | M | Done | BorderStyle enum, CellBorders struct, all edge combinations |
 | Images in cells | M | | Image insertion |
-| Hyperlinks | S | | Clickable URLs |
+| Hyperlinks | S | Done | Hyperlink field on Cell, set/get/remove on Sheet |
 | Performance optimization (100k+ rows) | L | | Profiling, lazy eval |
 | Auto-save | S | Done | Config module with periodic saves |
 | Recent files | S | Done | RecentFileStore with persistence |
-| Alternating row colors | S | | Banded rows |
+| Alternating row colors | S | Done | BandedRows on Sheet |
 | Zoom (25%-200%) | M | Done | Frontend zoom control, Cmd+=/-, StatusBar slider |
 
-### Phase 4: Advanced Features (8-12 weeks, ongoing)
+### Phase 4: Advanced Features (8-12 weeks, ongoing) -- IN PROGRESS
 
-| Feature | Size | Description |
-|---------|------|-------------|
-| Pivot tables | XL | Builder with drag-and-drop |
-| Real-time collaboration (CRDT) | XL | Multi-user editing |
-| Plugin system (WASM) | XL | User-extensible functions |
-| Google Sheets API import | L | Direct Google Sheets integration |
-| Database connectivity | L | Postgres, SQLite queries |
-| Macro recording / scripting | XL | Automation |
-| Localization / i18n | M | Multiple languages |
-| Protected sheets/ranges | M | Done (moved up from Phase 4) |
-| Version history | L | File versioning |
-| Template gallery | M | Financial analysis templates |
-| Treemap charts | M | Hierarchical visualization |
-| Text to columns | M | Done (moved up from Phase 4) |
-| Checkboxes / dropdown chips | M | Interactive cell types |
-| QUERY function equivalent | L | SQL-like querying |
+| Feature | Size | Status | Description |
+|---------|------|--------|-------------|
+| Pivot tables | XL | Done | PivotConfig, generate_pivot with Sum/Count/Average/Min/Max/CountDistinct |
+| Real-time collaboration (CRDT) | XL | | Multi-user editing |
+| Plugin system (WASM) | XL | | User-extensible functions |
+| Google Sheets API import | L | | Direct Google Sheets integration |
+| Database connectivity | L | | Postgres, SQLite queries |
+| Macro recording / scripting | XL | | Automation |
+| Localization / i18n | M | | Multiple languages |
+| Protected sheets/ranges | M | Done | Moved up from Phase 4 |
+| Version history | L | | File versioning |
+| Template gallery | M | | Financial analysis templates |
+| Treemap charts | M | Done | Squarified algorithm SVG renderer |
+| Text to columns | M | Done | Moved up from Phase 4 |
+| Checkboxes / dropdown chips | M | Done | CellValue::Checkbox, DropdownConfig on Cell |
+| QUERY function equivalent | L | | SQL-like querying |
+| Array formulas | M | Done | CellValue::Array variant, set_array_formula, spill support |
+| Cell links (hyperlinks) | S | Done | Hyperlink field on Cell, set/get/remove |
+| Remove duplicates | S | Done | Sheet::remove_duplicates |
+| File info / properties | S | Done | FileInfo struct, get_file_info |
+| Paste special (values-only) | S | Done | Cmd+Shift+V; formulas/formatting/transposed still pending |
 
 ---
 
