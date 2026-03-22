@@ -10,7 +10,7 @@ use lattice_core::Workbook;
 use crate::tools::ToolRegistry;
 use crate::tools::{
     analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops,
-    formula_ops, named_range_ops, sheet_ops,
+    formula_ops, named_range_ops, sheet_ops, validation_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -347,6 +347,24 @@ impl McpServer {
                 formula_ops::handle_bulk_formula(&mut wb, arguments)
             }
 
+            // ── Validation operations ─────────────────────────────────────
+            "set_validation" => {
+                let mut wb = self.workbook.write().await;
+                validation_ops::handle_set_validation(&mut wb, arguments)
+            }
+            "get_validation" => {
+                let wb = self.workbook.read().await;
+                validation_ops::handle_get_validation(&wb, arguments)
+            }
+            "remove_validation" => {
+                let mut wb = self.workbook.write().await;
+                validation_ops::handle_remove_validation(&mut wb, arguments)
+            }
+            "validate_cell" => {
+                let wb = self.workbook.read().await;
+                validation_ops::handle_validate_cell(&wb, arguments)
+            }
+
             // ── Chart operations ─────────────────────────────────────────
             "create_chart" => chart_ops::handle_create_chart(arguments),
             "list_charts" => chart_ops::handle_list_charts(arguments),
@@ -421,10 +439,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 34+ tools (all tool modules implemented).
+        // We should have 38+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 34,
-            "Expected at least 34 tools, got {}",
+            tools.len() >= 38,
+            "Expected at least 38 tools, got {}",
             tools.len()
         );
 
@@ -455,6 +473,11 @@ mod tests {
         assert!(tool_names.contains(&"remove_named_range"));
         assert!(tool_names.contains(&"list_named_ranges"));
         assert!(tool_names.contains(&"resolve_named_range"));
+        // validation_ops tools
+        assert!(tool_names.contains(&"set_validation"));
+        assert!(tool_names.contains(&"get_validation"));
+        assert!(tool_names.contains(&"remove_validation"));
+        assert!(tool_names.contains(&"validate_cell"));
         assert!(tool_names.contains(&"describe_data"));
         assert!(tool_names.contains(&"correlate"));
         assert!(tool_names.contains(&"trend_analysis"));

@@ -10,6 +10,7 @@ pub mod format_ops;
 pub mod named_range_ops;
 pub mod formula_ops;
 pub mod sheet_ops;
+pub mod validation_ops;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -102,6 +103,11 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Validation operations
+        for tool in validation_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         // File operations
         for tool in file_ops::tool_definitions() {
             reg.register(tool);
@@ -126,6 +132,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(named_range_ops::tool_definitions());
     all.extend(format_ops::tool_definitions());
     all.extend(formula_ops::tool_definitions());
+    all.extend(validation_ops::tool_definitions());
     all.extend(file_ops::tool_definitions());
     all
 }
