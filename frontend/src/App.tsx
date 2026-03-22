@@ -50,6 +50,8 @@ const App: Component = () => {
   const [italicActive, setItalicActive] = createSignal(false);
   const [underlineActive, setUnderlineActive] = createSignal(false);
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
+  const [frozenRows, setFrozenRows] = createSignal(0);
+  const [frozenCols, setFrozenCols] = createSignal(0);
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
@@ -359,6 +361,21 @@ const App: Component = () => {
     }
   };
 
+  const handleFreezeToggle = () => {
+    if (frozenRows() > 0 || frozenCols() > 0) {
+      // Unfreeze
+      setFrozenRows(0);
+      setFrozenCols(0);
+      setStatusMessage('Freeze panes removed');
+    } else {
+      // Freeze at current selection (freeze rows above and columns to the left)
+      const [row, col] = selectedCell();
+      setFrozenRows(row > 0 ? row : 1);
+      setFrozenCols(col > 0 ? col : 1);
+      setStatusMessage(`Frozen: ${row > 0 ? row : 1} rows, ${col > 0 ? col : 1} columns`);
+    }
+  };
+
   const handleZoomChange = (z: number) => {
     setZoom(z);
   };
@@ -375,9 +392,11 @@ const App: Component = () => {
         onAlign={handleAlign}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        onFreezeToggle={handleFreezeToggle}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
+        freezeActive={frozenRows() > 0 || frozenCols() > 0}
       />
       <FormulaBar
         cellRef={cellRefStr(selectedCell()[0], selectedCell()[1])}
@@ -390,6 +409,8 @@ const App: Component = () => {
       <VirtualGrid
         activeSheet={activeSheetName()}
         refreshTrigger={refreshTrigger()}
+        frozenRows={frozenRows()}
+        frozenCols={frozenCols()}
         onSelectionChange={handleSelectionChange}
         onContentChange={handleContentChange}
         onCellCommit={handleCellCommit}
