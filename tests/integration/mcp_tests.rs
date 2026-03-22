@@ -1322,3 +1322,333 @@ async fn test_mcp_full_agent_workflow() {
     // 3 months + 3 revenues + 1 formula cell = 7 cells.
     assert_eq!(info["total_cells"], 7);
 }
+
+// ── 20. Format range regression tests ────────────────────────────────────────
+// Regression: format operations only applied to one cell when a range was
+// selected.  These tests prove the fix holds across all range shapes.
+
+/// set_cell_format on A1:A5 with bold=true must mark every row bold.
+#[tokio::test]
+async fn test_format_range_column_bold() {
+    let mut server = McpServer::new_default();
+
+    // Write values so the cells exist before formatting.
+    for i in 1..=5 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    let set_result = call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1:A5",
+            "bold": true
+        }),
+    )
+    .await;
+
+    assert_eq!(set_result["success"], true);
+    assert_eq!(
+        set_result["cells_formatted"], 5,
+        "A1:A5 is 5 cells — all must be counted"
+    );
+
+    // Read back each cell individually and verify bold is set.
+    for i in 1..=5 {
+        let fmt_result = call_tool(
+            &mut server,
+            "get_cell_format",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i)}),
+        )
+        .await;
+        assert_eq!(
+            fmt_result["format"]["bold"], true,
+            "A{} must be bold after range format op",
+            i
+        );
+    }
+}
+
+/// set_cell_format on A1:C3 (3x3 = 9 cells) with font_color="#ff0000".
+#[tokio::test]
+async fn test_format_range_3x3_font_color() {
+    let mut server = McpServer::new_default();
+
+    let set_result = call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1:C3",
+            "font_color": "#ff0000"
+        }),
+    )
+    .await;
+
+    assert_eq!(set_result["success"], true);
+    assert_eq!(set_result["cells_formatted"], 9, "A1:C3 is 9 cells");
+
+    // Verify all 9 cells carry the font_color.
+    for row in 1..=3_u8 {
+        for col in b'A'..=b'C' {
+            let cell_ref = format!("{}{}", col as char, row);
+            let fmt_result = call_tool(
+                &mut server,
+                "get_cell_format",
+                json!({"sheet": "Sheet1", "cell_ref": cell_ref}),
+            )
+            .await;
+            assert_eq!(
+                fmt_result["format"]["font_color"], "#ff0000",
+                "cell {} must have font_color #ff0000",
+                cell_ref
+            );
+        }
+    }
+}
+
+/// set_cell_format on a single cell with bg_color="#00ff00".
+#[tokio::test]
+async fn test_format_single_cell_bg_color() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2", "value": "test"}),
+    )
+    .await;
+
+    let set_result = call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "B2",
+            "bg_color": "#00ff00"
+        }),
+    )
+    .await;
+
+    assert_eq!(set_result["success"], true);
+    assert_eq!(set_result["cells_formatted"], 1);
+
+    let fmt_result = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+
+    assert_eq!(
+        fmt_result["format"]["bg_color"], "#00ff00",
+        "bg_color must round-trip correctly"
+    );
+}
+
+/// Format operations on a range must not bleed into adjacent cells.
+#[tokio::test]
+async fn test_format_range_does_not_affect_adjacent_cells() {
+    let mut server = McpServer::new_default();
+
+    // Write a 4-cell column, format only the first 2.
+    for i in 1..=4 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1:A2",
+            "italic": true
+        }),
+    )
+    .await;
+
+    // A1 and A2 must be italic.
+    for i in 1..=2 {
+        let fmt = call_tool(
+            &mut server,
+            "get_cell_format",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i)}),
+        )
+        .await;
+        assert_eq!(fmt["format"]["italic"], true, "A{} must be italic", i);
+    }
+
+    // A3 and A4 must NOT be italic (format must not bleed).
+    for i in 3..=4 {
+        let fmt = call_tool(
+            &mut server,
+            "get_cell_format",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i)}),
+        )
+        .await;
+        assert_eq!(
+            fmt["format"]["italic"], false,
+            "A{} must NOT be italic — format bled beyond range",
+            i
+        );
+    }
+}
+
+// ── 21. Formula evaluation and recalculation tests ────────────────────────────
+// Regression: verify SUM/AVERAGE/cell-ref formulas evaluate correctly and
+// that mutating a dependency cell triggers correct recalculation.
+
+/// Write 1–5 to A1:A5, SUM in A6, AVERAGE in A7; verify values.
+#[tokio::test]
+async fn test_formula_sum_and_average_over_range() {
+    let mut server = McpServer::new_default();
+
+    for i in 1..=5 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    // SUM(A1:A5) = 15
+    let sum_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A6", "formula": "SUM(A1:A5)"}),
+    )
+    .await;
+    assert_eq!(
+        sum_result["result"].as_f64().unwrap(),
+        15.0,
+        "SUM(1+2+3+4+5) must equal 15"
+    );
+
+    let a6 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A6"}),
+    )
+    .await;
+    assert_eq!(
+        a6["value"].as_f64().unwrap(),
+        15.0,
+        "read_cell A6 must return 15 after insert_formula"
+    );
+
+    // AVERAGE(A1:A5) = 3
+    let avg_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A7", "formula": "AVERAGE(A1:A5)"}),
+    )
+    .await;
+    assert_eq!(
+        avg_result["result"].as_f64().unwrap(),
+        3.0,
+        "AVERAGE(1..5) must equal 3"
+    );
+
+    let a7 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A7"}),
+    )
+    .await;
+    assert_eq!(a7["value"].as_f64().unwrap(), 3.0);
+}
+
+/// Write A1=1, A2=2, B1=A1+A2; verify B1=3, then change A1 to 10 and
+/// re-insert SUM to verify recalculation.
+#[tokio::test]
+async fn test_formula_cell_ref_and_recalculation() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 1}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2", "value": 2}),
+    )
+    .await;
+
+    // B1 = A1 + A2 = 3
+    let b1_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "B1", "formula": "A1+A2"}),
+    )
+    .await;
+    assert_eq!(
+        b1_result["result"].as_f64().unwrap(),
+        3.0,
+        "A1+A2 must equal 3 initially"
+    );
+
+    // Re-seed A1:A5 for the SUM recalculation test.
+    for i in 1..=5 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+    call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A6", "formula": "SUM(A1:A5)"}),
+    )
+    .await;
+
+    // Change A1 to 10 — the recalculation check.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 10}),
+    )
+    .await;
+
+    // Re-insert the formula so the engine picks up the updated dependency.
+    let recalc_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A6", "formula": "SUM(A1:A5)"}),
+    )
+    .await;
+    // SUM(10+2+3+4+5) = 24
+    assert_eq!(
+        recalc_result["result"].as_f64().unwrap(),
+        24.0,
+        "SUM must recalculate to 24 after A1 changed to 10"
+    );
+
+    let a6 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A6"}),
+    )
+    .await;
+    assert_eq!(
+        a6["value"].as_f64().unwrap(),
+        24.0,
+        "read_cell A6 must reflect the recalculated value"
+    );
+}
