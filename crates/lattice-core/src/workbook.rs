@@ -2,7 +2,9 @@ use indexmap::IndexMap;
 
 use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
+use crate::named_range::NamedRangeStore;
 use crate::sheet::Sheet;
+use crate::validation::ValidationStore;
 
 /// A workbook contains one or more ordered sheets.
 #[derive(Debug, Clone)]
@@ -11,6 +13,10 @@ pub struct Workbook {
     sheets: IndexMap<String, Sheet>,
     /// Name of the currently active sheet.
     pub active_sheet: String,
+    /// Named ranges defined in this workbook.
+    pub named_ranges: NamedRangeStore,
+    /// Data validation rules defined in this workbook.
+    pub validations: ValidationStore,
 }
 
 impl Workbook {
@@ -22,6 +28,8 @@ impl Workbook {
         Self {
             sheets,
             active_sheet: default_name,
+            named_ranges: NamedRangeStore::new(),
+            validations: ValidationStore::new(),
         }
     }
 

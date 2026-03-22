@@ -10,7 +10,7 @@ use lattice_core::Workbook;
 use crate::tools::ToolRegistry;
 use crate::tools::{
     analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops,
-    formula_ops, sheet_ops,
+    formula_ops, named_range_ops, sheet_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -279,6 +279,24 @@ impl McpServer {
                 find_replace_ops::handle_replace_in_workbook(&mut wb, arguments)
             }
 
+            // ── Named range operations ────────────────────────────────────
+            "add_named_range" => {
+                let mut wb = self.workbook.write().await;
+                named_range_ops::handle_add_named_range(&mut wb, arguments)
+            }
+            "remove_named_range" => {
+                let mut wb = self.workbook.write().await;
+                named_range_ops::handle_remove_named_range(&mut wb, arguments)
+            }
+            "list_named_ranges" => {
+                let wb = self.workbook.read().await;
+                named_range_ops::handle_list_named_ranges(&wb)
+            }
+            "resolve_named_range" => {
+                let wb = self.workbook.read().await;
+                named_range_ops::handle_resolve_named_range(&wb, arguments)
+            }
+
             // ── Analysis operations ──────────────────────────────────────
             "describe_data" => {
                 let wb = self.workbook.read().await;
@@ -403,10 +421,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 30+ tools (all tool modules implemented).
+        // We should have 34+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 30,
-            "Expected at least 30 tools, got {}",
+            tools.len() >= 34,
+            "Expected at least 34 tools, got {}",
             tools.len()
         );
 
@@ -432,6 +450,11 @@ mod tests {
         // find_replace_ops tools
         assert!(tool_names.contains(&"find_in_workbook"));
         assert!(tool_names.contains(&"replace_in_workbook"));
+        // named_range_ops tools
+        assert!(tool_names.contains(&"add_named_range"));
+        assert!(tool_names.contains(&"remove_named_range"));
+        assert!(tool_names.contains(&"list_named_ranges"));
+        assert!(tool_names.contains(&"resolve_named_range"));
         assert!(tool_names.contains(&"describe_data"));
         assert!(tool_names.contains(&"correlate"));
         assert!(tool_names.contains(&"trend_analysis"));
