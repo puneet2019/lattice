@@ -1987,3 +1987,190 @@ fn test_autofill_repeating_cycle() {
     }
 }
 
+// ── 24. Named range + formula integration ────────────────────────────────────
+// Regression: verify that named ranges can be created, resolved, listed, and
+// removed via MCP tools — and that formulas referencing cells in the named
+// range work correctly alongside the named range registry.
+
+/// Create named range "Revenue" → A1:A5, write values, resolve it back.
+#[tokio::test]
+async fn test_named_range_create_and_resolve() {
+    let mut server = McpServer::new_default();
+
+    // Write values 10, 20, 30, 40, 50 to A1:A5.
+    for (i, v) in [10, 20, 30, 40, 50].iter().enumerate() {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 1), "value": v}),
+        )
+        .await;
+    }
+
+    // Create the named range.
+    let add_result = call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Revenue", "range": "A1:A5", "sheet": "Sheet1"}),
+    )
+    .await;
+
+    assert_eq!(add_result["success"], true, "add_named_range must succeed");
+    assert_eq!(add_result["name"], "Revenue");
+    assert_eq!(add_result["range"], "A1:A5");
+
+    // Resolve it back via MCP.
+    let resolve_result = call_tool(
+        &mut server,
+        "resolve_named_range",
+        json!({"name": "Revenue"}),
+    )
+    .await;
+
+    assert_eq!(resolve_result["found"], true);
+    assert_eq!(resolve_result["range"], "A1:A5");
+    assert_eq!(resolve_result["sheet"], "Sheet1");
+}
+
+/// list_named_ranges returns all ranges added via add_named_range.
+#[tokio::test]
+async fn test_named_range_list_after_multiple_adds() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Revenue", "range": "A1:A5"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Expenses", "range": "B1:B5"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Profit", "range": "C1:C5"}),
+    )
+    .await;
+
+    let list_result = call_tool(&mut server, "list_named_ranges", json!({})).await;
+
+    assert_eq!(list_result["count"], 3, "must list all 3 named ranges");
+    let names: Vec<&str> = list_result["named_ranges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|nr| nr["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"Revenue"));
+    assert!(names.contains(&"Expenses"));
+    assert!(names.contains(&"Profit"));
+}
+
+/// remove_named_range reduces the count; resolving the removed range errors.
+#[tokio::test]
+async fn test_named_range_remove_and_resolve_fails() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Temp", "range": "D1:D10"}),
+    )
+    .await;
+
+    let remove_result =
+        call_tool(&mut server, "remove_named_range", json!({"name": "Temp"})).await;
+    assert_eq!(remove_result["success"], true);
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "resolve_named_range",
+        json!({"name": "Temp"}),
+    )
+    .await;
+    assert!(
+        !err.is_empty(),
+        "resolving a removed named range must return an error"
+    );
+}
+
+/// Formula SUM over the same cells as a named range returns the correct total.
+/// This is an integration test — verifies that named range metadata doesn't
+/// interfere with formula evaluation on the underlying cell data.
+#[tokio::test]
+async fn test_named_range_formula_integration() {
+    let mut server = McpServer::new_default();
+
+    // Write values 1..5 to A1:A5.
+    for i in 1..=5 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    // Create a named range over those cells.
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Values", "range": "A1:A5", "sheet": "Sheet1"}),
+    )
+    .await;
+
+    // SUM formula over the same range must still evaluate correctly.
+    let sum_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A6", "formula": "SUM(A1:A5)"}),
+    )
+    .await;
+    assert_eq!(
+        sum_result["result"].as_f64().unwrap(),
+        15.0,
+        "SUM(1..5) must equal 15 regardless of named range metadata"
+    );
+
+    // The named range registry must still be intact after formula insertion.
+    let resolve_result = call_tool(
+        &mut server,
+        "resolve_named_range",
+        json!({"name": "Values"}),
+    )
+    .await;
+    assert_eq!(
+        resolve_result["found"], true,
+        "named range must still resolve after formula insertion"
+    );
+    assert_eq!(resolve_result["range"], "A1:A5");
+}
+
+/// Duplicate named range must return an error (case-insensitive).
+#[tokio::test]
+async fn test_named_range_duplicate_is_error() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "add_named_range",
+        json!({"name": "Total", "range": "A1:A10"}),
+    )
+    .await;
+
+    // Same name again (different case) must fail.
+    let err = call_tool_expect_error(
+        &mut server,
+        "add_named_range",
+        json!({"name": "total", "range": "B1:B10"}),
+    )
+    .await;
+    assert!(
+        !err.is_empty(),
+        "adding a duplicate named range must produce an error"
+    );
+}
