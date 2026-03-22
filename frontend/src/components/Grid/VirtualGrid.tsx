@@ -9,7 +9,9 @@ import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_COL_WIDTH = 80;
-export const ROW_HEIGHT = 21;
+export const DEFAULT_ROW_HEIGHT = 21;
+export const MIN_COL_WIDTH = 30;
+export const MIN_ROW_HEIGHT = 12;
 export const HEADER_HEIGHT = 24;
 export const ROW_NUMBER_WIDTH = 50;
 export const TOTAL_COLS = 702; // A..ZZ
@@ -72,36 +74,107 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [editValue, setEditValue] = createSignal('');
   let editorRef: HTMLInputElement | undefined;
 
+  // Custom column widths / row heights (col/row index -> px).
+  // Columns/rows not in the map use the default sizes.
+  const colWidths = new Map<number, number>();
+  const rowHeights = new Map<number, number>();
+
+  // -----------------------------------------------------------------------
+  // Variable-width/height helpers
+  // -----------------------------------------------------------------------
+
+  /** Return the width of a specific column. */
+  function getColWidth(col: number): number {
+    return colWidths.get(col) ?? DEFAULT_COL_WIDTH;
+  }
+
+  /** Return the height of a specific row. */
+  function getRowHeight(row: number): number {
+    return rowHeights.get(row) ?? DEFAULT_ROW_HEIGHT;
+  }
+
+  /** Return the x-offset (in content coordinates) of the left edge of `col`. */
+  function getColX(col: number): number {
+    // For efficiency, sum only the columns that have custom widths up to `col`.
+    // All others use the default width.
+    let x = col * DEFAULT_COL_WIDTH;
+    colWidths.forEach((w, c) => {
+      if (c < col) {
+        x += w - DEFAULT_COL_WIDTH;
+      }
+    });
+    return x;
+  }
+
+  /** Return the y-offset (in content coordinates) of the top edge of `row`. */
+  function getRowY(row: number): number {
+    let y = row * DEFAULT_ROW_HEIGHT;
+    rowHeights.forEach((h, r) => {
+      if (r < row) {
+        y += h - DEFAULT_ROW_HEIGHT;
+      }
+    });
+    return y;
+  }
+
   // -----------------------------------------------------------------------
   // Viewport helpers
   // -----------------------------------------------------------------------
 
-  const totalContentWidth = () => ROW_NUMBER_WIDTH + TOTAL_COLS * DEFAULT_COL_WIDTH;
-  const totalContentHeight = () => HEADER_HEIGHT + TOTAL_ROWS * ROW_HEIGHT;
+  const totalContentWidth = () => ROW_NUMBER_WIDTH + getColX(TOTAL_COLS);
+  const totalContentHeight = () => HEADER_HEIGHT + getRowY(TOTAL_ROWS);
 
   // Buffer: render extra rows/cols beyond viewport for smooth scrolling.
   const BUFFER_COLS = 4;
   const BUFFER_ROWS = 8;
 
+  /** Find the first visible column by binary-searching getColX. */
   const firstVisibleCol = () => {
-    const col = Math.floor(scrollX() / DEFAULT_COL_WIDTH);
+    const sx = scrollX();
+    // Quick estimate with default widths, then adjust
+    let col = Math.floor(sx / DEFAULT_COL_WIDTH);
+    // Adjust if custom widths shift things
+    while (col > 0 && getColX(col) > sx) col--;
+    while (col < TOTAL_COLS - 1 && getColX(col + 1) <= sx) col++;
     return Math.max(0, col - BUFFER_COLS);
   };
+
+  /** Find the first visible row by scanning getRowY. */
   const firstVisibleRow = () => {
-    const row = Math.floor(scrollY() / ROW_HEIGHT);
+    const sy = scrollY();
+    let row = Math.floor(sy / DEFAULT_ROW_HEIGHT);
+    while (row > 0 && getRowY(row) > sy) row--;
+    while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= sy) row++;
     return Math.max(0, row - BUFFER_ROWS);
   };
 
   const visibleColCount = () => {
-    const viewportCols = Math.ceil((canvasWidth() - ROW_NUMBER_WIDTH) / DEFAULT_COL_WIDTH);
-    const total = viewportCols + BUFFER_COLS * 2;
-    return Math.min(total, TOTAL_COLS - firstVisibleCol());
+    const sx = scrollX();
+    const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
+    const start = firstVisibleCol();
+    let count = 0;
+    let x = getColX(start) - sx;
+    while (start + count < TOTAL_COLS && x < viewW + sx) {
+      x += getColWidth(start + count);
+      count++;
+      // Include buffer beyond viewport
+      if (x >= viewW && count > BUFFER_COLS * 2) break;
+    }
+    return Math.min(count + BUFFER_COLS, TOTAL_COLS - start);
   };
 
   const visibleRowCount = () => {
-    const viewportRows = Math.ceil((canvasHeight() - HEADER_HEIGHT) / ROW_HEIGHT);
-    const total = viewportRows + BUFFER_ROWS * 2;
-    return Math.min(total, TOTAL_ROWS - firstVisibleRow());
+    const sy = scrollY();
+    const viewH = canvasHeight() - HEADER_HEIGHT;
+    const start = firstVisibleRow();
+    let count = 0;
+    let y = getRowY(start) - sy;
+    while (start + count < TOTAL_ROWS && y < viewH + sy) {
+      y += getRowHeight(start + count);
+      count++;
+      if (y >= viewH && count > BUFFER_ROWS * 2) break;
+    }
+    return Math.min(count + BUFFER_ROWS, TOTAL_ROWS - start);
   };
 
   // -----------------------------------------------------------------------
@@ -245,14 +318,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   /** Calculate editor position in CSS pixels relative to the container. */
   function editorStyle() {
-    const x = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - scrollX();
-    const y = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - scrollY();
+    const col = selectedCol();
+    const row = selectedRow();
+    const x = ROW_NUMBER_WIDTH + getColX(col) - scrollX();
+    const y = HEADER_HEIGHT + getRowY(row) - scrollY();
     return {
       position: 'absolute' as const,
       left: `${x}px`,
       top: `${y}px`,
-      width: `${DEFAULT_COL_WIDTH}px`,
-      height: `${ROW_HEIGHT}px`,
+      width: `${getColWidth(col)}px`,
+      height: `${getRowHeight(row)}px`,
       'z-index': '10',
     };
   }
@@ -329,20 +404,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Draw range fill if multi-cell selection
     if (range.minRow !== range.maxRow || range.minCol !== range.maxCol) {
-      const rx = ROW_NUMBER_WIDTH + range.minCol * DEFAULT_COL_WIDTH - sx;
-      const ry = HEADER_HEIGHT + range.minRow * ROW_HEIGHT - sy;
-      const rw = (range.maxCol - range.minCol + 1) * DEFAULT_COL_WIDTH;
-      const rh = (range.maxRow - range.minRow + 1) * ROW_HEIGHT;
+      const rx = ROW_NUMBER_WIDTH + getColX(range.minCol) - sx;
+      const ry = HEADER_HEIGHT + getRowY(range.minRow) - sy;
+      const rw = getColX(range.maxCol + 1) - getColX(range.minCol);
+      const rh = getRowY(range.maxRow + 1) - getRowY(range.minRow);
       ctx.fillStyle = COLORS.selectionBg;
       ctx.fillRect(rx, ry, rw, rh);
     }
 
     // Draw active cell border (2px blue)
-    const cx = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - sx;
-    const cy = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - sy;
+    const cx = ROW_NUMBER_WIDTH + getColX(selectedCol()) - sx;
+    const cy = HEADER_HEIGHT + getRowY(selectedRow()) - sy;
     ctx.strokeStyle = COLORS.selectionBorder;
     ctx.lineWidth = 2;
-    ctx.strokeRect(cx, cy, DEFAULT_COL_WIDTH, ROW_HEIGHT);
+    ctx.strokeRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
     ctx.lineWidth = 1;
   }
 
@@ -360,13 +435,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
+      const rh = getRowHeight(row);
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
         const cell = cellCache.get(`${row}:${col}`);
         if (!cell || !cell.value) continue;
 
-        const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
+        const cw = getColWidth(col);
+        const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
         // Determine font style
         const fontWeight = cell.bold ? 'bold' : 'normal';
@@ -378,10 +455,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
         if (isNumber) {
           ctx.textAlign = 'right';
-          ctx.fillText(cell.value, x + DEFAULT_COL_WIDTH - PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+          ctx.fillText(cell.value, x + cw - PADDING, y + rh / 2, cw - PADDING * 2);
         } else {
           ctx.textAlign = 'left';
-          ctx.fillText(cell.value, x + PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+          ctx.fillText(cell.value, x + PADDING, y + rh / 2, cw - PADDING * 2);
         }
       }
     }
@@ -401,9 +478,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.strokeStyle = COLORS.gridBorder;
     ctx.lineWidth = 1;
 
+    // Vertical grid lines (column borders)
     for (let c = 0; c <= colCount; c++) {
       const col = startCol + c;
-      const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
+      const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
       if (x < ROW_NUMBER_WIDTH || x > w) continue;
       ctx.beginPath();
       ctx.moveTo(Math.round(x) + 0.5, HEADER_HEIGHT);
@@ -411,9 +489,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.stroke();
     }
 
+    // Horizontal grid lines (row borders)
     for (let r = 0; r <= rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
       if (y < HEADER_HEIGHT || y > h) continue;
       ctx.beginPath();
       ctx.moveTo(ROW_NUMBER_WIDTH, Math.round(y) + 0.5);
@@ -444,8 +523,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let c = 0; c < colCount; c++) {
       const col = startCol + c;
-      const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
-      const cellRight = x + DEFAULT_COL_WIDTH;
+      const cw = getColWidth(col);
+      const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+      const cellRight = x + cw;
       if (cellRight < ROW_NUMBER_WIDTH || x > w) continue;
 
       ctx.strokeStyle = COLORS.gridBorder;
@@ -457,12 +537,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Highlight selected column header
       if (isColInSelection(col)) {
         ctx.fillStyle = COLORS.selectionBg;
-        ctx.fillRect(x, 0, DEFAULT_COL_WIDTH, HEADER_HEIGHT);
+        ctx.fillRect(x, 0, cw, HEADER_HEIGHT);
         ctx.fillStyle = COLORS.selectionBorder;
       } else {
         ctx.fillStyle = COLORS.headerText;
       }
-      ctx.fillText(col_to_letter(col), x + DEFAULT_COL_WIDTH / 2, HEADER_HEIGHT / 2);
+      ctx.fillText(col_to_letter(col), x + cw / 2, HEADER_HEIGHT / 2);
     }
   }
 
@@ -488,8 +568,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
-      const cellBottom = y + ROW_HEIGHT;
+      const rh = getRowHeight(row);
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
+      const cellBottom = y + rh;
       if (cellBottom < HEADER_HEIGHT || y > h) continue;
 
       ctx.strokeStyle = COLORS.gridBorder;
@@ -501,12 +582,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Highlight selected row number
       if (isRowInSelection(row)) {
         ctx.fillStyle = COLORS.selectionBg;
-        ctx.fillRect(0, y, ROW_NUMBER_WIDTH, ROW_HEIGHT);
+        ctx.fillRect(0, y, ROW_NUMBER_WIDTH, rh);
         ctx.fillStyle = COLORS.selectionBorder;
       } else {
         ctx.fillStyle = COLORS.headerText;
       }
-      ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + ROW_HEIGHT / 2);
+      ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + rh / 2);
     }
   }
 
@@ -521,6 +602,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Hit testing & event handlers
   // -----------------------------------------------------------------------
 
+  /** Find which column a content-x coordinate falls in. */
+  function colAtX(contentX: number): number {
+    // Quick estimate, then adjust
+    let col = Math.floor(contentX / DEFAULT_COL_WIDTH);
+    col = Math.max(0, Math.min(col, TOTAL_COLS - 1));
+    // Adjust forward/backward
+    while (col > 0 && getColX(col) > contentX) col--;
+    while (col < TOTAL_COLS - 1 && getColX(col + 1) <= contentX) col++;
+    return col;
+  }
+
+  /** Find which row a content-y coordinate falls in. */
+  function rowAtY(contentY: number): number {
+    let row = Math.floor(contentY / DEFAULT_ROW_HEIGHT);
+    row = Math.max(0, Math.min(row, TOTAL_ROWS - 1));
+    while (row > 0 && getRowY(row) > contentY) row--;
+    while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= contentY) row++;
+    return row;
+  }
+
   function hitTest(
     clientX: number,
     clientY: number,
@@ -530,8 +631,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if (x < ROW_NUMBER_WIDTH || y < HEADER_HEIGHT) return null;
-    const col = Math.floor((x - ROW_NUMBER_WIDTH + scrollX()) / DEFAULT_COL_WIDTH);
-    const row = Math.floor((y - HEADER_HEIGHT + scrollY()) / ROW_HEIGHT);
+    const contentX = x - ROW_NUMBER_WIDTH + scrollX();
+    const contentY = y - HEADER_HEIGHT + scrollY();
+    const col = colAtX(contentX);
+    const row = rowAtY(contentY);
     if (col < 0 || col >= TOTAL_COLS || row < 0 || row >= TOTAL_ROWS) return null;
     return { row, col };
   }
@@ -580,16 +683,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
     const viewH = canvasHeight() - HEADER_HEIGHT;
 
-    const cellLeft = col * DEFAULT_COL_WIDTH;
-    const cellRight = cellLeft + DEFAULT_COL_WIDTH;
+    const cellLeft = getColX(col);
+    const cellRight = cellLeft + getColWidth(col);
     if (cellLeft < sx) {
       setScrollX(cellLeft);
     } else if (cellRight > sx + viewW) {
       setScrollX(cellRight - viewW);
     }
 
-    const cellTop = row * ROW_HEIGHT;
-    const cellBottom = cellTop + ROW_HEIGHT;
+    const cellTop = getRowY(row);
+    const cellBottom = cellTop + getRowHeight(row);
     if (cellTop < sy) {
       setScrollY(cellTop);
     } else if (cellBottom > sy + viewH) {
