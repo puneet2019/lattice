@@ -3,7 +3,18 @@ import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
 import type { PasteMode } from '../PasteSpecialDialog';
-import { getCell, getRange, setCell, undo, redo, formatCells } from '../../bridge/tauri';
+import {
+  getCell,
+  getRange,
+  setCell,
+  undo,
+  redo,
+  formatCells,
+  insertRows,
+  deleteRows,
+  insertCols,
+  deleteCols,
+} from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import {
   DEFAULT_COL_WIDTH,
@@ -173,6 +184,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [acVisible, setAcVisible] = createSignal(false);
   const [acSuggestions, setAcSuggestions] = createSignal<string[]>([]);
   const [acSelectedIdx, setAcSelectedIdx] = createSignal(0);
+
+  // Context menu state
+  const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
+  const [ctxMenuX, setCtxMenuX] = createSignal(0);
+  const [ctxMenuY, setCtxMenuY] = createSignal(0);
 
   // Custom column widths / row heights (col/row index -> px).
   // Columns/rows not in the map use the default sizes.
@@ -1459,6 +1475,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   let lastClickCol = -1;
 
   function handleMouseDown(e: MouseEvent) {
+    // Dismiss context menu on any click
+    if (ctxMenuVisible()) {
+      dismissContextMenu();
+    }
+
     if (editing()) return; // let the editor handle clicks
     if (!containerRef) return;
 
@@ -1853,6 +1874,124 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   // -----------------------------------------------------------------------
+  // Context menu
+  // -----------------------------------------------------------------------
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    // If right-clicking on a cell that's outside the current selection,
+    // move the selection to that cell first
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit) {
+      const range = getSelectionRange();
+      const inRange =
+        hit.row >= range.minRow &&
+        hit.row <= range.maxRow &&
+        hit.col >= range.minCol &&
+        hit.col <= range.maxCol;
+      if (!inRange) {
+        setSelectedRow(hit.row);
+        setSelectedCol(hit.col);
+        setRangeAnchor(null);
+        setRangeEnd(null);
+        selectCell(hit.row, hit.col);
+        draw();
+      }
+    }
+    setCtxMenuX(e.clientX);
+    setCtxMenuY(e.clientY);
+    setCtxMenuVisible(true);
+  }
+
+  function dismissContextMenu() {
+    setCtxMenuVisible(false);
+  }
+
+  async function ctxInsertRowAbove() {
+    dismissContextMenu();
+    const row = selectedRow();
+    try {
+      await insertRows(props.activeSheet, row, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Inserted row above ${row + 1}`);
+    } catch {
+      props.onStatusChange('Insert row failed');
+    }
+  }
+
+  async function ctxInsertRowBelow() {
+    dismissContextMenu();
+    const row = selectedRow();
+    try {
+      await insertRows(props.activeSheet, row + 1, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Inserted row below ${row + 1}`);
+    } catch {
+      props.onStatusChange('Insert row failed');
+    }
+  }
+
+  async function ctxInsertColLeft() {
+    dismissContextMenu();
+    const col = selectedCol();
+    try {
+      await insertCols(props.activeSheet, col, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Inserted column left of ${col_to_letter(col)}`);
+    } catch {
+      props.onStatusChange('Insert column failed');
+    }
+  }
+
+  async function ctxInsertColRight() {
+    dismissContextMenu();
+    const col = selectedCol();
+    try {
+      await insertCols(props.activeSheet, col + 1, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Inserted column right of ${col_to_letter(col)}`);
+    } catch {
+      props.onStatusChange('Insert column failed');
+    }
+  }
+
+  async function ctxDeleteRow() {
+    dismissContextMenu();
+    const row = selectedRow();
+    try {
+      await deleteRows(props.activeSheet, row, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Deleted row ${row + 1}`);
+    } catch {
+      props.onStatusChange('Delete row failed');
+    }
+  }
+
+  async function ctxDeleteCol() {
+    dismissContextMenu();
+    const col = selectedCol();
+    try {
+      await deleteCols(props.activeSheet, col, 1);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Deleted column ${col_to_letter(col)}`);
+    } catch {
+      props.onStatusChange('Delete column failed');
+    }
+  }
+
+  async function ctxClearContents() {
+    dismissContextMenu();
+    await clearSelectedCells();
+    props.onStatusChange('Cleared contents');
+  }
+
+  // -----------------------------------------------------------------------
   // Undo / Redo
   // -----------------------------------------------------------------------
 
@@ -1881,6 +2020,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Dismiss context menu on any key
+    if (ctxMenuVisible()) {
+      dismissContextMenu();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        return;
+      }
+    }
+
     if (editing()) return; // editor handles its own keys
 
     // F2 enters edit mode without clearing
@@ -2467,6 +2615,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       onMouseMove={handleMouseMove}
       onKeyDown={handleKeyDown}
       onWheel={handleWheel}
+      onContextMenu={handleContextMenu}
       style={{ outline: 'none' }}
     >
       <canvas ref={canvasRef} class="virtual-grid-canvas" />
@@ -2504,6 +2653,65 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           onAccept={acceptAutoComplete}
           onDismiss={() => setAcVisible(false)}
         />
+      </Show>
+      <Show when={ctxMenuVisible()}>
+        <div
+          class="sheet-tab-context-menu"
+          style={{
+            left: `${ctxMenuX()}px`,
+            top: `${ctxMenuY()}px`,
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handleCut(); }}
+          >
+            Cut
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handleCopy(); }}
+          >
+            Copy
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handlePaste(); }}
+          >
+            Paste
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); props.onPasteSpecialOpen?.(); }}
+          >
+            Paste special...
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={ctxInsertRowAbove}>
+            Insert row above
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertRowBelow}>
+            Insert row below
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertColLeft}>
+            Insert column left
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertColRight}>
+            Insert column right
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item destructive" onClick={ctxDeleteRow}>
+            Delete row
+          </div>
+          <div class="context-menu-item destructive" onClick={ctxDeleteCol}>
+            Delete column
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={ctxClearContents}>
+            Clear contents
+          </div>
+        </div>
       </Show>
     </div>
   );
