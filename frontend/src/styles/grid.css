@@ -494,6 +494,30 @@ body,
   color: var(--selection-border);
 }
 
+/* Formula auto-complete (function name suggestions) */
+.formula-autocomplete {
+  max-height: 220px;
+}
+
+.formula-autocomplete .autocomplete-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+}
+
+.formula-ac-name {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 80px;
+}
+
+.formula-ac-sig {
+  font-size: 11px;
+  color: var(--header-text);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+}
+
 /* -----------------------------------------------------------------------
    Sheet Tabs
    ----------------------------------------------------------------------- */

@@ -16,6 +16,7 @@ import {
   deleteCols,
 } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
+import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import {
   DEFAULT_COL_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -180,10 +181,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [editValue, setEditValue] = createSignal('');
   let editorRef: HTMLInputElement | undefined;
 
-  // Auto-complete state
+  // Auto-complete state (cell value suggestions)
   const [acVisible, setAcVisible] = createSignal(false);
   const [acSuggestions, setAcSuggestions] = createSignal<string[]>([]);
   const [acSelectedIdx, setAcSelectedIdx] = createSignal(0);
+
+  // Formula auto-complete state (function name suggestions)
+  const [formulaAcVisible, setFormulaAcVisible] = createSignal(false);
+  const [formulaAcSelectedIdx, setFormulaAcSelectedIdx] = createSignal(0);
 
   // Context menu state
   const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
@@ -380,6 +385,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     setEditing(false);
     setAcVisible(false);
+    setFormulaAcVisible(false);
     props.onModeChange('Ready');
 
     // Write to backend
@@ -418,6 +424,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function cancelEdit() {
     setEditing(false);
     setAcVisible(false);
+    setFormulaAcVisible(false);
     props.onModeChange('Ready');
     containerRef?.focus();
     draw();
@@ -429,8 +436,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Show/hide auto-complete based on input
     const trimmed = value.trim();
-    if (trimmed.length > 0 && !trimmed.startsWith('=')) {
-      // Filter suggestions by prefix
+    if (trimmed.startsWith('=')) {
+      // Formula mode: show formula function suggestions
+      setAcVisible(false);
+      const token = extractCurrentToken(trimmed);
+      if (token.length > 0) {
+        const matches = filterFormulaFunctions(token);
+        setFormulaAcVisible(matches.length > 0);
+        setFormulaAcSelectedIdx(0);
+      } else {
+        setFormulaAcVisible(false);
+      }
+    } else if (trimmed.length > 0) {
+      // Non-formula mode: show cell value suggestions
+      setFormulaAcVisible(false);
       const lower = trimmed.toLowerCase();
       const matches = acSuggestions().filter((s) => {
         const sl = s.toLowerCase();
@@ -440,6 +459,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setAcSelectedIdx(0);
     } else {
       setAcVisible(false);
+      setFormulaAcVisible(false);
     }
   }
 
@@ -453,8 +473,44 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     });
   }
 
+  /** Get filtered formula suggestions for current input. */
+  function formulaAcFiltered() {
+    const token = extractCurrentToken(editValue());
+    return filterFormulaFunctions(token);
+  }
+
   function handleEditorKeyDown(e: KeyboardEvent) {
-    // When auto-complete is visible, handle navigation keys
+    // When formula auto-complete is visible, handle navigation keys
+    if (formulaAcVisible()) {
+      const list = formulaAcFiltered();
+      if (list.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setFormulaAcSelectedIdx((i) => Math.min(i + 1, list.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setFormulaAcSelectedIdx((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === 'Tab') {
+          const idx = formulaAcSelectedIdx();
+          if (idx >= 0 && idx < list.length) {
+            e.preventDefault();
+            acceptFormulaAutoComplete(list[idx].name);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setFormulaAcVisible(false);
+          return;
+        }
+      }
+    }
+
+    // When cell value auto-complete is visible, handle navigation keys
     if (acVisible()) {
       const list = acFiltered();
       if (list.length > 0) {
@@ -498,6 +554,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       e.preventDefault();
       cancelEdit();
     }
+  }
+
+  /** Accept a formula function suggestion: replace current token with function name + open paren. */
+  function acceptFormulaAutoComplete(funcName: string) {
+    const current = editValue();
+    const token = extractCurrentToken(current);
+    // Replace the last N chars (the token) with the function name + (
+    const prefix = current.slice(0, current.length - token.length);
+    const newValue = prefix + funcName + '(';
+    setEditValue(newValue);
+    props.onContentChange(newValue);
+    setFormulaAcVisible(false);
+    editorRef?.focus();
+    // Position cursor at the end
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.setSelectionRange(newValue.length, newValue.length);
+      }
+    });
   }
 
   function acceptAutoComplete(value: string) {
@@ -969,10 +1044,31 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return row >= minRow && row <= maxRow;
   }
 
+  // Fill handle constants
+  const FILL_HANDLE_SIZE = 6;
+  const FILL_HANDLE_HIT_SIZE = 10; // larger hit area for easier clicking
+
   function drawSelection(ctx: CanvasRenderingContext2D, sx: number, sy: number) {
     const range = getSelectionRange();
 
     const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+
+    // Draw fill drag preview if active
+    if (isFillDragging) {
+      const fillRange = getFillPreviewRange();
+      if (fillRange) {
+        const fx = ROW_NUMBER_WIDTH + getColX(fillRange.minCol) - sx;
+        const fy = HEADER_HEIGHT + getRowY(fillRange.minRow) - sy;
+        const fw = getColX(fillRange.maxCol + 1) - getColX(fillRange.minCol);
+        const fh = getRowY(fillRange.maxRow + 1) - getRowY(fillRange.minRow);
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(fx, fy, fw, fh);
+        ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+      }
+    }
 
     // Draw range fill if multi-cell selection
     if (isMulti) {
@@ -1002,6 +1098,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.lineWidth = 2;
     ctx.strokeRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
     ctx.lineWidth = 1;
+
+    // Draw fill handle (small blue square at bottom-right of selection)
+    if (!editing()) {
+      const handleX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx - FILL_HANDLE_SIZE / 2;
+      const handleY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy - FILL_HANDLE_SIZE / 2;
+      ctx.fillStyle = COLORS.selectionBorder;
+      ctx.fillRect(handleX - 1, handleY - 1, FILL_HANDLE_SIZE + 2, FILL_HANDLE_SIZE + 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(handleX, handleY, FILL_HANDLE_SIZE, FILL_HANDLE_SIZE);
+      ctx.fillStyle = COLORS.selectionBorder;
+      ctx.fillRect(handleX + 1, handleY + 1, FILL_HANDLE_SIZE - 2, FILL_HANDLE_SIZE - 2);
+    }
   }
 
   /**
@@ -1353,6 +1461,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   // Drag-to-select state
   let isDragging = false;
+  // Track header drag kind: 'col' for column header drag, 'row' for row header drag, null for cell drag
+  let headerDragKind: 'col' | 'row' | null = null;
+  let headerDragStartIndex = 0;
 
   function handleMouseMove(e: MouseEvent) {
     if (!containerRef) return;
@@ -1375,7 +1486,35 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // If dragging to select, update the range end.
+    // If dragging across column headers, extend column selection.
+    if (isDragging && headerDragKind === 'col') {
+      const effSx = effectiveScrollX(localX);
+      const contentX = Math.max(0, localX - ROW_NUMBER_WIDTH + effSx);
+      const col = colAtX(contentX);
+      const curEnd = rangeEnd();
+      if (!curEnd || curEnd[1] !== col) {
+        setRangeAnchor([0, headerDragStartIndex]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+        scheduleDraw();
+      }
+      return;
+    }
+
+    // If dragging across row headers, extend row selection.
+    if (isDragging && headerDragKind === 'row') {
+      const effSy = effectiveScrollY(localY);
+      const contentY = Math.max(0, localY - HEADER_HEIGHT + effSy);
+      const row = rowAtY(contentY);
+      const curEnd = rangeEnd();
+      if (!curEnd || curEnd[0] !== row) {
+        setRangeAnchor([headerDragStartIndex, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+        scheduleDraw();
+      }
+      return;
+    }
+
+    // If dragging to select cells, update the range end.
     if (isDragging) {
       const hit = hitTest(e.clientX, e.clientY);
       if (hit) {
@@ -1390,7 +1529,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     // Update cursor based on hover position.
-    if (hitColHeaderBorder(localX, localY) >= 0) {
+    if (fillHandleHit(localX, localY)) {
+      containerRef.style.cursor = 'crosshair';
+    } else if (hitColHeaderBorder(localX, localY) >= 0) {
       containerRef.style.cursor = 'col-resize';
     } else if (hitRowHeaderBorder(localX, localY) >= 0) {
       containerRef.style.cursor = 'row-resize';
@@ -1427,6 +1568,184 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       containerRef.style.cursor = '';
     }
     draw();
+  }
+
+  // -----------------------------------------------------------------------
+  // Fill handle (auto-fill) state
+  // -----------------------------------------------------------------------
+
+  let isFillDragging = false;
+  const [fillDragRow, setFillDragRow] = createSignal(-1);
+  const [fillDragCol, setFillDragCol] = createSignal(-1);
+
+  /** Check if a local (container-relative) coordinate hits the fill handle. */
+  function fillHandleHit(localX: number, localY: number): boolean {
+    const range = getSelectionRange();
+    const sx = effectiveScrollX(localX);
+    const sy = effectiveScrollY(localY);
+    const handleCenterX = ROW_NUMBER_WIDTH + getColX(range.maxCol) + getColWidth(range.maxCol) - sx;
+    const handleCenterY = HEADER_HEIGHT + getRowY(range.maxRow) + getRowHeight(range.maxRow) - sy;
+    return (
+      Math.abs(localX - handleCenterX) <= FILL_HANDLE_HIT_SIZE / 2 &&
+      Math.abs(localY - handleCenterY) <= FILL_HANDLE_HIT_SIZE / 2
+    );
+  }
+
+  /** Get the fill preview range (the cells that will be filled). */
+  function getFillPreviewRange(): { minRow: number; maxRow: number; minCol: number; maxCol: number } | null {
+    if (!isFillDragging) return null;
+    const range = getSelectionRange();
+    const dragR = fillDragRow();
+    const dragC = fillDragCol();
+    if (dragR < 0 || dragC < 0) return null;
+
+    // Determine fill direction by which axis has more displacement
+    const dRow = dragR - range.maxRow;
+    const dRowUp = range.minRow - dragR;
+    const dCol = dragC - range.maxCol;
+    const dColLeft = range.minCol - dragC;
+
+    const maxDisp = Math.max(dRow, dRowUp, dCol, dColLeft);
+    if (maxDisp <= 0) return null;
+
+    if (dRow === maxDisp) {
+      // Fill down
+      return { minRow: range.maxRow + 1, maxRow: dragR, minCol: range.minCol, maxCol: range.maxCol };
+    } else if (dRowUp === maxDisp) {
+      // Fill up
+      return { minRow: dragR, maxRow: range.minRow - 1, minCol: range.minCol, maxCol: range.maxCol };
+    } else if (dCol === maxDisp) {
+      // Fill right
+      return { minRow: range.minRow, maxRow: range.maxRow, minCol: range.maxCol + 1, maxCol: dragC };
+    } else {
+      // Fill left
+      return { minRow: range.minRow, maxRow: range.maxRow, minCol: dragC, maxCol: range.minCol - 1 };
+    }
+  }
+
+  /** Execute auto-fill: detect pattern in source cells and fill target range. */
+  async function executeFill() {
+    const range = getSelectionRange();
+    const fillRange = getFillPreviewRange();
+    if (!fillRange) return;
+
+    // Determine fill direction
+    const isVertical = fillRange.minCol === range.minCol && fillRange.maxCol === range.maxCol;
+    const isDown = isVertical && fillRange.minRow > range.maxRow;
+    const isUp = isVertical && fillRange.maxRow < range.minRow;
+    const isRight = !isVertical && fillRange.minRow === range.minRow;
+    const isLeft = !isVertical && fillRange.maxCol < range.minCol;
+
+    const promises: Promise<void>[] = [];
+
+    if (isVertical) {
+      // Fill each column independently
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        // Collect source values for this column
+        const sourceVals: string[] = [];
+        for (let r = range.minRow; r <= range.maxRow; r++) {
+          const cached = cellCache.get(`${r}:${c}`);
+          sourceVals.push(cached?.value ?? '');
+        }
+
+        // Detect pattern and fill
+        const fillCount = isDown
+          ? fillRange.maxRow - fillRange.minRow + 1
+          : fillRange.maxRow - fillRange.minRow + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isUp);
+
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
+          promises.push(
+            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
+          );
+        }
+      }
+    } else {
+      // Fill each row independently
+      for (let r = range.minRow; r <= range.maxRow; r++) {
+        const sourceVals: string[] = [];
+        for (let c = range.minCol; c <= range.maxCol; c++) {
+          const cached = cellCache.get(`${r}:${c}`);
+          sourceVals.push(cached?.value ?? '');
+        }
+
+        const fillCount = isRight
+          ? fillRange.maxCol - fillRange.minCol + 1
+          : fillRange.maxCol - fillRange.minCol + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
+
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
+          promises.push(
+            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
+          );
+        }
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange('Auto-filled cells');
+  }
+
+  /** Simple frontend pattern detection and fill value generation. */
+  function detectAndFill(sourceVals: string[], count: number, _reverse: boolean): string[] {
+    const result: string[] = [];
+    const len = sourceVals.length;
+
+    // Try numeric linear pattern
+    const nums = sourceVals.map(Number);
+    const allNumeric = sourceVals.every((v) => v.trim() !== '' && !isNaN(Number(v)));
+
+    if (allNumeric && len >= 2) {
+      const step = nums[len - 1] - nums[len - 2];
+      const isInteger = nums.every((n) => Number.isInteger(n)) && Number.isInteger(step);
+      for (let i = 0; i < count; i++) {
+        const val = nums[len - 1] + step * (i + 1);
+        result.push(isInteger ? String(Math.round(val)) : String(val));
+      }
+      return result;
+    }
+
+    // Single numeric value: repeat (constant fill)
+    if (allNumeric && len === 1) {
+      for (let i = 0; i < count; i++) {
+        result.push(sourceVals[0]);
+      }
+      return result;
+    }
+
+    // Default: repeat the source values cyclically
+    for (let i = 0; i < count; i++) {
+      result.push(sourceVals[i % len]);
+    }
+    return result;
+  }
+
+  function handleFillMouseUp() {
+    if (!isFillDragging) return;
+    isFillDragging = false;
+    document.removeEventListener('mousemove', handleFillMouseMove);
+    document.removeEventListener('mouseup', handleFillMouseUp);
+    if (containerRef) {
+      containerRef.style.cursor = '';
+    }
+    executeFill();
+    setFillDragRow(-1);
+    setFillDragCol(-1);
+    draw();
+  }
+
+  function handleFillMouseMove(e: MouseEvent) {
+    if (!isFillDragging || !containerRef) return;
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit) {
+      setFillDragRow(hit.row);
+      setFillDragCol(hit.col);
+      scheduleDraw();
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1545,7 +1864,92 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // Check for fill handle drag.
+    if (fillHandleHit(localX, localY)) {
+      isFillDragging = true;
+      const range = getSelectionRange();
+      setFillDragRow(range.maxRow);
+      setFillDragCol(range.maxCol);
+      document.addEventListener('mousemove', handleFillMouseMove);
+      document.addEventListener('mouseup', handleFillMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // -------------------------------------------------------------------
+    // Header click handling: column headers, row numbers, corner
+    // -------------------------------------------------------------------
+
+    // Click on corner (top-left intersection): select all cells
+    if (localX < ROW_NUMBER_WIDTH && localY < HEADER_HEIGHT) {
+      setSelectedRow(0);
+      setSelectedCol(0);
+      setRangeAnchor([0, 0]);
+      setRangeEnd([TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+      selectCell(0, 0);
+      draw();
+      return;
+    }
+
+    // Click on column header: select entire column
+    if (localY < HEADER_HEIGHT && localX >= ROW_NUMBER_WIDTH) {
+      const effSx = effectiveScrollX(localX);
+      const contentX = localX - ROW_NUMBER_WIDTH + effSx;
+      const col = colAtX(contentX);
+      if (e.shiftKey) {
+        // Extend selection from current column to clicked column
+        const anchor = rangeAnchor();
+        const anchorCol = anchor ? anchor[1] : selectedCol();
+        setRangeAnchor([0, anchorCol]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+      } else {
+        setSelectedRow(0);
+        setSelectedCol(col);
+        setRangeAnchor([0, col]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+        selectCell(0, col);
+      }
+      // Start drag across column headers
+      headerDragKind = 'col';
+      headerDragStartIndex = col;
+      isDragging = true;
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleDragMouseUp);
+      draw();
+      return;
+    }
+
+    // Click on row number: select entire row
+    if (localX < ROW_NUMBER_WIDTH && localY >= HEADER_HEIGHT) {
+      const effSy = effectiveScrollY(localY);
+      const contentY = localY - HEADER_HEIGHT + effSy;
+      const row = rowAtY(contentY);
+      if (e.shiftKey) {
+        // Extend selection from current row to clicked row
+        const anchor = rangeAnchor();
+        const anchorRow = anchor ? anchor[0] : selectedRow();
+        setRangeAnchor([anchorRow, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+      } else {
+        setSelectedRow(row);
+        setSelectedCol(0);
+        setRangeAnchor([row, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+        selectCell(row, 0);
+      }
+      // Start drag across row headers
+      headerDragKind = 'row';
+      headerDragStartIndex = row;
+      isDragging = true;
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleDragMouseUp);
+      draw();
+      return;
+    }
+
+    // -------------------------------------------------------------------
     // Normal cell click handling.
+    // -------------------------------------------------------------------
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
 
@@ -1579,6 +1983,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Start drag-to-select: set anchor and listen for drag
       setRangeAnchor([hit.row, hit.col]);
       setRangeEnd([hit.row, hit.col]);
+      headerDragKind = null;
       isDragging = true;
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleDragMouseUp);
@@ -2652,6 +3057,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           visible={acVisible()}
           onAccept={acceptAutoComplete}
           onDismiss={() => setAcVisible(false)}
+        />
+        <FormulaAutoComplete
+          inputValue={editValue()}
+          left={(() => {
+            const col = selectedCol();
+            const fc = props.frozenCols ?? 0;
+            const sx = col < fc ? 0 : scrollX();
+            return ROW_NUMBER_WIDTH + getColX(col) - sx;
+          })()}
+          top={(() => {
+            const row = selectedRow();
+            const fr = props.frozenRows ?? 0;
+            const sy = row < fr ? 0 : scrollY();
+            return HEADER_HEIGHT + getRowY(row) - sy + getRowHeight(row);
+          })()}
+          width={getColWidth(selectedCol())}
+          visible={formulaAcVisible()}
+          selectedIndex={formulaAcSelectedIdx()}
+          onAccept={acceptFormulaAutoComplete}
+          onDismiss={() => setFormulaAcVisible(false)}
         />
       </Show>
       <Show when={ctxMenuVisible()}>
