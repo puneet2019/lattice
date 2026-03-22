@@ -65,18 +65,16 @@ pub fn sort_range(
     rows.sort_by(|a, b| {
         for key in keys {
             let col_offset = key.col.saturating_sub(start_col) as usize;
-            let val_a = a
-                .1
-                .get(col_offset)
-                .and_then(|c| c.as_ref())
-                .map(|c| &c.value)
-                .unwrap_or(&CellValue::Empty);
-            let val_b = b
-                .1
-                .get(col_offset)
-                .and_then(|c| c.as_ref())
-                .map(|c| &c.value)
-                .unwrap_or(&CellValue::Empty);
+            let val_a =
+                a.1.get(col_offset)
+                    .and_then(|c| c.as_ref())
+                    .map(|c| &c.value)
+                    .unwrap_or(&CellValue::Empty);
+            let val_b =
+                b.1.get(col_offset)
+                    .and_then(|c| c.as_ref())
+                    .map(|c| &c.value)
+                    .unwrap_or(&CellValue::Empty);
 
             let cmp = compare_cell_values(val_a, val_b);
             let cmp = match key.direction {
@@ -129,9 +127,7 @@ fn compare_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
         (CellValue::Number(na), CellValue::Number(nb)) => {
             na.partial_cmp(nb).unwrap_or(Ordering::Equal)
         }
-        (CellValue::Text(sa), CellValue::Text(sb)) => {
-            sa.to_lowercase().cmp(&sb.to_lowercase())
-        }
+        (CellValue::Text(sa), CellValue::Text(sb)) => sa.to_lowercase().cmp(&sb.to_lowercase()),
         (CellValue::Boolean(ba), CellValue::Boolean(bb))
         | (CellValue::Checkbox(ba), CellValue::Checkbox(bb))
         | (CellValue::Boolean(ba), CellValue::Checkbox(bb))
@@ -167,18 +163,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
-        assert_eq!(
-            sheet.get_cell(1, 0).unwrap().value,
-            CellValue::Number(2.0)
-        );
-        assert_eq!(
-            sheet.get_cell(2, 0).unwrap().value,
-            CellValue::Number(3.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Number(3.0));
     }
 
     #[test]
@@ -201,18 +188,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(3.0)
-        );
-        assert_eq!(
-            sheet.get_cell(1, 0).unwrap().value,
-            CellValue::Number(2.0)
-        );
-        assert_eq!(
-            sheet.get_cell(2, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(3.0));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Number(1.0));
     }
 
     #[test]
@@ -250,18 +228,12 @@ mod tests {
             sheet.get_cell(0, 0).unwrap().value,
             CellValue::Text("A".into())
         );
-        assert_eq!(
-            sheet.get_cell(0, 1).unwrap().value,
-            CellValue::Number(1.0)
-        );
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(1.0));
         assert_eq!(
             sheet.get_cell(1, 0).unwrap().value,
             CellValue::Text("A".into())
         );
-        assert_eq!(
-            sheet.get_cell(1, 1).unwrap().value,
-            CellValue::Number(3.0)
-        );
+        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Number(3.0));
     }
 
     #[test]
@@ -285,7 +257,10 @@ mod tests {
         .unwrap();
 
         // Empty comes first
-        assert!(sheet.get_cell(0, 0).is_none() || sheet.get_cell(0, 0).unwrap().value == CellValue::Empty);
+        assert!(
+            sheet.get_cell(0, 0).is_none()
+                || sheet.get_cell(0, 0).unwrap().value == CellValue::Empty
+        );
     }
 
     #[test]

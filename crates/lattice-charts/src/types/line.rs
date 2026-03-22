@@ -5,8 +5,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, data_range, series_color, svg_axis_labels, svg_close, svg_grid_lines,
-    svg_legend, svg_open, svg_text, svg_title, xml_escape, Margins,
+    Margins, compute_axis_scale, data_range, series_color, svg_axis_labels, svg_close,
+    svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape,
 };
 
 /// Render line chart data as an SVG string.

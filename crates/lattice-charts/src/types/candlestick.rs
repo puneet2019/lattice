@@ -7,8 +7,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, svg_axis_labels, svg_close, svg_grid_lines, svg_open, svg_text, svg_title,
-    xml_escape, Margins,
+    Margins, compute_axis_scale, svg_axis_labels, svg_close, svg_grid_lines, svg_open, svg_text,
+    svg_title, xml_escape,
 };
 
 /// Color for bullish candles (close >= open).
@@ -54,11 +54,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
     let low = &data.series[2].values;
     let close = &data.series[3].values;
 
-    let n_candles = open
-        .len()
-        .min(high.len())
-        .min(low.len())
-        .min(close.len());
+    let n_candles = open.len().min(high.len()).min(low.len()).min(close.len());
 
     if n_candles == 0 {
         svg.push_str(&svg_axis_labels(options, &margins));
@@ -70,13 +66,25 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
     let mut y_min = f64::INFINITY;
     let mut y_max = f64::NEG_INFINITY;
     for i in 0..n_candles {
-        if high[i] > y_max { y_max = high[i]; }
-        if low[i] < y_min { y_min = low[i]; }
+        if high[i] > y_max {
+            y_max = high[i];
+        }
+        if low[i] < y_min {
+            y_min = low[i];
+        }
         // Also check open/close in case high/low are misspecified
-        if open[i] > y_max { y_max = open[i]; }
-        if open[i] < y_min { y_min = open[i]; }
-        if close[i] > y_max { y_max = close[i]; }
-        if close[i] < y_min { y_min = close[i]; }
+        if open[i] > y_max {
+            y_max = open[i];
+        }
+        if open[i] < y_min {
+            y_min = open[i];
+        }
+        if close[i] > y_max {
+            y_max = close[i];
+        }
+        if close[i] < y_min {
+            y_min = close[i];
+        }
     }
 
     let scale = compute_axis_scale(y_min, y_max);
@@ -97,7 +105,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
         let c = close[i];
 
         let is_bullish = c >= o;
-        let color = if is_bullish { BULLISH_COLOR } else { BEARISH_COLOR };
+        let color = if is_bullish {
+            BULLISH_COLOR
+        } else {
+            BEARISH_COLOR
+        };
 
         // Map values to pixel coordinates
         let to_y = |v: f64| -> f64 {
@@ -115,8 +127,8 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
         let close_y = to_y(c);
 
         let wick_x = margins.left + i as f64 * candle_spacing + wick_x_offset;
-        let body_x = margins.left + i as f64 * candle_spacing
-            + (candle_spacing - candle_width) / 2.0;
+        let body_x =
+            margins.left + i as f64 * candle_spacing + (candle_spacing - candle_width) / 2.0;
 
         // Wick (thin vertical line from high to low)
         svg.push_str(&format!(
@@ -180,8 +192,11 @@ mod tests {
     fn sample_ohlc_data() -> ChartData {
         ChartData {
             labels: vec![
-                "Mon".into(), "Tue".into(), "Wed".into(),
-                "Thu".into(), "Fri".into(),
+                "Mon".into(),
+                "Tue".into(),
+                "Wed".into(),
+                "Thu".into(),
+                "Fri".into(),
             ],
             series: vec![
                 DataSeries {
@@ -265,8 +280,16 @@ mod tests {
         let data = ChartData {
             labels: vec!["A".into()],
             series: vec![
-                DataSeries { name: "Open".into(), values: vec![10.0], color: None },
-                DataSeries { name: "High".into(), values: vec![15.0], color: None },
+                DataSeries {
+                    name: "Open".into(),
+                    values: vec![10.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "High".into(),
+                    values: vec![15.0],
+                    color: None,
+                },
             ],
         };
         let svg = render(&data, &ChartOptions::default());
@@ -280,10 +303,26 @@ mod tests {
         let data = ChartData {
             labels: vec![],
             series: vec![
-                DataSeries { name: "O".into(), values: vec![], color: None },
-                DataSeries { name: "H".into(), values: vec![], color: None },
-                DataSeries { name: "L".into(), values: vec![], color: None },
-                DataSeries { name: "C".into(), values: vec![], color: None },
+                DataSeries {
+                    name: "O".into(),
+                    values: vec![],
+                    color: None,
+                },
+                DataSeries {
+                    name: "H".into(),
+                    values: vec![],
+                    color: None,
+                },
+                DataSeries {
+                    name: "L".into(),
+                    values: vec![],
+                    color: None,
+                },
+                DataSeries {
+                    name: "C".into(),
+                    values: vec![],
+                    color: None,
+                },
             ],
         };
         let svg = render(&data, &ChartOptions::default());
@@ -298,10 +337,26 @@ mod tests {
         let data = ChartData {
             labels: vec!["Day1".into()],
             series: vec![
-                DataSeries { name: "O".into(), values: vec![100.0], color: None },
-                DataSeries { name: "H".into(), values: vec![110.0], color: None },
-                DataSeries { name: "L".into(), values: vec![90.0], color: None },
-                DataSeries { name: "C".into(), values: vec![105.0], color: None },
+                DataSeries {
+                    name: "O".into(),
+                    values: vec![100.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "H".into(),
+                    values: vec![110.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "L".into(),
+                    values: vec![90.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "C".into(),
+                    values: vec![105.0],
+                    color: None,
+                },
             ],
         };
         let svg = render(&data, &ChartOptions::default());
@@ -316,10 +371,26 @@ mod tests {
         let data = ChartData {
             labels: vec!["Day1".into()],
             series: vec![
-                DataSeries { name: "O".into(), values: vec![100.0], color: None },
-                DataSeries { name: "H".into(), values: vec![110.0], color: None },
-                DataSeries { name: "L".into(), values: vec![90.0], color: None },
-                DataSeries { name: "C".into(), values: vec![100.0], color: None },
+                DataSeries {
+                    name: "O".into(),
+                    values: vec![100.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "H".into(),
+                    values: vec![110.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "L".into(),
+                    values: vec![90.0],
+                    color: None,
+                },
+                DataSeries {
+                    name: "C".into(),
+                    values: vec![100.0],
+                    color: None,
+                },
             ],
         };
         let svg = render(&data, &ChartOptions::default());

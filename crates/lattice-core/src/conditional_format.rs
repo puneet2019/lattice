@@ -207,7 +207,11 @@ impl ConditionalFormatStore {
     /// return `true`.
     pub fn evaluate(cell_value: &CellValue, rule: &ConditionalRule) -> bool {
         match &rule.rule_type {
-            ConditionalRuleType::CellValue { operator, value1, value2 } => {
+            ConditionalRuleType::CellValue {
+                operator,
+                value1,
+                value2,
+            } => {
                 let n = match cell_value {
                     CellValue::Number(n) => *n,
                     CellValue::Boolean(true) => 1.0,
@@ -323,10 +327,7 @@ impl ConditionalFormatStore {
 
     /// List all conditional format ranges for a given sheet.
     pub fn list_ranges(&self, sheet: &str) -> Vec<&ConditionalFormatRange> {
-        self.ranges
-            .iter()
-            .filter(|r| r.sheet == sheet)
-            .collect()
+        self.ranges.iter().filter(|r| r.sheet == sheet).collect()
     }
 
     /// Remove all conditional formatting for a given sheet.
@@ -366,14 +367,24 @@ mod tests {
     fn make_rule(rule_type: ConditionalRuleType, priority: u32) -> ConditionalRule {
         ConditionalRule {
             rule_type,
-            style: ConditionalStyle { bold: Some(true), ..Default::default() },
+            style: ConditionalStyle {
+                bold: Some(true),
+                ..Default::default()
+            },
             priority,
             stop_if_true: false,
         }
     }
 
     fn cmp_rule(op: ComparisonOperator, v1: f64, v2: Option<f64>, p: u32) -> ConditionalRule {
-        make_rule(ConditionalRuleType::CellValue { operator: op, value1: v1, value2: v2 }, p)
+        make_rule(
+            ConditionalRuleType::CellValue {
+                operator: op,
+                value1: v1,
+                value2: v2,
+            },
+            p,
+        )
     }
 
     fn gt_rule(val: f64, priority: u32) -> ConditionalRule {
@@ -610,7 +621,8 @@ mod tests {
                 min_color: "#FF0000".into(),
                 max_color: "#00FF00".into(),
                 mid_color: None,
-            }, 1,
+            },
+            1,
         );
         assert!(eval(&CellValue::Number(50.0), &r));
         assert!(eval(&CellValue::Empty, &r));
@@ -619,7 +631,11 @@ mod tests {
     #[test]
     fn test_data_bar_always_matches() {
         let r = make_rule(
-            ConditionalRuleType::DataBar { color: "#0000FF".into(), max_length_percent: 100 }, 1,
+            ConditionalRuleType::DataBar {
+                color: "#0000FF".into(),
+                max_length_percent: 100,
+            },
+            1,
         );
         assert!(eval(&CellValue::Number(0.0), &r));
     }
@@ -630,7 +646,8 @@ mod tests {
             ConditionalRuleType::IconSet {
                 icons: vec!["up".into(), "down".into()],
                 thresholds: vec![50.0],
-            }, 1,
+            },
+            1,
         );
         assert!(eval(&CellValue::Number(0.0), &r));
     }
@@ -668,13 +685,21 @@ mod tests {
     fn test_stop_if_true_prevents_merging() {
         let mut store = ConditionalFormatStore::new();
         let mut r1 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 1);
-        r1.style = ConditionalStyle { bold: Some(true), ..Default::default() };
+        r1.style = ConditionalStyle {
+            bold: Some(true),
+            ..Default::default()
+        };
         r1.stop_if_true = true;
         let mut r2 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 2);
-        r2.style = ConditionalStyle { italic: Some(true), ..Default::default() };
+        r2.style = ConditionalStyle {
+            italic: Some(true),
+            ..Default::default()
+        };
         store.add_rule("S1", 0, 0, 9, 9, r1);
         store.add_rule("S1", 0, 0, 9, 9, r2);
-        let style = store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).unwrap();
+        let style = store
+            .get_effective_style("S1", 0, 0, &CellValue::Number(5.0))
+            .unwrap();
         assert_eq!(style.bold, Some(true));
         assert_eq!(style.italic, None); // r2 was not evaluated
     }
@@ -686,35 +711,49 @@ mod tests {
         let mut store = ConditionalFormatStore::new();
         let mut r1 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 1);
         r1.style = ConditionalStyle {
-            bold: Some(true), italic: None,
-            font_color: Some("#FF0000".into()), bg_color: None,
+            bold: Some(true),
+            italic: None,
+            font_color: Some("#FF0000".into()),
+            bg_color: None,
         };
         let mut r2 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 2);
         r2.style = ConditionalStyle {
-            bold: Some(false), italic: Some(true),
-            font_color: Some("#0000FF".into()), bg_color: Some("#FFFF00".into()),
+            bold: Some(false),
+            italic: Some(true),
+            font_color: Some("#0000FF".into()),
+            bg_color: Some("#FFFF00".into()),
         };
         store.add_rule("S1", 0, 0, 9, 9, r1);
         store.add_rule("S1", 0, 0, 9, 9, r2);
-        let style = store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).unwrap();
-        assert_eq!(style.bold, Some(true));         // from r1 (first match)
-        assert_eq!(style.italic, Some(true));        // from r2 (r1 had None)
+        let style = store
+            .get_effective_style("S1", 0, 0, &CellValue::Number(5.0))
+            .unwrap();
+        assert_eq!(style.bold, Some(true)); // from r1 (first match)
+        assert_eq!(style.italic, Some(true)); // from r2 (r1 had None)
         assert_eq!(style.font_color, Some("#FF0000".into())); // from r1
-        assert_eq!(style.bg_color, Some("#FFFF00".into()));   // from r2
+        assert_eq!(style.bg_color, Some("#FFFF00".into())); // from r2
     }
 
     #[test]
     fn test_effective_style_no_match_returns_none() {
         let mut store = ConditionalFormatStore::new();
         store.add_rule("S1", 0, 0, 9, 9, gt_rule(100.0, 1));
-        assert!(store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).is_none());
+        assert!(
+            store
+                .get_effective_style("S1", 0, 0, &CellValue::Number(5.0))
+                .is_none()
+        );
     }
 
     #[test]
     fn test_effective_style_empty_cell_no_match() {
         let mut store = ConditionalFormatStore::new();
         store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
-        assert!(store.get_effective_style("S1", 0, 0, &CellValue::Empty).is_none());
+        assert!(
+            store
+                .get_effective_style("S1", 0, 0, &CellValue::Empty)
+                .is_none()
+        );
     }
 
     // ── Edge cases ──────────────────────────────────────────────────
@@ -722,7 +761,7 @@ mod tests {
     #[test]
     fn test_between_without_value2_uses_value1() {
         let r = cmp_rule(ComparisonOperator::Between, 10.0, None, 1);
-        assert!(eval(&CellValue::Number(10.0), &r));  // degrades to Equal
+        assert!(eval(&CellValue::Number(10.0), &r)); // degrades to Equal
         assert!(!eval(&CellValue::Number(11.0), &r));
     }
 

@@ -125,7 +125,9 @@ pub fn find(workbook: &Workbook, options: &FindOptions) -> Result<Vec<MatchLocat
             let cell = sheet.get_cell(row, col).unwrap();
 
             let text = if options.search_formulas {
-                cell.formula.clone().unwrap_or_else(|| cell_value_to_string(&cell.value))
+                cell.formula
+                    .clone()
+                    .unwrap_or_else(|| cell_value_to_string(&cell.value))
             } else {
                 cell_value_to_string(&cell.value)
             };
@@ -192,7 +194,9 @@ pub fn replace_all(
             let cell = sheet.get_cell(row, col).unwrap();
 
             let text = if options.search_formulas {
-                cell.formula.clone().unwrap_or_else(|| cell_value_to_string(&cell.value))
+                cell.formula
+                    .clone()
+                    .unwrap_or_else(|| cell_value_to_string(&cell.value))
             } else {
                 cell_value_to_string(&cell.value)
             };
@@ -251,11 +255,16 @@ mod tests {
     /// Helper: create a workbook with test data across different value types.
     fn test_workbook() -> Workbook {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello World".into())).unwrap();
-        wb.set_cell("Sheet1", 0, 1, CellValue::Number(42.0)).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello there".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 1, CellValue::Text("Goodbye".into())).unwrap();
-        wb.set_cell("Sheet1", 2, 0, CellValue::Boolean(true)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello World".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Number(42.0))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello there".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 1, CellValue::Text("Goodbye".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Boolean(true))
+            .unwrap();
         wb
     }
 
@@ -309,7 +318,8 @@ mod tests {
     fn test_find_scoped_and_invalid_sheet() {
         let mut wb = test_workbook();
         wb.add_sheet("Sheet2").unwrap();
-        wb.set_cell("Sheet2", 0, 0, CellValue::Text("Hello S2".into())).unwrap();
+        wb.set_cell("Sheet2", 0, 0, CellValue::Text("Hello S2".into()))
+            .unwrap();
         let mut o = opts("Hello");
         o.sheet_name = Some("Sheet2".into());
         assert_eq!(find(&wb, &o).unwrap().len(), 1);
@@ -343,7 +353,10 @@ mod tests {
         let result = replace_all(&mut wb, &opts("hello"), "Hi").unwrap();
         assert_eq!(result.matches_found, 2);
         assert_eq!(result.replacements_made, 2);
-        assert_eq!(wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().value, CellValue::Text("Hi World".into()));
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("Hi World".into())
+        );
     }
 
     #[test]
@@ -364,29 +377,53 @@ mod tests {
 
         let mut o = opts("SUM");
         o.search_formulas = true;
-        assert_eq!(replace_all(&mut wb, &o, "AVERAGE").unwrap().replacements_made, 1);
-        assert_eq!(wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().formula.as_deref(), Some("AVERAGE(A1:A5)"));
+        assert_eq!(
+            replace_all(&mut wb, &o, "AVERAGE")
+                .unwrap()
+                .replacements_made,
+            1
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 0)
+                .unwrap()
+                .unwrap()
+                .formula
+                .as_deref(),
+            Some("AVERAGE(A1:A5)")
+        );
     }
 
     #[test]
     fn test_replace_regex_and_empty_query() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("foo123bar".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("foo123bar".into()))
+            .unwrap();
         let mut o = opts(r"\d+");
         o.use_regex = true;
-        assert_eq!(replace_all(&mut wb, &o, "NUM").unwrap().replacements_made, 1);
-        assert_eq!(wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().value, CellValue::Text("fooNUMbar".into()));
+        assert_eq!(
+            replace_all(&mut wb, &o, "NUM").unwrap().replacements_made,
+            1
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("fooNUMbar".into())
+        );
 
         let mut wb2 = test_workbook();
-        assert_eq!(replace_all(&mut wb2, &opts(""), "X").unwrap().matches_found, 0);
+        assert_eq!(
+            replace_all(&mut wb2, &opts(""), "X").unwrap().matches_found,
+            0
+        );
     }
 
     #[test]
     fn test_find_across_multiple_sheets() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("apple".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("apple".into()))
+            .unwrap();
         wb.add_sheet("Sheet2").unwrap();
-        wb.set_cell("Sheet2", 0, 0, CellValue::Text("apple pie".into())).unwrap();
+        wb.set_cell("Sheet2", 0, 0, CellValue::Text("apple pie".into()))
+            .unwrap();
         let results = find(&wb, &opts("apple")).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].sheet, "Sheet1");

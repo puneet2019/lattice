@@ -25,11 +25,7 @@ pub enum Operation {
         cells: Vec<(u32, u32, CellFormat, CellFormat)>,
     },
     /// Rows were inserted.
-    InsertRows {
-        sheet: String,
-        row: u32,
-        count: u32,
-    },
+    InsertRows { sheet: String, row: u32, count: u32 },
     /// Rows were deleted (with the deleted cell data for undo).
     DeleteRows {
         sheet: String,
@@ -39,11 +35,7 @@ pub enum Operation {
         deleted_cells: Vec<(u32, u32, Cell)>,
     },
     /// Columns were inserted.
-    InsertCols {
-        sheet: String,
-        col: u32,
-        count: u32,
-    },
+    InsertCols { sheet: String, col: u32, count: u32 },
     /// Columns were deleted (with the deleted cell data for undo).
     DeleteCols {
         sheet: String,
@@ -193,7 +185,14 @@ mod tests {
         });
         assert_eq!(stack.undo_count(), 1);
         let op = stack.undo().unwrap();
-        assert!(matches!(op, Operation::InsertRows { row: 5, count: 3, .. }));
+        assert!(matches!(
+            op,
+            Operation::InsertRows {
+                row: 5,
+                count: 3,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -209,7 +208,14 @@ mod tests {
         });
         assert_eq!(stack.undo_count(), 1);
         let op = stack.undo().unwrap();
-        assert!(matches!(op, Operation::DeleteRows { row: 2, count: 1, .. }));
+        assert!(matches!(
+            op,
+            Operation::DeleteRows {
+                row: 2,
+                count: 1,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -221,7 +227,14 @@ mod tests {
             count: 2,
         });
         let op = stack.undo().unwrap();
-        assert!(matches!(op, Operation::InsertCols { col: 3, count: 2, .. }));
+        assert!(matches!(
+            op,
+            Operation::InsertCols {
+                col: 3,
+                count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -235,6 +248,13 @@ mod tests {
             deleted_cells: vec![(0, 1, Cell::default())],
         });
         let op = stack.undo().unwrap();
-        assert!(matches!(op, Operation::DeleteCols { col: 1, count: 1, .. }));
+        assert!(matches!(
+            op,
+            Operation::DeleteCols {
+                col: 1,
+                count: 1,
+                ..
+            }
+        ));
     }
 }

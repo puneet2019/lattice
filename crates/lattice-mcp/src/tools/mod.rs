@@ -7,8 +7,8 @@ pub mod data_ops;
 pub mod file_ops;
 pub mod find_replace_ops;
 pub mod format_ops;
-pub mod named_range_ops;
 pub mod formula_ops;
+pub mod named_range_ops;
 pub mod sheet_ops;
 pub mod validation_ops;
 

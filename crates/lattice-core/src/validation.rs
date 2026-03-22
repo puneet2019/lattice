@@ -14,10 +14,7 @@ pub enum ValidationType {
     /// A dropdown list of allowed string values.
     List(Vec<String>),
     /// A numeric range with optional min and max bounds.
-    NumberRange {
-        min: Option<f64>,
-        max: Option<f64>,
-    },
+    NumberRange { min: Option<f64>, max: Option<f64> },
     /// A date range with optional min and max bounds (ISO 8601 strings).
     DateRange {
         min: Option<String>,
@@ -122,7 +119,11 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
             let n = match value {
                 CellValue::Number(n) => *n,
                 CellValue::Boolean(b) => {
-                    if *b { 1.0 } else { 0.0 }
+                    if *b {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 }
                 _ => return false,
             };
@@ -192,7 +193,13 @@ fn cell_value_display_len(value: &CellValue) -> usize {
     match value {
         CellValue::Text(s) => s.len(),
         CellValue::Number(n) => n.to_string().len(),
-        CellValue::Boolean(b) | CellValue::Checkbox(b) => if *b { 4 } else { 5 }, // TRUE / FALSE
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
+            if *b {
+                4
+            } else {
+                5
+            }
+        } // TRUE / FALSE
         CellValue::Empty => 0,
         CellValue::Error(e) => e.to_string().len(),
         CellValue::Date(s) => s.len(),
@@ -263,13 +270,19 @@ mod tests {
     #[test]
     fn test_text_length_validation() {
         let rule = ValidationRule {
-            validation_type: ValidationType::TextLength { min: Some(3), max: Some(10) },
+            validation_type: ValidationType::TextLength {
+                min: Some(3),
+                max: Some(10),
+            },
             allow_blank: false,
             error_message: None,
         };
         assert!(validate(&CellValue::Text("hello".into()), &rule));
         assert!(!validate(&CellValue::Text("hi".into()), &rule));
-        assert!(!validate(&CellValue::Text("this is way too long".into()), &rule));
+        assert!(!validate(
+            &CellValue::Text("this is way too long".into()),
+            &rule
+        ));
     }
 
     #[test]

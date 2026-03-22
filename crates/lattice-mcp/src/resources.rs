@@ -349,9 +349,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
         CellValue::Array(rows) => {
             let arr: Vec<Value> = rows
                 .iter()
-                .map(|row| {
-                    Value::Array(row.iter().map(|v| cell_value_to_json(v)).collect())
-                })
+                .map(|row| Value::Array(row.iter().map(|v| cell_value_to_json(v)).collect()))
                 .collect();
             Value::Array(arr)
         }

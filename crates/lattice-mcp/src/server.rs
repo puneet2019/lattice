@@ -9,8 +9,8 @@ use lattice_core::Workbook;
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops,
-    formula_ops, named_range_ops, sheet_ops, validation_ops,
+    analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops, formula_ops,
+    named_range_ops, sheet_ops, validation_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -276,7 +276,6 @@ impl McpServer {
                 let mut wb = self.workbook.write().await;
                 data_ops::handle_transpose(&mut wb, arguments)
             }
-
 
             // ── Find/replace operations (core-backed) ───────────────────
             "find_in_workbook" => {

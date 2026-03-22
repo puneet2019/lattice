@@ -11,9 +11,7 @@
 use crate::cell::CellValue;
 use crate::error::Result;
 
-use super::query::{
-    AggFunc, ColRef, CompOp, Literal, Query, SelectItem, SortOrder, WhereExpr,
-};
+use super::query::{AggFunc, ColRef, CompOp, Literal, Query, SelectItem, SortOrder, WhereExpr};
 
 /// Execute a parsed [`Query`] against a 2-D data grid.
 ///
@@ -27,8 +25,16 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
         return Ok(CellValue::Array(vec![]));
     }
     let num_cols = data[0].len();
-    let header_rows = if headers <= data.len() { &data[..headers] } else { data };
-    let body = if headers < data.len() { &data[headers..] } else { &[] as &[Vec<CellValue>] };
+    let header_rows = if headers <= data.len() {
+        &data[..headers]
+    } else {
+        data
+    };
+    let body = if headers < data.len() {
+        &data[headers..]
+    } else {
+        &[] as &[Vec<CellValue>]
+    };
 
     // 1. WHERE filter
     let filtered: Vec<&Vec<CellValue>> = body
@@ -61,7 +67,11 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
             let va = a.get(effective_col).unwrap_or(&CellValue::Empty);
             let vb = b.get(effective_col).unwrap_or(&CellValue::Empty);
             let cmp = cmp_cell_values(va, vb);
-            if *ord == SortOrder::Desc { cmp.reverse() } else { cmp }
+            if *ord == SortOrder::Desc {
+                cmp.reverse()
+            } else {
+                cmp
+            }
         });
     }
 
@@ -72,12 +82,16 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
         sorted
             .iter()
             .map(|row| {
-                query.select.iter().map(|item| {
-                    let c = match item {
-                        SelectItem::Column(c) | SelectItem::Aggregate(_, c) => *c,
-                    };
-                    row.get(c).cloned().unwrap_or(CellValue::Empty)
-                }).collect()
+                query
+                    .select
+                    .iter()
+                    .map(|item| {
+                        let c = match item {
+                            SelectItem::Column(c) | SelectItem::Aggregate(_, c) => *c,
+                        };
+                        row.get(c).cloned().unwrap_or(CellValue::Empty)
+                    })
+                    .collect()
             })
             .collect()
     };
@@ -91,7 +105,12 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
     // 6. Build result with optional header row
     let mut result = Vec::new();
     if headers > 0 {
-        result.push(build_header(header_rows, &query.select, &query.labels, num_cols));
+        result.push(build_header(
+            header_rows,
+            &query.select,
+            &query.labels,
+            num_cols,
+        ));
     }
     result.extend(limited);
     Ok(CellValue::Array(result))
@@ -102,7 +121,11 @@ pub fn execute_query(data: &[Vec<CellValue>], query: &Query, headers: usize) -> 
 fn eval_where(expr: &WhereExpr, row: &[CellValue], ncols: usize) -> bool {
     match expr {
         WhereExpr::Comparison(col, op, lit) => {
-            let val = if *col < ncols { &row[*col] } else { &CellValue::Empty };
+            let val = if *col < ncols {
+                &row[*col]
+            } else {
+                &CellValue::Empty
+            };
             compare_cell_literal(val, op, lit)
         }
         WhereExpr::IsNull(col) => {
@@ -119,7 +142,9 @@ fn eval_where(expr: &WhereExpr, row: &[CellValue], ncols: usize) -> bool {
 fn compare_cell_literal(val: &CellValue, op: &CompOp, lit: &Literal) -> bool {
     match lit {
         Literal::Number(n) => {
-            let Some(v) = cell_to_f64(val) else { return false };
+            let Some(v) = cell_to_f64(val) else {
+                return false;
+            };
             match op {
                 CompOp::Eq => (v - n).abs() < f64::EPSILON,
                 CompOp::Neq => (v - n).abs() >= f64::EPSILON,
@@ -181,9 +206,7 @@ fn apply_group_by(
             select
                 .iter()
                 .map(|item| match item {
-                    SelectItem::Column(c) => {
-                        grp[0].get(*c).cloned().unwrap_or(CellValue::Empty)
-                    }
+                    SelectItem::Column(c) => grp[0].get(*c).cloned().unwrap_or(CellValue::Empty),
                     SelectItem::Aggregate(func, c) => {
                         let vals: Vec<f64> = grp
                             .iter()
@@ -202,7 +225,11 @@ fn compute_agg(func: &AggFunc, vals: &[f64]) -> f64 {
         AggFunc::Sum => vals.iter().sum(),
         AggFunc::Count => vals.len() as f64,
         AggFunc::Avg => {
-            if vals.is_empty() { 0.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
+            if vals.is_empty() {
+                0.0
+            } else {
+                vals.iter().sum::<f64>() / vals.len() as f64
+            }
         }
         AggFunc::Min => vals.iter().cloned().fold(f64::INFINITY, f64::min),
         AggFunc::Max => vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
@@ -220,7 +247,12 @@ fn build_header(
     let first = header_rows.first();
     if select.is_empty() {
         let mut hdr: Vec<CellValue> = (0..num_cols)
-            .map(|c| first.and_then(|r| r.get(c)).cloned().unwrap_or(CellValue::Empty))
+            .map(|c| {
+                first
+                    .and_then(|r| r.get(c))
+                    .cloned()
+                    .unwrap_or(CellValue::Empty)
+            })
             .collect();
         for (col, lbl) in labels {
             if *col < hdr.len() {
@@ -238,7 +270,10 @@ fn build_header(
                 if let Some((_, lbl)) = labels.iter().find(|(c, _)| *c == col) {
                     CellValue::Text(lbl.clone())
                 } else {
-                    first.and_then(|r| r.get(col)).cloned().unwrap_or(CellValue::Empty)
+                    first
+                        .and_then(|r| r.get(col))
+                        .cloned()
+                        .unwrap_or(CellValue::Empty)
                 }
             })
             .collect()
@@ -267,7 +302,11 @@ fn cell_to_string(val: &CellValue) -> String {
             }
         }
         CellValue::Boolean(b) | CellValue::Checkbox(b) => {
-            if *b { "TRUE".into() } else { "FALSE".into() }
+            if *b {
+                "TRUE".into()
+            } else {
+                "FALSE".into()
+            }
         }
         CellValue::Empty => String::new(),
         CellValue::Error(e) => e.to_string(),
@@ -319,11 +358,18 @@ mod tests {
         ]
     }
 
-    fn t(s: &str) -> CellValue { CellValue::Text(s.into()) }
-    fn n(v: f64) -> CellValue { CellValue::Number(v) }
+    fn t(s: &str) -> CellValue {
+        CellValue::Text(s.into())
+    }
+    fn n(v: f64) -> CellValue {
+        CellValue::Number(v)
+    }
 
     fn unwrap_array(v: CellValue) -> Vec<Vec<CellValue>> {
-        match v { CellValue::Array(a) => a, other => panic!("expected Array, got {other:?}") }
+        match v {
+            CellValue::Array(a) => a,
+            other => panic!("expected Array, got {other:?}"),
+        }
     }
 
     #[test]
@@ -404,12 +450,10 @@ mod tests {
         // Header + 2 departments (Sales, Eng)
         assert_eq!(result.len(), 3);
         // Find Sales group: 150 + 50 + 100 = 300
-        let sales_row = result.iter().skip(1)
-            .find(|r| r[0] == t("Sales")).unwrap();
+        let sales_row = result.iter().skip(1).find(|r| r[0] == t("Sales")).unwrap();
         assert_eq!(sales_row[1], n(300.0));
         // Find Eng group: 200 + 300 = 500
-        let eng_row = result.iter().skip(1)
-            .find(|r| r[0] == t("Eng")).unwrap();
+        let eng_row = result.iter().skip(1).find(|r| r[0] == t("Eng")).unwrap();
         assert_eq!(eng_row[1], n(500.0));
     }
 
@@ -469,8 +513,7 @@ mod tests {
         let data = sample_data();
         let q = parse_query("SELECT B, AVG(C) GROUP BY B").unwrap();
         let result = unwrap_array(execute_query(&data, &q, 1).unwrap());
-        let sales_row = result.iter().skip(1)
-            .find(|r| r[0] == t("Sales")).unwrap();
+        let sales_row = result.iter().skip(1).find(|r| r[0] == t("Sales")).unwrap();
         // Sales avg: (150 + 50 + 100) / 3 = 100
         assert_eq!(sales_row[1], n(100.0));
     }

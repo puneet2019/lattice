@@ -85,14 +85,7 @@ impl NamedRangeStore {
             )));
         }
 
-        self.ranges.insert(
-            key,
-            NamedRange {
-                name,
-                sheet,
-                range,
-            },
-        );
+        self.ranges.insert(key, NamedRange { name, sheet, range });
         Ok(())
     }
 
@@ -200,7 +193,9 @@ mod tests {
     fn test_list() {
         let mut store = NamedRangeStore::new();
         store.add("Alpha", None, range(0, 0, 0, 0)).unwrap();
-        store.add("Beta", Some("Sheet2".into()), range(1, 1, 5, 5)).unwrap();
+        store
+            .add("Beta", Some("Sheet2".into()), range(1, 1, 5, 5))
+            .unwrap();
         assert_eq!(store.list().len(), 2);
         assert_eq!(store.len(), 2);
     }
@@ -208,7 +203,9 @@ mod tests {
     #[test]
     fn test_resolve() {
         let mut store = NamedRangeStore::new();
-        store.add("Sales", Some("Data".into()), range(0, 0, 99, 3)).unwrap();
+        store
+            .add("Sales", Some("Data".into()), range(0, 0, 99, 3))
+            .unwrap();
         let (sheet, r) = store.resolve("sales").unwrap();
         assert_eq!(sheet, Some("Data"));
         assert_eq!(r.end.row, 99);
@@ -248,7 +245,9 @@ mod tests {
     #[test]
     fn test_sheet_scoped_range() {
         let mut store = NamedRangeStore::new();
-        store.add("Header", Some("Sheet1".into()), range(0, 0, 0, 5)).unwrap();
+        store
+            .add("Header", Some("Sheet1".into()), range(0, 0, 0, 5))
+            .unwrap();
         let nr = store.get("header").unwrap();
         assert_eq!(nr.sheet.as_deref(), Some("Sheet1"));
     }

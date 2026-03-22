@@ -243,8 +243,7 @@ impl Sheet {
 
                 // Only the anchor cell stores the range extents
                 if r == start_row && c == start_col {
-                    cell.array_formula_range =
-                        Some((start_row, start_col, end_row, end_col));
+                    cell.array_formula_range = Some((start_row, start_col, end_row, end_col));
                 } else {
                     cell.array_formula_range = None;
                 }
@@ -276,11 +275,7 @@ impl Sheet {
             let mut found_range = None;
             for ((_r, _c), c) in &self.cells {
                 if let Some(rng) = c.array_formula_range {
-                    if row >= rng.0
-                        && row <= rng.2
-                        && col >= rng.1
-                        && col <= rng.3
-                    {
+                    if row >= rng.0 && row <= rng.2 && col >= rng.1 && col <= rng.3 {
                         found_range = Some(rng);
                         break;
                     }
@@ -308,18 +303,17 @@ impl Sheet {
     /// Returns the new state, or an error if the cell does not contain
     /// a [`CellValue::Checkbox`].
     pub fn toggle_checkbox(&mut self, row: u32, col: u32) -> Result<bool> {
-        let cell = self.cells.get_mut(&(row, col)).ok_or_else(|| {
-            LatticeError::InvalidRange(format!("no cell at ({row}, {col})"))
-        })?;
+        let cell = self
+            .cells
+            .get_mut(&(row, col))
+            .ok_or_else(|| LatticeError::InvalidRange(format!("no cell at ({row}, {col})")))?;
         match &cell.value {
             CellValue::Checkbox(current) => {
                 let new_state = !current;
                 cell.value = CellValue::Checkbox(new_state);
                 Ok(new_state)
             }
-            _ => Err(LatticeError::InvalidRange(
-                "cell is not a checkbox".into(),
-            )),
+            _ => Err(LatticeError::InvalidRange("cell is not a checkbox".into())),
         }
     }
 
@@ -361,8 +355,14 @@ impl Sheet {
         // Check for overlap with existing merged regions
         for region in &self.merged_regions {
             if regions_overlap(
-                start_row, start_col, end_row, end_col, region.start_row, region.start_col,
-                region.end_row, region.end_col,
+                start_row,
+                start_col,
+                end_row,
+                end_col,
+                region.start_row,
+                region.start_col,
+                region.end_row,
+                region.end_col,
             ) {
                 return Err(LatticeError::InvalidRange(
                     "merge region overlaps an existing merged region".into(),
@@ -395,10 +395,7 @@ impl Sheet {
     /// was not part of any merged region.
     pub fn unmerge_cell(&mut self, row: u32, col: u32) -> Result<bool> {
         let idx = self.merged_regions.iter().position(|r| {
-            row >= r.start_row
-                && row <= r.end_row
-                && col >= r.start_col
-                && col <= r.end_col
+            row >= r.start_row && row <= r.end_row && col >= r.start_col && col <= r.end_col
         });
 
         match idx {
@@ -418,10 +415,7 @@ impl Sheet {
     /// Check if a cell is part of a merged region. If so, return the region.
     pub fn get_merged_region(&self, row: u32, col: u32) -> Option<&MergedRegion> {
         self.merged_regions.iter().find(|r| {
-            row >= r.start_row
-                && row <= r.end_row
-                && col >= r.start_col
-                && col <= r.end_col
+            row >= r.start_row && row <= r.end_row && col >= r.start_col && col <= r.end_col
         })
     }
 
@@ -563,9 +557,8 @@ impl Sheet {
         }
 
         // Update merged regions
-        self.merged_regions.retain(|r| {
-            !(r.start_row >= at_row && r.end_row < end_row)
-        });
+        self.merged_regions
+            .retain(|r| !(r.start_row >= at_row && r.end_row < end_row));
         for region in &mut self.merged_regions {
             if region.start_row >= end_row {
                 region.start_row -= count;
@@ -688,9 +681,7 @@ impl Sheet {
 
     /// Returns `true` if the sheet is currently protected.
     pub fn is_protected(&self) -> bool {
-        self.protection
-            .as_ref()
-            .map_or(false, |p| p.is_protected)
+        self.protection.as_ref().map_or(false, |p| p.is_protected)
     }
 
     // ----- Protected Ranges -----
@@ -715,10 +706,7 @@ impl Sheet {
     /// Check whether a cell at `(row, col)` falls inside any protected range.
     pub fn is_cell_protected(&self, row: u32, col: u32) -> bool {
         self.protected_ranges.iter().any(|pr| {
-            row >= pr.start_row
-                && row <= pr.end_row
-                && col >= pr.start_col
-                && col <= pr.end_col
+            row >= pr.start_row && row <= pr.end_row && col >= pr.start_col && col <= pr.end_col
         })
     }
 
@@ -760,9 +748,8 @@ impl Sheet {
         }
 
         // Update merged regions
-        self.merged_regions.retain(|r| {
-            !(r.start_col >= at_col && r.end_col < end_col)
-        });
+        self.merged_regions
+            .retain(|r| !(r.start_col >= at_col && r.end_col < end_col));
         for region in &mut self.merged_regions {
             if region.start_col >= end_col {
                 region.start_col -= count;
@@ -980,12 +967,7 @@ impl Sheet {
         let removed_count = rows_to_remove.len() as u32;
 
         // Find the maximum column in use so we know which cells to move.
-        let max_col = self
-            .cells
-            .keys()
-            .map(|(_, c)| *c)
-            .max()
-            .unwrap_or(0);
+        let max_col = self.cells.keys().map(|(_, c)| *c).max().unwrap_or(0);
 
         // Remove all cells in the duplicate rows.
         for &row in &rows_to_remove {
@@ -1030,8 +1012,7 @@ impl Sheet {
 
         for key in below_keys {
             if let Some(cell) = self.cells.remove(&key) {
-                self.cells
-                    .insert((key.0 - removed_count, key.1), cell);
+                self.cells.insert((key.0 - removed_count, key.1), cell);
             }
         }
 
@@ -1207,20 +1188,11 @@ mod tests {
 
         sheet.insert_rows(1, 2); // Insert 2 rows at row 1
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
         assert!(sheet.get_cell(1, 0).is_none()); // new empty row
         assert!(sheet.get_cell(2, 0).is_none()); // new empty row
-        assert_eq!(
-            sheet.get_cell(3, 0).unwrap().value,
-            CellValue::Number(2.0)
-        );
-        assert_eq!(
-            sheet.get_cell(4, 0).unwrap().value,
-            CellValue::Number(3.0)
-        );
+        assert_eq!(sheet.get_cell(3, 0).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(sheet.get_cell(4, 0).unwrap().value, CellValue::Number(3.0));
     }
 
     #[test]
@@ -1233,14 +1205,8 @@ mod tests {
 
         sheet.delete_rows(1, 2); // Delete rows 1-2
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
-        assert_eq!(
-            sheet.get_cell(1, 0).unwrap().value,
-            CellValue::Number(4.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Number(4.0));
         assert!(sheet.get_cell(2, 0).is_none());
     }
 
@@ -1253,20 +1219,11 @@ mod tests {
 
         sheet.insert_cols(1, 2); // Insert 2 columns at col 1
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
         assert!(sheet.get_cell(0, 1).is_none()); // new empty col
         assert!(sheet.get_cell(0, 2).is_none()); // new empty col
-        assert_eq!(
-            sheet.get_cell(0, 3).unwrap().value,
-            CellValue::Number(2.0)
-        );
-        assert_eq!(
-            sheet.get_cell(0, 4).unwrap().value,
-            CellValue::Number(3.0)
-        );
+        assert_eq!(sheet.get_cell(0, 3).unwrap().value, CellValue::Number(2.0));
+        assert_eq!(sheet.get_cell(0, 4).unwrap().value, CellValue::Number(3.0));
     }
 
     #[test]
@@ -1279,14 +1236,8 @@ mod tests {
 
         sheet.delete_cols(1, 2); // Delete cols 1-2
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
-        assert_eq!(
-            sheet.get_cell(0, 1).unwrap().value,
-            CellValue::Number(4.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(4.0));
         assert!(sheet.get_cell(0, 2).is_none());
     }
 
@@ -1511,14 +1462,8 @@ mod tests {
 
         sheet.text_to_columns(0, ",", 0, 0);
 
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(1.0)
-        );
-        assert_eq!(
-            sheet.get_cell(0, 1).unwrap().value,
-            CellValue::Number(2.5)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
+        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(2.5));
         assert_eq!(
             sheet.get_cell(0, 2).unwrap().value,
             CellValue::Text("hello".into())
@@ -1555,10 +1500,7 @@ mod tests {
         sheet.text_to_columns(0, ",", 0, 1);
 
         // Number cell should be untouched.
-        assert_eq!(
-            sheet.get_cell(0, 0).unwrap().value,
-            CellValue::Number(42.0)
-        );
+        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(42.0));
         // Text cell should be split.
         assert_eq!(
             sheet.get_cell(1, 0).unwrap().value,
@@ -1871,11 +1813,23 @@ mod tests {
         let removed = sheet.remove_duplicates(0, 2, &[0]);
         assert_eq!(removed, 1);
         // Row 0: Alice, 100 (kept)
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("Alice".into()));
-        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Number(100.0));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("Alice".into())
+        );
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Number(100.0)
+        );
         // Row 1: Bob, 200 (kept)
-        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("Bob".into()));
-        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Number(200.0));
+        assert_eq!(
+            sheet.get_cell(1, 0).unwrap().value,
+            CellValue::Text("Bob".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 1).unwrap().value,
+            CellValue::Number(200.0)
+        );
         // Row 2: should be empty
         assert!(sheet.get_cell(2, 0).is_none());
     }
@@ -1890,9 +1844,18 @@ mod tests {
         let removed = sheet.remove_duplicates(0, 2, &[0]);
         assert_eq!(removed, 0);
         // All rows should remain
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("A".into()));
-        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("B".into()));
-        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Text("C".into()));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("A".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 0).unwrap().value,
+            CellValue::Text("B".into())
+        );
+        assert_eq!(
+            sheet.get_cell(2, 0).unwrap().value,
+            CellValue::Text("C".into())
+        );
     }
 
     #[test]
@@ -1905,7 +1868,10 @@ mod tests {
         let removed = sheet.remove_duplicates(0, 2, &[0]);
         assert_eq!(removed, 2);
         // Only first row kept
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("Same".into()));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("Same".into())
+        );
         assert!(sheet.get_cell(1, 0).is_none());
         assert!(sheet.get_cell(2, 0).is_none());
     }
@@ -1926,8 +1892,14 @@ mod tests {
         let removed = sheet.remove_duplicates(0, 2, &[0, 1]);
         assert_eq!(removed, 1);
         // Row 0 kept, Row 1 kept (shifted to row 1), Row 2 removed
-        assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Text("NYC".into()));
-        assert_eq!(sheet.get_cell(1, 1).unwrap().value, CellValue::Text("LA".into()));
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Text("NYC".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 1).unwrap().value,
+            CellValue::Text("LA".into())
+        );
         assert!(sheet.get_cell(2, 0).is_none());
     }
 
@@ -1943,10 +1915,19 @@ mod tests {
         let removed = sheet.remove_duplicates(0, 2, &[0]);
         assert_eq!(removed, 1);
         // Row 0: A, Row 1: B (shifted up from row 2)
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Text("A".into()));
-        assert_eq!(sheet.get_cell(1, 0).unwrap().value, CellValue::Text("B".into()));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("A".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 0).unwrap().value,
+            CellValue::Text("B".into())
+        );
         // Row 2: "Below" shifted up from row 3
-        assert_eq!(sheet.get_cell(2, 0).unwrap().value, CellValue::Text("Below".into()));
+        assert_eq!(
+            sheet.get_cell(2, 0).unwrap().value,
+            CellValue::Text("Below".into())
+        );
         assert!(sheet.get_cell(3, 0).is_none());
     }
 
@@ -2010,9 +1991,7 @@ mod tests {
     fn test_set_array_formula_scalar() {
         let mut sheet = Sheet::new("S");
         let result = CellValue::Number(42.0);
-        sheet
-            .set_array_formula(0, 0, 0, 0, "42", &result)
-            .unwrap();
+        sheet.set_array_formula(0, 0, 0, 0, "42", &result).unwrap();
 
         let cell = sheet.get_cell(0, 0).unwrap();
         assert_eq!(cell.value, CellValue::Number(42.0));
@@ -2061,9 +2040,7 @@ mod tests {
         let mut sheet = Sheet::new("S");
         // Array is 1x1 but range is 2x2 -- excess cells get Empty
         let result = CellValue::Array(vec![vec![CellValue::Number(99.0)]]);
-        sheet
-            .set_array_formula(0, 0, 1, 1, "F", &result)
-            .unwrap();
+        sheet.set_array_formula(0, 0, 1, 1, "F", &result).unwrap();
 
         assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Number(99.0));
         assert_eq!(sheet.get_cell(0, 1).unwrap().value, CellValue::Empty);
@@ -2084,12 +2061,8 @@ mod tests {
     #[test]
     fn test_clear_array_formula_from_anchor() {
         let mut sheet = Sheet::new("S");
-        let result = CellValue::Array(vec![
-            vec![CellValue::Number(1.0), CellValue::Number(2.0)],
-        ]);
-        sheet
-            .set_array_formula(0, 0, 0, 1, "F", &result)
-            .unwrap();
+        let result = CellValue::Array(vec![vec![CellValue::Number(1.0), CellValue::Number(2.0)]]);
+        sheet.set_array_formula(0, 0, 0, 1, "F", &result).unwrap();
 
         let cleared = sheet.clear_array_formula(0, 0).unwrap();
         assert!(cleared);
@@ -2100,12 +2073,8 @@ mod tests {
     #[test]
     fn test_clear_array_formula_from_spill_cell() {
         let mut sheet = Sheet::new("S");
-        let result = CellValue::Array(vec![
-            vec![CellValue::Number(1.0), CellValue::Number(2.0)],
-        ]);
-        sheet
-            .set_array_formula(0, 0, 0, 1, "F", &result)
-            .unwrap();
+        let result = CellValue::Array(vec![vec![CellValue::Number(1.0), CellValue::Number(2.0)]]);
+        sheet.set_array_formula(0, 0, 0, 1, "F", &result).unwrap();
 
         // Clear from the non-anchor cell (0,1)
         let cleared = sheet.clear_array_formula(0, 1).unwrap();
@@ -2139,7 +2108,10 @@ mod tests {
         sheet.set_value(0, 0, CellValue::Checkbox(true));
         let new_state = sheet.toggle_checkbox(0, 0).unwrap();
         assert!(!new_state);
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(false));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Checkbox(false)
+        );
     }
 
     #[test]
@@ -2148,7 +2120,10 @@ mod tests {
         sheet.set_value(0, 0, CellValue::Checkbox(false));
         let new_state = sheet.toggle_checkbox(0, 0).unwrap();
         assert!(new_state);
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(true));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Checkbox(true)
+        );
     }
 
     #[test]
@@ -2170,7 +2145,10 @@ mod tests {
         sheet.set_value(0, 0, CellValue::Checkbox(true));
         sheet.toggle_checkbox(0, 0).unwrap();
         sheet.toggle_checkbox(0, 0).unwrap();
-        assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(true));
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Checkbox(true)
+        );
     }
 
     // --- Performance sanity tests ---

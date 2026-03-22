@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use hyper::{Method, Request, Response, StatusCode, body::Incoming};
 use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode, body::Incoming};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, broadcast};
@@ -58,16 +58,12 @@ pub async fn run_http(server: McpServer, port: u16) -> std::io::Result<()> {
                 async move { handle_request(req, server, sse_tx).await }
             });
 
-            if let Err(e) = hyper_util::server::conn::auto::Builder::new(
-                hyper_util::rt::TokioExecutor::new(),
-            )
-            .serve_connection(io, service)
-            .await
+            if let Err(e) =
+                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(io, service)
+                    .await
             {
-                eprintln!(
-                    "lattice: HTTP connection error from {}: {}",
-                    remote_addr, e
-                );
+                eprintln!("lattice: HTTP connection error from {}: {}", remote_addr, e);
             }
         });
     }
@@ -161,9 +157,7 @@ async fn handle_post_mcp(
 /// stream events from the broadcast channel, but that requires
 /// streaming body support. This provides the endpoint so clients can
 /// discover it.
-async fn handle_get_sse(
-    sse_tx: Arc<broadcast::Sender<String>>,
-) -> Response<Full<Bytes>> {
+async fn handle_get_sse(sse_tx: Arc<broadcast::Sender<String>>) -> Response<Full<Bytes>> {
     // Subscribe to the broadcast channel.
     let mut rx = sse_tx.subscribe();
 
@@ -227,10 +221,7 @@ fn not_found() -> Response<Full<Bytes>> {
 }
 
 /// Helper: build a JSON HTTP response with CORS headers.
-fn json_response(
-    status: StatusCode,
-    body: &serde_json::Value,
-) -> Response<Full<Bytes>> {
+fn json_response(status: StatusCode, body: &serde_json::Value) -> Response<Full<Bytes>> {
     Response::builder()
         .status(status)
         .header("Content-Type", "application/json")

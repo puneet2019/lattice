@@ -189,7 +189,10 @@ impl NumberFormat {
                     format!("#,##0.{}", "0".repeat(*decimal_places as usize))
                 }
             }
-            Self::Currency { symbol, decimal_places } => {
+            Self::Currency {
+                symbol,
+                decimal_places,
+            } => {
                 if *decimal_places == 0 {
                     format!("{}#,##0", symbol)
                 } else {
@@ -212,7 +215,10 @@ impl NumberFormat {
             }
             Self::Date { pattern } => pattern.clone(),
             Self::Time { pattern } => pattern.clone(),
-            Self::Accounting { symbol, decimal_places } => {
+            Self::Accounting {
+                symbol,
+                decimal_places,
+            } => {
                 if *decimal_places == 0 {
                     format!("{} #,##0", symbol)
                 } else {
@@ -309,11 +315,20 @@ fn format_number_with_separators(value: f64, decimal_places: u8) -> String {
     let separated: String = separated.chars().rev().collect();
     let result = if decimal_places > 0 {
         let frac = ((rounded - rounded.trunc()) * factor).round() as u64;
-        format!("{}.{:0>width$}", separated, frac, width = decimal_places as usize)
+        format!(
+            "{}.{:0>width$}",
+            separated,
+            frac,
+            width = decimal_places as usize
+        )
     } else {
         separated
     };
-    if is_negative { format!("-{}", result) } else { result }
+    if is_negative {
+        format!("-{}", result)
+    } else {
+        result
+    }
 }
 
 /// Smart "General" formatting: integers without decimals, floats with up to
@@ -328,7 +343,10 @@ fn format_general(n: f64) -> String {
         let mantissa: f64 = mantissa_str.parse().unwrap_or(n);
         let formatted = format!("{:.10}", mantissa * 10f64.powi(exp));
         if formatted.contains('.') {
-            formatted.trim_end_matches('0').trim_end_matches('.').to_string()
+            formatted
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
         } else {
             formatted
         }
@@ -356,9 +374,19 @@ fn format_scientific(n: f64, decimal_places: u8) -> String {
     let exp_sign = if exp >= 0 { "+" } else { "-" };
     let exp_abs = exp.unsigned_abs();
     if decimal_places == 0 {
-        format!("{}{}E{}{}", sign, mantissa_rounded as i64, exp_sign, exp_abs)
+        format!(
+            "{}{}E{}{}",
+            sign, mantissa_rounded as i64, exp_sign, exp_abs
+        )
     } else {
-        format!("{}{:.prec$}E{}{}", sign, mantissa_rounded, exp_sign, exp_abs, prec = decimal_places as usize)
+        format!(
+            "{}{:.prec$}E{}{}",
+            sign,
+            mantissa_rounded,
+            exp_sign,
+            exp_abs,
+            prec = decimal_places as usize
+        )
     }
 }
 
@@ -382,11 +410,23 @@ pub fn format_value(value: &CellValue, format: &NumberFormat) -> String {
     match value {
         CellValue::Empty => String::new(),
         CellValue::Text(s) => s.clone(),
-        CellValue::Boolean(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        CellValue::Boolean(b) => {
+            if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Number(n) => format_number(*n, format),
-        CellValue::Checkbox(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+        CellValue::Checkbox(b) => {
+            if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
         CellValue::Array(rows) => {
             // Show the first element of the array, or "{array}" if empty.
             rows.first()
@@ -404,10 +444,19 @@ fn format_number(n: f64, format: &NumberFormat) -> String {
     }
     match format {
         NumberFormat::General => format_general(n),
-        NumberFormat::Number { decimal_places } => format_number_with_separators(n, *decimal_places),
-        NumberFormat::Currency { symbol, decimal_places } => {
+        NumberFormat::Number { decimal_places } => {
+            format_number_with_separators(n, *decimal_places)
+        }
+        NumberFormat::Currency {
+            symbol,
+            decimal_places,
+        } => {
             let formatted = format_number_with_separators(n.abs(), *decimal_places);
-            if n < 0.0 { format!("-{}{}", symbol, formatted) } else { format!("{}{}", symbol, formatted) }
+            if n < 0.0 {
+                format!("-{}{}", symbol, formatted)
+            } else {
+                format!("{}{}", symbol, formatted)
+            }
         }
         NumberFormat::Percentage { decimal_places } => {
             let pct = n * 100.0;
@@ -422,9 +471,16 @@ fn format_number(n: f64, format: &NumberFormat) -> String {
         NumberFormat::Scientific { decimal_places } => format_scientific(n, *decimal_places),
         NumberFormat::Date { pattern } => format_date_pattern(n, pattern),
         NumberFormat::Time { pattern } => format_time_pattern(n, pattern),
-        NumberFormat::Accounting { symbol, decimal_places } => {
+        NumberFormat::Accounting {
+            symbol,
+            decimal_places,
+        } => {
             let formatted = format_number_with_separators(n.abs(), *decimal_places);
-            if n < 0.0 { format!("-{} {}", symbol, formatted) } else { format!("{} {}", symbol, formatted) }
+            if n < 0.0 {
+                format!("-{} {}", symbol, formatted)
+            } else {
+                format!("{} {}", symbol, formatted)
+            }
         }
         NumberFormat::Custom(_) => format_general(n), // Fallback to General
     }
@@ -444,32 +500,52 @@ mod tests {
 
     #[test]
     fn test_to_pattern_number() {
-        assert_eq!(NumberFormat::Number { decimal_places: 2 }.to_pattern(), "#,##0.00");
-        assert_eq!(NumberFormat::Number { decimal_places: 0 }.to_pattern(), "#,##0");
+        assert_eq!(
+            NumberFormat::Number { decimal_places: 2 }.to_pattern(),
+            "#,##0.00"
+        );
+        assert_eq!(
+            NumberFormat::Number { decimal_places: 0 }.to_pattern(),
+            "#,##0"
+        );
     }
 
     #[test]
     fn test_to_pattern_currency() {
         assert_eq!(
-            NumberFormat::Currency { symbol: "$".into(), decimal_places: 2 }.to_pattern(),
+            NumberFormat::Currency {
+                symbol: "$".into(),
+                decimal_places: 2
+            }
+            .to_pattern(),
             "$#,##0.00"
         );
     }
 
     #[test]
     fn test_to_pattern_percentage() {
-        assert_eq!(NumberFormat::Percentage { decimal_places: 1 }.to_pattern(), "0.0%");
+        assert_eq!(
+            NumberFormat::Percentage { decimal_places: 1 }.to_pattern(),
+            "0.0%"
+        );
     }
 
     #[test]
     fn test_to_pattern_scientific() {
-        assert_eq!(NumberFormat::Scientific { decimal_places: 2 }.to_pattern(), "0.00E+0");
+        assert_eq!(
+            NumberFormat::Scientific { decimal_places: 2 }.to_pattern(),
+            "0.00E+0"
+        );
     }
 
     #[test]
     fn test_to_pattern_accounting() {
         assert_eq!(
-            NumberFormat::Accounting { symbol: "$".into(), decimal_places: 2 }.to_pattern(),
+            NumberFormat::Accounting {
+                symbol: "$".into(),
+                decimal_places: 2
+            }
+            .to_pattern(),
             "$ #,##0.00"
         );
     }
@@ -483,33 +559,51 @@ mod tests {
 
     #[test]
     fn test_general_integer() {
-        assert_eq!(format_value(&CellValue::Number(42.0), &NumberFormat::General), "42");
+        assert_eq!(
+            format_value(&CellValue::Number(42.0), &NumberFormat::General),
+            "42"
+        );
     }
 
     #[test]
     fn test_general_float() {
-        assert_eq!(format_value(&CellValue::Number(3.14159), &NumberFormat::General), "3.14159");
+        assert_eq!(
+            format_value(&CellValue::Number(3.14159), &NumberFormat::General),
+            "3.14159"
+        );
     }
 
     #[test]
     fn test_general_zero() {
-        assert_eq!(format_value(&CellValue::Number(0.0), &NumberFormat::General), "0");
+        assert_eq!(
+            format_value(&CellValue::Number(0.0), &NumberFormat::General),
+            "0"
+        );
     }
 
     #[test]
     fn test_general_negative() {
-        assert_eq!(format_value(&CellValue::Number(-7.0), &NumberFormat::General), "-7");
+        assert_eq!(
+            format_value(&CellValue::Number(-7.0), &NumberFormat::General),
+            "-7"
+        );
     }
 
     #[test]
     fn test_general_large_integer() {
-        assert_eq!(format_value(&CellValue::Number(1000000.0), &NumberFormat::General), "1000000");
+        assert_eq!(
+            format_value(&CellValue::Number(1000000.0), &NumberFormat::General),
+            "1000000"
+        );
     }
 
     #[test]
     fn test_general_float_precision() {
         // 0.1 + 0.2 should display cleanly as "0.3"
-        assert_eq!(format_value(&CellValue::Number(0.1 + 0.2), &NumberFormat::General), "0.3");
+        assert_eq!(
+            format_value(&CellValue::Number(0.1 + 0.2), &NumberFormat::General),
+            "0.3"
+        );
     }
 
     // ── Number format ───────────────────────────────────────────────
@@ -517,7 +611,10 @@ mod tests {
     #[test]
     fn test_number_two_decimals() {
         assert_eq!(
-            format_value(&CellValue::Number(1234.5), &NumberFormat::Number { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(1234.5),
+                &NumberFormat::Number { decimal_places: 2 }
+            ),
             "1,234.50"
         );
     }
@@ -525,7 +622,10 @@ mod tests {
     #[test]
     fn test_number_zero_decimals() {
         assert_eq!(
-            format_value(&CellValue::Number(1234.567), &NumberFormat::Number { decimal_places: 0 }),
+            format_value(
+                &CellValue::Number(1234.567),
+                &NumberFormat::Number { decimal_places: 0 }
+            ),
             "1,235"
         );
     }
@@ -533,7 +633,10 @@ mod tests {
     #[test]
     fn test_number_negative() {
         assert_eq!(
-            format_value(&CellValue::Number(-9876.54), &NumberFormat::Number { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(-9876.54),
+                &NumberFormat::Number { decimal_places: 2 }
+            ),
             "-9,876.54"
         );
     }
@@ -541,7 +644,10 @@ mod tests {
     #[test]
     fn test_number_small() {
         assert_eq!(
-            format_value(&CellValue::Number(0.5), &NumberFormat::Number { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(0.5),
+                &NumberFormat::Number { decimal_places: 2 }
+            ),
             "0.50"
         );
     }
@@ -550,20 +656,32 @@ mod tests {
 
     #[test]
     fn test_currency_positive() {
-        let fmt = NumberFormat::Currency { symbol: "$".into(), decimal_places: 2 };
+        let fmt = NumberFormat::Currency {
+            symbol: "$".into(),
+            decimal_places: 2,
+        };
         assert_eq!(format_value(&CellValue::Number(1234.5), &fmt), "$1,234.50");
     }
 
     #[test]
     fn test_currency_negative() {
-        let fmt = NumberFormat::Currency { symbol: "$".into(), decimal_places: 2 };
+        let fmt = NumberFormat::Currency {
+            symbol: "$".into(),
+            decimal_places: 2,
+        };
         assert_eq!(format_value(&CellValue::Number(-50.0), &fmt), "-$50.00");
     }
 
     #[test]
     fn test_currency_euro() {
-        let fmt = NumberFormat::Currency { symbol: "\u{20ac}".into(), decimal_places: 2 };
-        assert_eq!(format_value(&CellValue::Number(99.9), &fmt), "\u{20ac}99.90");
+        let fmt = NumberFormat::Currency {
+            symbol: "\u{20ac}".into(),
+            decimal_places: 2,
+        };
+        assert_eq!(
+            format_value(&CellValue::Number(99.9), &fmt),
+            "\u{20ac}99.90"
+        );
     }
 
     // ── Percentage format ───────────────────────────────────────────
@@ -571,7 +689,10 @@ mod tests {
     #[test]
     fn test_percentage_one_decimal() {
         assert_eq!(
-            format_value(&CellValue::Number(0.455), &NumberFormat::Percentage { decimal_places: 1 }),
+            format_value(
+                &CellValue::Number(0.455),
+                &NumberFormat::Percentage { decimal_places: 1 }
+            ),
             "45.5%"
         );
     }
@@ -579,7 +700,10 @@ mod tests {
     #[test]
     fn test_percentage_zero_decimals() {
         assert_eq!(
-            format_value(&CellValue::Number(0.867), &NumberFormat::Percentage { decimal_places: 0 }),
+            format_value(
+                &CellValue::Number(0.867),
+                &NumberFormat::Percentage { decimal_places: 0 }
+            ),
             "87%"
         );
     }
@@ -587,7 +711,10 @@ mod tests {
     #[test]
     fn test_percentage_negative() {
         assert_eq!(
-            format_value(&CellValue::Number(-0.05), &NumberFormat::Percentage { decimal_places: 1 }),
+            format_value(
+                &CellValue::Number(-0.05),
+                &NumberFormat::Percentage { decimal_places: 1 }
+            ),
             "-5.0%"
         );
     }
@@ -597,7 +724,10 @@ mod tests {
     #[test]
     fn test_scientific_basic() {
         assert_eq!(
-            format_value(&CellValue::Number(12345.0), &NumberFormat::Scientific { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(12345.0),
+                &NumberFormat::Scientific { decimal_places: 2 }
+            ),
             "1.23E+4"
         );
     }
@@ -605,7 +735,10 @@ mod tests {
     #[test]
     fn test_scientific_small() {
         assert_eq!(
-            format_value(&CellValue::Number(0.00456), &NumberFormat::Scientific { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(0.00456),
+                &NumberFormat::Scientific { decimal_places: 2 }
+            ),
             "4.56E-3"
         );
     }
@@ -613,7 +746,10 @@ mod tests {
     #[test]
     fn test_scientific_negative() {
         assert_eq!(
-            format_value(&CellValue::Number(-12345.0), &NumberFormat::Scientific { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(-12345.0),
+                &NumberFormat::Scientific { decimal_places: 2 }
+            ),
             "-1.23E+4"
         );
     }
@@ -621,7 +757,10 @@ mod tests {
     #[test]
     fn test_scientific_zero() {
         assert_eq!(
-            format_value(&CellValue::Number(0.0), &NumberFormat::Scientific { decimal_places: 2 }),
+            format_value(
+                &CellValue::Number(0.0),
+                &NumberFormat::Scientific { decimal_places: 2 }
+            ),
             "0.00E+0"
         );
     }
@@ -630,59 +769,89 @@ mod tests {
 
     #[test]
     fn test_date_serial_1() {
-        let fmt = NumberFormat::Date { pattern: "MM/DD/YYYY".into() };
+        let fmt = NumberFormat::Date {
+            pattern: "MM/DD/YYYY".into(),
+        };
         assert_eq!(format_value(&CellValue::Number(1.0), &fmt), "01/01/1900");
     }
 
     #[test]
     fn test_date_serial_59() {
-        let fmt = NumberFormat::Date { pattern: "MM/DD/YYYY".into() };
+        let fmt = NumberFormat::Date {
+            pattern: "MM/DD/YYYY".into(),
+        };
         assert_eq!(format_value(&CellValue::Number(59.0), &fmt), "02/28/1900");
     }
 
     #[test]
     fn test_date_serial_61() {
         // Serial 61 = Mar 1, 1900 (serial 60 is phantom Feb 29)
-        let fmt = NumberFormat::Date { pattern: "MM/DD/YYYY".into() };
+        let fmt = NumberFormat::Date {
+            pattern: "MM/DD/YYYY".into(),
+        };
         assert_eq!(format_value(&CellValue::Number(61.0), &fmt), "03/01/1900");
     }
 
     #[test]
     fn test_date_serial_45000() {
         // Serial 45000 = March 15, 2023 (verified by counting from serial 44927 = Jan 1, 2023)
-        let fmt = NumberFormat::Date { pattern: "MM/DD/YYYY".into() };
-        assert_eq!(format_value(&CellValue::Number(45000.0), &fmt), "03/15/2023");
+        let fmt = NumberFormat::Date {
+            pattern: "MM/DD/YYYY".into(),
+        };
+        assert_eq!(
+            format_value(&CellValue::Number(45000.0), &fmt),
+            "03/15/2023"
+        );
     }
 
     #[test]
     fn test_date_iso_format() {
-        let fmt = NumberFormat::Date { pattern: "YYYY-MM-DD".into() };
-        assert_eq!(format_value(&CellValue::Number(45000.0), &fmt), "2023-03-15");
+        let fmt = NumberFormat::Date {
+            pattern: "YYYY-MM-DD".into(),
+        };
+        assert_eq!(
+            format_value(&CellValue::Number(45000.0), &fmt),
+            "2023-03-15"
+        );
     }
 
     #[test]
     fn test_date_jan_1_2000() {
-        let fmt = NumberFormat::Date { pattern: "YYYY-MM-DD".into() };
-        assert_eq!(format_value(&CellValue::Number(36526.0), &fmt), "2000-01-01");
+        let fmt = NumberFormat::Date {
+            pattern: "YYYY-MM-DD".into(),
+        };
+        assert_eq!(
+            format_value(&CellValue::Number(36526.0), &fmt),
+            "2000-01-01"
+        );
     }
 
     #[test]
     fn test_date_jan_1_2024() {
-        let fmt = NumberFormat::Date { pattern: "YYYY-MM-DD".into() };
-        assert_eq!(format_value(&CellValue::Number(45292.0), &fmt), "2024-01-01");
+        let fmt = NumberFormat::Date {
+            pattern: "YYYY-MM-DD".into(),
+        };
+        assert_eq!(
+            format_value(&CellValue::Number(45292.0), &fmt),
+            "2024-01-01"
+        );
     }
 
     // ── Time format ─────────────────────────────────────────────────
 
     #[test]
     fn test_time_noon() {
-        let fmt = NumberFormat::Time { pattern: "HH:MM:SS".into() };
+        let fmt = NumberFormat::Time {
+            pattern: "HH:MM:SS".into(),
+        };
         assert_eq!(format_value(&CellValue::Number(0.5), &fmt), "12:00:00");
     }
 
     #[test]
     fn test_time_quarter_day() {
-        let fmt = NumberFormat::Time { pattern: "HH:MM:SS".into() };
+        let fmt = NumberFormat::Time {
+            pattern: "HH:MM:SS".into(),
+        };
         assert_eq!(format_value(&CellValue::Number(0.25), &fmt), "06:00:00");
     }
 
@@ -690,13 +859,19 @@ mod tests {
 
     #[test]
     fn test_accounting_positive() {
-        let fmt = NumberFormat::Accounting { symbol: "$".into(), decimal_places: 2 };
+        let fmt = NumberFormat::Accounting {
+            symbol: "$".into(),
+            decimal_places: 2,
+        };
         assert_eq!(format_value(&CellValue::Number(1234.5), &fmt), "$ 1,234.50");
     }
 
     #[test]
     fn test_accounting_negative() {
-        let fmt = NumberFormat::Accounting { symbol: "$".into(), decimal_places: 2 };
+        let fmt = NumberFormat::Accounting {
+            symbol: "$".into(),
+            decimal_places: 2,
+        };
         assert_eq!(format_value(&CellValue::Number(-50.0), &fmt), "-$ 50.00");
     }
 
@@ -704,42 +879,75 @@ mod tests {
 
     #[test]
     fn test_format_empty() {
-        assert_eq!(format_value(&CellValue::Empty, &NumberFormat::Number { decimal_places: 2 }), "");
+        assert_eq!(
+            format_value(
+                &CellValue::Empty,
+                &NumberFormat::Number { decimal_places: 2 }
+            ),
+            ""
+        );
     }
 
     #[test]
     fn test_format_text() {
         assert_eq!(
-            format_value(&CellValue::Text("hello".into()), &NumberFormat::Number { decimal_places: 2 }),
+            format_value(
+                &CellValue::Text("hello".into()),
+                &NumberFormat::Number { decimal_places: 2 }
+            ),
             "hello"
         );
     }
 
     #[test]
     fn test_format_boolean() {
-        assert_eq!(format_value(&CellValue::Boolean(true), &NumberFormat::General), "TRUE");
-        assert_eq!(format_value(&CellValue::Boolean(false), &NumberFormat::General), "FALSE");
+        assert_eq!(
+            format_value(&CellValue::Boolean(true), &NumberFormat::General),
+            "TRUE"
+        );
+        assert_eq!(
+            format_value(&CellValue::Boolean(false), &NumberFormat::General),
+            "FALSE"
+        );
     }
 
     #[test]
     fn test_format_error() {
-        assert_eq!(format_value(&CellValue::Error(CellError::DivZero), &NumberFormat::General), "#DIV/0!");
+        assert_eq!(
+            format_value(
+                &CellValue::Error(CellError::DivZero),
+                &NumberFormat::General
+            ),
+            "#DIV/0!"
+        );
     }
 
     #[test]
     fn test_format_nan() {
-        assert_eq!(format_value(&CellValue::Number(f64::NAN), &NumberFormat::General), "#NUM!");
+        assert_eq!(
+            format_value(&CellValue::Number(f64::NAN), &NumberFormat::General),
+            "#NUM!"
+        );
     }
 
     #[test]
     fn test_format_infinity() {
-        assert_eq!(format_value(&CellValue::Number(f64::INFINITY), &NumberFormat::General), "#NUM!");
+        assert_eq!(
+            format_value(&CellValue::Number(f64::INFINITY), &NumberFormat::General),
+            "#NUM!"
+        );
     }
 
     #[test]
     fn test_custom_format_fallback() {
         // Custom patterns fall back to General formatting for now
-        assert_eq!(format_value(&CellValue::Number(42.0), &NumberFormat::Custom("#,##0.00".into())), "42");
+        assert_eq!(
+            format_value(
+                &CellValue::Number(42.0),
+                &NumberFormat::Custom("#,##0.00".into())
+            ),
+            "42"
+        );
     }
 
     // ── Borders ────────────────────────────────────────────────────────
@@ -756,10 +964,19 @@ mod tests {
     #[test]
     fn test_cell_borders_with_edges() {
         let borders = CellBorders {
-            top: Some(Border { style: BorderStyle::Thin, color: "#000000".into() }),
-            bottom: Some(Border { style: BorderStyle::Thick, color: "#FF0000".into() }),
+            top: Some(Border {
+                style: BorderStyle::Thin,
+                color: "#000000".into(),
+            }),
+            bottom: Some(Border {
+                style: BorderStyle::Thick,
+                color: "#FF0000".into(),
+            }),
             left: None,
-            right: Some(Border { style: BorderStyle::Dashed, color: "#00FF00".into() }),
+            right: Some(Border {
+                style: BorderStyle::Dashed,
+                color: "#00FF00".into(),
+            }),
         };
         assert_eq!(borders.top.as_ref().unwrap().style, BorderStyle::Thin);
         assert_eq!(borders.bottom.as_ref().unwrap().color, "#FF0000");
@@ -771,8 +988,12 @@ mod tests {
     fn test_border_style_variants() {
         // Ensure all variants are distinct
         let styles = vec![
-            BorderStyle::None, BorderStyle::Thin, BorderStyle::Medium,
-            BorderStyle::Thick, BorderStyle::Dashed, BorderStyle::Dotted,
+            BorderStyle::None,
+            BorderStyle::Thin,
+            BorderStyle::Medium,
+            BorderStyle::Thick,
+            BorderStyle::Dashed,
+            BorderStyle::Dotted,
             BorderStyle::Double,
         ];
         for (i, a) in styles.iter().enumerate() {
@@ -848,7 +1069,10 @@ mod tests {
     fn test_cell_format_with_borders() {
         let fmt = CellFormat {
             borders: CellBorders {
-                top: Some(Border { style: BorderStyle::Medium, color: "#333333".into() }),
+                top: Some(Border {
+                    style: BorderStyle::Medium,
+                    color: "#333333".into(),
+                }),
                 ..CellBorders::default()
             },
             ..CellFormat::default()
@@ -888,9 +1112,7 @@ mod tests {
 
     #[test]
     fn test_format_array_shows_first_element() {
-        let arr = CellValue::Array(vec![
-            vec![CellValue::Number(42.0), CellValue::Number(99.0)],
-        ]);
+        let arr = CellValue::Array(vec![vec![CellValue::Number(42.0), CellValue::Number(99.0)]]);
         assert_eq!(format_value(&arr, &NumberFormat::General), "42");
     }
 
@@ -908,19 +1130,21 @@ mod tests {
 
     #[test]
     fn test_format_array_with_text_first() {
-        let arr = CellValue::Array(vec![
-            vec![CellValue::Text("hello".into())],
-        ]);
+        let arr = CellValue::Array(vec![vec![CellValue::Text("hello".into())]]);
         assert_eq!(format_value(&arr, &NumberFormat::General), "hello");
     }
 
     #[test]
     fn test_format_array_respects_number_format() {
-        let arr = CellValue::Array(vec![
-            vec![CellValue::Number(1234.5)],
-        ]);
+        let arr = CellValue::Array(vec![vec![CellValue::Number(1234.5)]]);
         assert_eq!(
-            format_value(&arr, &NumberFormat::Currency { symbol: "$".into(), decimal_places: 2 }),
+            format_value(
+                &arr,
+                &NumberFormat::Currency {
+                    symbol: "$".into(),
+                    decimal_places: 2
+                }
+            ),
             "$1,234.50"
         );
     }

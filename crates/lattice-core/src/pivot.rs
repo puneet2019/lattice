@@ -195,12 +195,7 @@ pub fn generate_pivot(workbook: &Workbook, config: &PivotConfig) -> Result<Pivot
         // Compute each value field aggregation.
         for pv in &config.value_fields {
             let abs_col = range_start_col + pv.source_col;
-            let aggregated = compute_aggregation(
-                &pv.aggregation,
-                row_indices,
-                abs_col,
-                sheet,
-            );
+            let aggregated = compute_aggregation(&pv.aggregation, row_indices, abs_col, sheet);
             result_row.push(aggregated);
         }
 
@@ -414,7 +409,10 @@ mod tests {
 
         let result = generate_pivot(&wb, &config).unwrap();
 
-        assert_eq!(result.headers, vec!["Region", "Product", "Average of Amount"]);
+        assert_eq!(
+            result.headers,
+            vec!["Region", "Product", "Average of Amount"]
+        );
         // Groups: (East, Gadget), (East, Widget), (West, Gadget), (West, Widget)
         assert_eq!(result.rows.len(), 4);
 

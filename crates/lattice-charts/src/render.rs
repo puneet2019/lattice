@@ -5,10 +5,10 @@
 //! the `types` module. The legacy `render_to_svg` function is kept for
 //! backward compatibility.
 
+use crate::Chart;
 use crate::chart::{ChartData, ChartOptions, ChartType};
 use crate::svg::xml_escape;
 use crate::types;
-use crate::Chart;
 
 /// Render chart data to an SVG string based on the given chart type.
 ///

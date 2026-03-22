@@ -87,7 +87,10 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                                 | Token::Comparison(_)
                         )
                     );
-                if is_unary && i + 1 < chars.len() && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.') {
+                if is_unary
+                    && i + 1 < chars.len()
+                    && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.')
+                {
                     // Negative number literal
                     let start = i;
                     i += 1; // skip the '-'

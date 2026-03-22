@@ -134,10 +134,7 @@ pub async fn redo(state: State<'_, AppState>) -> Result<(), String> {
             s.insert_rows(row, count);
         }
         Operation::DeleteRows {
-            sheet,
-            row,
-            count,
-            ..
+            sheet, row, count, ..
         } => {
             let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
             s.delete_rows(row, count);
@@ -147,10 +144,7 @@ pub async fn redo(state: State<'_, AppState>) -> Result<(), String> {
             s.insert_cols(col, count);
         }
         Operation::DeleteCols {
-            sheet,
-            col,
-            count,
-            ..
+            sheet, col, count, ..
         } => {
             let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
             s.delete_cols(col, count);

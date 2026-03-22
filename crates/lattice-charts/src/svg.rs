@@ -51,7 +51,11 @@ pub struct AxisScale {
 pub fn compute_axis_scale(data_min: f64, data_max: f64) -> AxisScale {
     if (data_max - data_min).abs() < f64::EPSILON {
         let v = data_min;
-        let padding = if v.abs() < f64::EPSILON { 1.0 } else { v.abs() * 0.1 };
+        let padding = if v.abs() < f64::EPSILON {
+            1.0
+        } else {
+            v.abs() * 0.1
+        };
         return compute_axis_scale(v - padding, v + padding);
     }
 
@@ -113,14 +117,7 @@ pub fn format_axis_value(v: f64) -> String {
 }
 
 /// Build an SVG `<text>` element.
-pub fn svg_text(
-    x: f64,
-    y: f64,
-    anchor: &str,
-    font_size: u32,
-    fill: &str,
-    content: &str,
-) -> String {
+pub fn svg_text(x: f64, y: f64, anchor: &str, font_size: u32, fill: &str, content: &str) -> String {
     format!(
         r#"<text x="{x:.1}" y="{y:.1}" text-anchor="{anchor}" font-family="sans-serif" font-size="{font_size}" fill="{fill}">{}</text>"#,
         xml_escape(content)
@@ -203,14 +200,7 @@ pub fn svg_close() -> &'static str {
 /// Render the chart title.
 pub fn svg_title(options: &ChartOptions) -> String {
     match &options.title {
-        Some(t) => svg_text(
-            options.width as f64 / 2.0,
-            28.0,
-            "middle",
-            16,
-            "#333333",
-            t,
-        ),
+        Some(t) => svg_text(options.width as f64 / 2.0, 28.0, "middle", 16, "#333333", t),
         None => String::new(),
     }
 }
@@ -236,11 +226,7 @@ pub fn svg_axis_labels(options: &ChartOptions, margins: &Margins) -> String {
 }
 
 /// Render horizontal grid lines for the y-axis.
-pub fn svg_grid_lines(
-    scale: &AxisScale,
-    margins: &Margins,
-    options: &ChartOptions,
-) -> String {
+pub fn svg_grid_lines(scale: &AxisScale, margins: &Margins, options: &ChartOptions) -> String {
     if !options.show_grid {
         return String::new();
     }
@@ -275,11 +261,7 @@ pub fn svg_grid_lines(
 }
 
 /// Render a legend for multiple data series.
-pub fn svg_legend(
-    data: &ChartData,
-    margins: &Margins,
-    options: &ChartOptions,
-) -> String {
+pub fn svg_legend(data: &ChartData, margins: &Margins, options: &ChartOptions) -> String {
     if !options.show_legend || data.series.len() <= 1 {
         return String::new();
     }
@@ -306,15 +288,15 @@ pub fn data_range(data: &ChartData) -> (f64, f64) {
     let mut max = f64::NEG_INFINITY;
     for s in &data.series {
         for &v in &s.values {
-            if v < min { min = v; }
-            if v > max { max = v; }
+            if v < min {
+                min = v;
+            }
+            if v > max {
+                max = v;
+            }
         }
     }
-    if min > max {
-        (0.0, 1.0)
-    } else {
-        (min, max)
-    }
+    if min > max { (0.0, 1.0) } else { (min, max) }
 }
 
 /// Find the global min/max, ensuring 0 is included (useful for bar/area charts).

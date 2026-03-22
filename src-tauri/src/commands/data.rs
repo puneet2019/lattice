@@ -91,11 +91,7 @@ pub async fn insert_rows(
     s.insert_rows(row, count);
 
     let mut stack = state.undo_stack.write().await;
-    stack.push(Operation::InsertRows {
-        sheet,
-        row,
-        count,
-    });
+    stack.push(Operation::InsertRows { sheet, row, count });
 
     Ok(())
 }
@@ -152,11 +148,7 @@ pub async fn insert_cols(
     s.insert_cols(col, count);
 
     let mut stack = state.undo_stack.write().await;
-    stack.push(Operation::InsertCols {
-        sheet,
-        col,
-        count,
-    });
+    stack.push(Operation::InsertCols { sheet, col, count });
 
     Ok(())
 }

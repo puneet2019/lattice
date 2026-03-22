@@ -7,10 +7,10 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_io::cloud::{CloudFile, CloudProvider};
 use lattice_io::cloud::dropbox::DropboxProvider;
 use lattice_io::cloud::google_drive::GoogleDriveProvider;
 use lattice_io::cloud::icloud::ICloudProvider;
+use lattice_io::cloud::{CloudFile, CloudProvider};
 use lattice_io::{read_xlsx, write_atomic};
 
 use crate::state::AppState;
@@ -92,9 +92,7 @@ pub async fn save_to_cloud(
     drop(workbook);
 
     // Upload to the cloud provider.
-    let cloud_file = p
-        .upload(&temp_path, &name)
-        .map_err(|e| e.to_string())?;
+    let cloud_file = p.upload(&temp_path, &name).map_err(|e| e.to_string())?;
 
     // Clean up the temp file.
     let _ = std::fs::remove_file(&temp_path);

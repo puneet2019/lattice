@@ -5,7 +5,7 @@
 //! Labels are placed inside each rectangle.
 
 use crate::chart::{ChartData, ChartOptions};
-use crate::svg::{series_color, svg_close, svg_open, svg_text, svg_title, xml_escape, Margins};
+use crate::svg::{Margins, series_color, svg_close, svg_open, svg_text, svg_title, xml_escape};
 
 /// Render treemap chart data as an SVG string.
 ///

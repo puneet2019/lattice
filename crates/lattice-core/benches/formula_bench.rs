@@ -3,8 +3,8 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 
 use lattice_core::cell::CellValue;
-use lattice_core::formula::evaluator::SimpleEvaluator;
 use lattice_core::formula::FormulaEngine;
+use lattice_core::formula::evaluator::SimpleEvaluator;
 use lattice_core::sheet::Sheet;
 
 /// Create a sheet pre-populated with numeric values in column A.

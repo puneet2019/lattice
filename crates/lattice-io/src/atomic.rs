@@ -107,13 +107,12 @@ mod tests {
         let entries: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with(".lattice-tmp-")
-            })
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".lattice-tmp-"))
             .collect();
-        assert!(entries.is_empty(), "temp files should not remain in target dir");
+        assert!(
+            entries.is_empty(),
+            "temp files should not remain in target dir"
+        );
     }
 
     #[test]

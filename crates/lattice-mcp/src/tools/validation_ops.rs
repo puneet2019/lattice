@@ -116,9 +116,9 @@ pub fn handle_set_validation(workbook: &mut Workbook, args: Value) -> Result<Val
 
     let validation_type = match args.rule_type.as_str() {
         "list" => {
-            let items = args.list_items.ok_or(
-                "list_items is required for rule_type 'list'".to_string(),
-            )?;
+            let items = args
+                .list_items
+                .ok_or("list_items is required for rule_type 'list'".to_string())?;
             if items.is_empty() {
                 return Err("list_items must not be empty".to_string());
             }
@@ -135,14 +135,22 @@ pub fn handle_set_validation(workbook: &mut Workbook, args: Value) -> Result<Val
             ValidationType::DateRange { min, max }
         }
         "text_length" => {
-            let min = args.min.as_ref().and_then(|v| v.as_u64()).map(|n| n as usize);
-            let max = args.max.as_ref().and_then(|v| v.as_u64()).map(|n| n as usize);
+            let min = args
+                .min
+                .as_ref()
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
+            let max = args
+                .max
+                .as_ref()
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
             ValidationType::TextLength { min, max }
         }
         "custom" => {
-            let formula = args.formula.ok_or(
-                "formula is required for rule_type 'custom'".to_string(),
-            )?;
+            let formula = args
+                .formula
+                .ok_or("formula is required for rule_type 'custom'".to_string())?;
             ValidationType::Custom(formula)
         }
         other => {
@@ -178,7 +186,10 @@ pub fn handle_get_validation(workbook: &Workbook, args: Value) -> Result<Value, 
 
     let cell = CellRef::parse(&args.cell_ref).map_err(|e| e.to_string())?;
 
-    match workbook.validations.get_rule(&args.sheet, cell.row, cell.col) {
+    match workbook
+        .validations
+        .get_rule(&args.sheet, cell.row, cell.col)
+    {
         Some(rule) => Ok(json!({
             "has_validation": true,
             "sheet": args.sheet,
@@ -218,7 +229,10 @@ pub fn handle_validate_cell(workbook: &Workbook, args: Value) -> Result<Value, S
 
     let cell = CellRef::parse(&args.cell_ref).map_err(|e| e.to_string())?;
 
-    let rule = match workbook.validations.get_rule(&args.sheet, cell.row, cell.col) {
+    let rule = match workbook
+        .validations
+        .get_rule(&args.sheet, cell.row, cell.col)
+    {
         Some(r) => r,
         None => {
             return Ok(json!({
@@ -333,7 +347,8 @@ mod tests {
         let result = handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "custom", "formula": "=A1>0"}),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(result["success"], true);
     }
 
@@ -374,7 +389,8 @@ mod tests {
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "number_range", "min": 0, "max": 100}),
         ).unwrap();
-        let result = handle_get_validation(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_get_validation(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["has_validation"], true);
         assert_eq!(result["rule"]["validation_type"]["type"], "number_range");
     }
@@ -382,7 +398,8 @@ mod tests {
     #[test]
     fn test_get_validation_not_exists() {
         let wb = Workbook::new();
-        let result = handle_get_validation(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_get_validation(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["has_validation"], false);
     }
 
@@ -392,8 +409,11 @@ mod tests {
         handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "number_range", "min": 0}),
-        ).unwrap();
-        let result = handle_remove_validation(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        )
+        .unwrap();
+        let result =
+            handle_remove_validation(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "A1"}))
+                .unwrap();
         assert_eq!(result["success"], true);
         assert!(wb.validations.get_rule("Sheet1", 0, 0).is_none());
     }
@@ -401,12 +421,14 @@ mod tests {
     #[test]
     fn test_validate_cell_passes() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(50.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(50.0))
+            .unwrap();
         handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "number_range", "min": 0, "max": 100}),
         ).unwrap();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], true);
         assert_eq!(result["has_validation"], true);
     }
@@ -414,12 +436,14 @@ mod tests {
     #[test]
     fn test_validate_cell_fails() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(150.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(150.0))
+            .unwrap();
         handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "number_range", "min": 0, "max": 100, "error_message": "Value must be between 0 and 100"}),
         ).unwrap();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], false);
         assert_eq!(result["error_message"], "Value must be between 0 and 100");
     }
@@ -427,7 +451,8 @@ mod tests {
     #[test]
     fn test_validate_cell_no_rule() {
         let wb = Workbook::new();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], true);
         assert_eq!(result["has_validation"], false);
     }
@@ -435,24 +460,28 @@ mod tests {
     #[test]
     fn test_validate_cell_list_valid() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Yes".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Yes".into()))
+            .unwrap();
         handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "list", "list_items": ["Yes", "No"]}),
         ).unwrap();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], true);
     }
 
     #[test]
     fn test_validate_cell_list_invalid() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Maybe".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Maybe".into()))
+            .unwrap();
         handle_set_validation(
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "list", "list_items": ["Yes", "No"]}),
         ).unwrap();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], false);
     }
 
@@ -463,7 +492,8 @@ mod tests {
             &mut wb,
             json!({"sheet": "Sheet1", "cell_ref": "A1", "rule_type": "number_range", "min": 0, "max": 100, "allow_blank": true}),
         ).unwrap();
-        let result = handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
+        let result =
+            handle_validate_cell(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["valid"], true);
     }
 }

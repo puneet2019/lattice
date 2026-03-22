@@ -6,10 +6,10 @@
 
 use crate::cell::{CellError, CellValue};
 use crate::error::{LatticeError, Result};
-use crate::formula::{FormulaEngine, SheetResolver};
 use crate::formula::parser::{Token, tokenize};
 use crate::formula::query;
 use crate::formula::query_exec;
+use crate::formula::{FormulaEngine, SheetResolver};
 use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
@@ -384,12 +384,11 @@ fn coerce_to_bool(val: &CellValue) -> Result<bool> {
         CellValue::Empty => Ok(false),
         CellValue::Error(e) => Err(LatticeError::FormulaError(format!("cell error: {e}"))),
         CellValue::Date(_) => Ok(true),
-        CellValue::Array(rows) => {
-            rows.first()
-                .and_then(|r| r.first())
-                .map(|v| coerce_to_bool(v))
-                .unwrap_or(Ok(false))
-        }
+        CellValue::Array(rows) => rows
+            .first()
+            .and_then(|r| r.first())
+            .map(|v| coerce_to_bool(v))
+            .unwrap_or(Ok(false)),
     }
 }
 
@@ -414,12 +413,11 @@ fn coerce_to_string(val: &CellValue) -> String {
         CellValue::Empty => String::new(),
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
-        CellValue::Array(rows) => {
-            rows.first()
-                .and_then(|r| r.first())
-                .map(|v| coerce_to_string(v))
-                .unwrap_or_default()
-        }
+        CellValue::Array(rows) => rows
+            .first()
+            .and_then(|r| r.first())
+            .map(|v| coerce_to_string(v))
+            .unwrap_or_default(),
     }
 }
 
@@ -523,11 +521,7 @@ fn resolve_range_numbers(start_ref: &str, end_ref: &str, sheet: &Sheet) -> Resul
 }
 
 /// Resolve a range to a 2D grid of CellValues.
-fn resolve_range_2d(
-    start_ref: &str,
-    end_ref: &str,
-    sheet: &Sheet,
-) -> Result<Vec<Vec<CellValue>>> {
+fn resolve_range_2d(start_ref: &str, end_ref: &str, sheet: &Sheet) -> Result<Vec<Vec<CellValue>>> {
     let start = parse_cell_ref(start_ref)?;
     let end = parse_cell_ref(end_ref)?;
     let r_min = start.row.min(end.row);
@@ -590,7 +584,9 @@ fn collect_values(args: &[FuncArg], ctx: &EvalCtx<'_>) -> Result<Vec<CellValue>>
                 vals.extend(resolve_range_values(start, end, ctx.sheet)?);
             }
             FuncArg::SheetRange(sheet_name, start, end) => {
-                vals.extend(resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?);
+                vals.extend(resolve_cross_sheet_range_values(
+                    sheet_name, start, end, ctx,
+                )?);
             }
             FuncArg::Value(v) => vals.push(v.clone()),
         }
@@ -662,7 +658,9 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                     "AVERAGE: no numeric values".into(),
                 ));
             }
-            Ok(CellValue::Number(nums.iter().sum::<f64>() / nums.len() as f64))
+            Ok(CellValue::Number(
+                nums.iter().sum::<f64>() / nums.len() as f64,
+            ))
         }
         "COUNT" => {
             let vals = collect_values(&args, ctx)?;
@@ -1141,11 +1139,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let chars: Vec<char> = s.chars().collect();
             let start_idx = start.saturating_sub(1); // 1-based to 0-based
-            let result: String = chars
-                .iter()
-                .skip(start_idx)
-                .take(len)
-                .collect();
+            let result: String = chars.iter().skip(start_idx).take(len).collect();
             Ok(CellValue::Text(result))
         }
         "LEN" => {
@@ -1673,9 +1667,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                     CellValue::Number(n) => *n != 0.0,
                     _ => false,
                 };
-                if is_true
-                    && let Some(v) = data_vals.get(i)
-                {
+                if is_true && let Some(v) = data_vals.get(i) {
                     results.push(coerce_to_string(v));
                 }
             }
@@ -1893,9 +1885,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 month += 12;
                 year -= 1;
             }
-            Ok(CellValue::Text(format!(
-                "{year:04}-{month:02}-{day:02}"
-            )))
+            Ok(CellValue::Text(format!("{year:04}-{month:02}-{day:02}")))
         }
         "EOMONTH" => {
             // EOMONTH(start_date, months) — last day of the resulting month
@@ -2007,8 +1997,8 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 CellValue::Text(_) => 2.0,
                 CellValue::Boolean(_) | CellValue::Checkbox(_) => 4.0,
                 CellValue::Error(_) => 16.0,
-                CellValue::Empty => 1.0,   // Empty is treated as number 0
-                CellValue::Date(_) => 1.0, // Dates are numbers internally
+                CellValue::Empty => 1.0,     // Empty is treated as number 0
+                CellValue::Date(_) => 1.0,   // Dates are numbers internally
                 CellValue::Array(_) => 64.0, // Array type
             };
             Ok(CellValue::Number(type_num))
@@ -2225,9 +2215,10 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 }
                 CellValue::Text(s) => {
                     let field_upper = s.to_ascii_uppercase();
-                    match headers.iter().position(|h| {
-                        coerce_to_string(h).to_ascii_uppercase() == field_upper
-                    }) {
+                    match headers
+                        .iter()
+                        .position(|h| coerce_to_string(h).to_ascii_uppercase() == field_upper)
+                    {
                         Some(i) => i,
                         None => return Ok(CellValue::Error(CellError::Value)),
                     }
@@ -2322,8 +2313,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 return Ok(CellValue::Number(-(pv + fv) / nper));
             }
             let pmt = if pmt_type == 0 {
-                (-pv * rate * (1.0 + rate).powf(nper) - fv * rate)
-                    / ((1.0 + rate).powf(nper) - 1.0)
+                (-pv * rate * (1.0 + rate).powf(nper) - fv * rate) / ((1.0 + rate).powf(nper) - 1.0)
             } else {
                 (-pv * rate * (1.0 + rate).powf(nper) - fv * rate)
                     / (((1.0 + rate).powf(nper) - 1.0) * (1.0 + rate))
@@ -2570,7 +2560,11 @@ fn format_with_commas(n: f64, decimals: usize) -> String {
     }
     let mut formatted: String = result.chars().rev().collect();
     if decimals > 0 {
-        formatted.push_str(&format!(".{:0>width$}", ((abs.fract() * 10f64.powi(decimals as i32)).round() as u64), width = decimals));
+        formatted.push_str(&format!(
+            ".{:0>width$}",
+            ((abs.fract() * 10f64.powi(decimals as i32)).round() as u64),
+            width = decimals
+        ));
     }
     if n < 0.0 {
         format!("-{formatted}")
@@ -2668,11 +2662,7 @@ fn day_of_week(year: i32, month: u32, day: u32) -> u32 {
 
 /// Extract value args from mixed FuncArg list. Used by functions that need
 /// both range and value arguments (like COUNTIF, SUMIF).
-fn require_min_args_mixed(
-    args: &[FuncArg],
-    min: usize,
-    func_name: &str,
-) -> Result<Vec<CellValue>> {
+fn require_min_args_mixed(args: &[FuncArg], min: usize, func_name: &str) -> Result<Vec<CellValue>> {
     if args.len() < min {
         return Err(LatticeError::FormulaError(format!(
             "{func_name} expects at least {min} argument(s), got {}",
@@ -2713,9 +2703,9 @@ fn database_matching_values(
     let mut criteria_col_mapping: Vec<Option<usize>> = Vec::new();
     for ch in criteria_headers {
         let ch_str = coerce_to_string(ch).to_ascii_uppercase();
-        let db_col = headers.iter().position(|h| {
-            coerce_to_string(h).to_ascii_uppercase() == ch_str
-        });
+        let db_col = headers
+            .iter()
+            .position(|h| coerce_to_string(h).to_ascii_uppercase() == ch_str);
         criteria_col_mapping.push(db_col);
     }
 
@@ -2838,10 +2828,7 @@ mod tests {
     #[test]
     fn test_rounddown() {
         let sheet = Sheet::new("T");
-        assert_eq!(
-            eval("ROUNDDOWN(3.149, 2)", &sheet),
-            CellValue::Number(3.14)
-        );
+        assert_eq!(eval("ROUNDDOWN(3.149, 2)", &sheet), CellValue::Number(3.14));
     }
 
     #[test]
@@ -2980,10 +2967,7 @@ mod tests {
             eval("OR(FALSE, FALSE, TRUE)", &sheet),
             CellValue::Boolean(true)
         );
-        assert_eq!(
-            eval("OR(FALSE, FALSE)", &sheet),
-            CellValue::Boolean(false)
-        );
+        assert_eq!(eval("OR(FALSE, FALSE)", &sheet), CellValue::Boolean(false));
     }
 
     #[test]
@@ -3148,10 +3132,7 @@ mod tests {
     #[test]
     fn test_value() {
         let sheet = Sheet::new("T");
-        assert_eq!(
-            eval(r#"VALUE("42.5")"#, &sheet),
-            CellValue::Number(42.5)
-        );
+        assert_eq!(eval(r#"VALUE("42.5")"#, &sheet), CellValue::Number(42.5));
     }
 
     // === Lookup ===
@@ -3174,10 +3155,14 @@ mod tests {
         sheet.set_value(2, 2, CellValue::Number(300.0));
 
         let eval = SimpleEvaluator;
-        let result = eval.evaluate("VLOOKUP(2, A1:C3, 2, FALSE)", &sheet).unwrap();
+        let result = eval
+            .evaluate("VLOOKUP(2, A1:C3, 2, FALSE)", &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Text("banana".to_string()));
 
-        let result = eval.evaluate("VLOOKUP(3, A1:C3, 3, FALSE)", &sheet).unwrap();
+        let result = eval
+            .evaluate("VLOOKUP(3, A1:C3, 3, FALSE)", &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Number(300.0));
     }
 
@@ -3186,7 +3171,9 @@ mod tests {
         let mut sheet = Sheet::new("T");
         sheet.set_value(0, 0, CellValue::Number(1.0));
         let eval = SimpleEvaluator;
-        let result = eval.evaluate("VLOOKUP(99, A1:A1, 1, FALSE)", &sheet).unwrap();
+        let result = eval
+            .evaluate("VLOOKUP(99, A1:A1, 1, FALSE)", &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Error(CellError::NA));
     }
 
@@ -3373,7 +3360,9 @@ mod tests {
         sheet.set_value(3, 0, CellValue::Number(4.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine.evaluate(r#"SUMIF(A1:A4, ">2")"#, &sheet).unwrap();
+        let result = eval_engine
+            .evaluate(r#"SUMIF(A1:A4, ">2")"#, &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Number(7.0)); // 3+4
     }
 
@@ -3386,7 +3375,9 @@ mod tests {
         sheet.set_value(3, 0, CellValue::Number(4.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine.evaluate(r#"COUNTIF(A1:A4, ">2")"#, &sheet).unwrap();
+        let result = eval_engine
+            .evaluate(r#"COUNTIF(A1:A4, ">2")"#, &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Number(2.0));
     }
 
@@ -3418,7 +3409,9 @@ mod tests {
         sheet.set_value(1, 2, CellValue::Text("C".to_string()));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine.evaluate("HLOOKUP(2, A1:C2, 2)", &sheet).unwrap();
+        let result = eval_engine
+            .evaluate("HLOOKUP(2, A1:C2, 2)", &sheet)
+            .unwrap();
         assert_eq!(result, CellValue::Text("B".to_string()));
     }
 
@@ -3438,10 +3431,7 @@ mod tests {
             eval(r#"T("hello")"#, &sheet),
             CellValue::Text("hello".to_string())
         );
-        assert_eq!(
-            eval("T(42)", &sheet),
-            CellValue::Text(String::new())
-        );
+        assert_eq!(eval("T(42)", &sheet), CellValue::Text(String::new()));
     }
 
     #[test]
@@ -3500,14 +3490,8 @@ mod tests {
     #[test]
     fn test_islogical() {
         let sheet = Sheet::new("T");
-        assert_eq!(
-            eval("ISLOGICAL(TRUE)", &sheet),
-            CellValue::Boolean(true)
-        );
-        assert_eq!(
-            eval("ISLOGICAL(42)", &sheet),
-            CellValue::Boolean(false)
-        );
+        assert_eq!(eval("ISLOGICAL(TRUE)", &sheet), CellValue::Boolean(true));
+        assert_eq!(eval("ISLOGICAL(42)", &sheet), CellValue::Boolean(false));
     }
 
     #[test]
@@ -3642,9 +3626,7 @@ mod tests {
         sheet.set_value(2, 0, CellValue::Number(20.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine
-            .evaluate("SORT(A1:A3, 1)", &sheet)
-            .unwrap();
+        let result = eval_engine.evaluate("SORT(A1:A3, 1)", &sheet).unwrap();
         assert_eq!(result, CellValue::Text("10,20,30".to_string()));
     }
 
@@ -3656,9 +3638,7 @@ mod tests {
         sheet.set_value(2, 0, CellValue::Number(20.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine
-            .evaluate("SORT(A1:A3, 1, -1)", &sheet)
-            .unwrap();
+        let result = eval_engine.evaluate("SORT(A1:A3, 1, -1)", &sheet).unwrap();
         assert_eq!(result, CellValue::Text("30,20,10".to_string()));
     }
 
@@ -3674,9 +3654,7 @@ mod tests {
         sheet.set_value(4, 0, CellValue::Number(2.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine
-            .evaluate("UNIQUE(A1:A5)", &sheet)
-            .unwrap();
+        let result = eval_engine.evaluate("UNIQUE(A1:A5)", &sheet).unwrap();
         assert_eq!(result, CellValue::Text("1,2,3".to_string()));
     }
 
@@ -3744,7 +3722,10 @@ mod tests {
     fn test_regexreplace_basic() {
         let sheet = Sheet::new("T");
         assert_eq!(
-            eval(r#"REGEXREPLACE("hello 123 world 456", "\d+", "NUM")"#, &sheet),
+            eval(
+                r#"REGEXREPLACE("hello 123 world 456", "\d+", "NUM")"#,
+                &sheet
+            ),
             CellValue::Text("hello NUM world NUM".to_string())
         );
     }
@@ -3774,9 +3755,7 @@ mod tests {
         sheet.set_value(1, 2, CellValue::Number(6.0));
 
         let eval_engine = SimpleEvaluator;
-        let result = eval_engine
-            .evaluate("TRANSPOSE(A1:C2)", &sheet)
-            .unwrap();
+        let result = eval_engine.evaluate("TRANSPOSE(A1:C2)", &sheet).unwrap();
         // Transposed: 3 rows x 2 cols -> "1,4;2,5;3,6"
         assert_eq!(result, CellValue::Text("1,4;2,5;3,6".to_string()));
     }

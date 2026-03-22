@@ -6,8 +6,8 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use lattice_core::{CellRef, CellValue, FormulaEngine, Workbook};
 use lattice_core::formula::evaluator::SimpleEvaluator;
+use lattice_core::{CellRef, CellValue, FormulaEngine, Workbook};
 
 use super::ToolDef;
 use crate::schema::{array_prop, object_schema, string_prop};
@@ -124,10 +124,7 @@ pub struct GetFormulaArgs {
 }
 
 /// Handle the `get_formula` tool call.
-pub fn handle_get_formula(
-    workbook: &Workbook,
-    args: Value,
-) -> std::result::Result<Value, String> {
+pub fn handle_get_formula(workbook: &Workbook, args: Value) -> std::result::Result<Value, String> {
     let args: GetFormulaArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
@@ -310,8 +307,7 @@ pub fn handle_import_range(args: Value) -> std::result::Result<Value, String> {
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
     // Parse the range string: "Sheet1!A1:C10"
-    let (sheet_name, start_ref_str, end_ref_str) =
-        parse_import_range_string(&args.range_string)?;
+    let (sheet_name, start_ref_str, end_ref_str) = parse_import_range_string(&args.range_string)?;
 
     let start = CellRef::parse(&start_ref_str)
         .map_err(|e| format!("Invalid start cell reference '{}': {}", start_ref_str, e))?;
@@ -358,9 +354,12 @@ pub fn handle_import_range(args: Value) -> std::result::Result<Value, String> {
 
 /// Parse a range string like `"Sheet1!A1:C10"` into `(sheet_name, start_ref, end_ref)`.
 fn parse_import_range_string(s: &str) -> std::result::Result<(String, String, String), String> {
-    let excl = s
-        .find('!')
-        .ok_or_else(|| format!("Range '{}' must contain '!' separator (e.g. 'Sheet1!A1:C10')", s))?;
+    let excl = s.find('!').ok_or_else(|| {
+        format!(
+            "Range '{}' must contain '!' separator (e.g. 'Sheet1!A1:C10')",
+            s
+        )
+    })?;
 
     let sheet_name = s[..excl].trim().to_string();
     if sheet_name.is_empty() {
@@ -423,14 +422,14 @@ mod tests {
     #[test]
     fn test_evaluate_formula_sum() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0)).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0))
+            .unwrap();
 
-        let result = handle_evaluate_formula(
-            &wb,
-            json!({"sheet": "Sheet1", "formula": "SUM(A1:A2)"}),
-        )
-        .unwrap();
+        let result =
+            handle_evaluate_formula(&wb, json!({"sheet": "Sheet1", "formula": "SUM(A1:A2)"}))
+                .unwrap();
 
         assert_eq!(result["result"], 30.0);
         assert_eq!(result["result_type"], "number");
@@ -439,11 +438,8 @@ mod tests {
     #[test]
     fn test_evaluate_formula_simple_arithmetic() {
         let wb = Workbook::new();
-        let result = handle_evaluate_formula(
-            &wb,
-            json!({"sheet": "Sheet1", "formula": "2+3"}),
-        )
-        .unwrap();
+        let result =
+            handle_evaluate_formula(&wb, json!({"sheet": "Sheet1", "formula": "2+3"})).unwrap();
 
         assert_eq!(result["result"], 5.0);
     }
@@ -451,10 +447,7 @@ mod tests {
     #[test]
     fn test_evaluate_formula_invalid_sheet() {
         let wb = Workbook::new();
-        let result = handle_evaluate_formula(
-            &wb,
-            json!({"sheet": "NoSuch", "formula": "1+1"}),
-        );
+        let result = handle_evaluate_formula(&wb, json!({"sheet": "NoSuch", "formula": "1+1"}));
 
         assert!(result.is_err());
     }
@@ -462,17 +455,14 @@ mod tests {
     #[test]
     fn test_get_formula_with_formula() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0))
+            .unwrap();
         let sheet = wb.get_sheet_mut("Sheet1").unwrap();
         if let Some(cell) = sheet.get_cell_mut(0, 0) {
             cell.formula = Some("SUM(B1:B5)".to_string());
         }
 
-        let result = handle_get_formula(
-            &wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result = handle_get_formula(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert_eq!(result["formula"], "SUM(B1:B5)");
         assert_eq!(result["value"], 42.0);
@@ -481,13 +471,10 @@ mod tests {
     #[test]
     fn test_get_formula_no_formula() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0))
+            .unwrap();
 
-        let result = handle_get_formula(
-            &wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result = handle_get_formula(&wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
 
         assert!(result["formula"].is_null());
         assert_eq!(result["value"], 42.0);
@@ -496,11 +483,8 @@ mod tests {
     #[test]
     fn test_get_formula_empty_cell() {
         let wb = Workbook::new();
-        let result = handle_get_formula(
-            &wb,
-            json!({"sheet": "Sheet1", "cell_ref": "Z99"}),
-        )
-        .unwrap();
+        let result =
+            handle_get_formula(&wb, json!({"sheet": "Sheet1", "cell_ref": "Z99"})).unwrap();
 
         assert!(result["formula"].is_null());
         assert!(result["value"].is_null());
@@ -509,8 +493,10 @@ mod tests {
     #[test]
     fn test_insert_formula() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0)).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(10.0))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(20.0))
+            .unwrap();
 
         let result = handle_insert_formula(
             &mut wb,
@@ -532,7 +518,8 @@ mod tests {
     fn test_bulk_formula_all_succeed() {
         let mut wb = Workbook::new();
         wb.set_cell("Sheet1", 0, 0, CellValue::Number(5.0)).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(10.0))
+            .unwrap();
 
         let result = handle_bulk_formula(
             &mut wb,
@@ -578,8 +565,7 @@ mod tests {
 
     #[test]
     fn test_parse_import_range_string_valid() {
-        let (sheet, start, end) =
-            super::parse_import_range_string("Sheet1!A1:C10").unwrap();
+        let (sheet, start, end) = super::parse_import_range_string("Sheet1!A1:C10").unwrap();
         assert_eq!(sheet, "Sheet1");
         assert_eq!(start, "A1");
         assert_eq!(end, "C10");
@@ -587,8 +573,7 @@ mod tests {
 
     #[test]
     fn test_parse_import_range_string_with_spaces() {
-        let (sheet, start, end) =
-            super::parse_import_range_string("My Sheet ! B2 : D5").unwrap();
+        let (sheet, start, end) = super::parse_import_range_string("My Sheet ! B2 : D5").unwrap();
         assert_eq!(sheet, "My Sheet");
         assert_eq!(start, "B2");
         assert_eq!(end, "D5");

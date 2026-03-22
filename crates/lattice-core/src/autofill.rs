@@ -193,12 +193,7 @@ fn generate_value(pattern: &FillPattern, index: usize) -> CellValue {
 /// - `Up`/`Left` — the target range is *before* the source range.
 ///   Values are generated in reverse so that the cell closest to the
 ///   source gets the next value in the sequence.
-pub fn fill_range(
-    sheet: &mut Sheet,
-    source: &Range,
-    target: &Range,
-    direction: FillDirection,
-) {
+pub fn fill_range(sheet: &mut Sheet, source: &Range, target: &Range, direction: FillDirection) {
     let source_values = read_values(sheet, source, direction);
     let pattern = match detect_pattern(&source_values) {
         Some(p) => p,
@@ -533,10 +528,22 @@ mod tests {
             end: CellRef { row: 8, col: 0 },
         };
         fill_range(&mut sheet, &source, &target, FillDirection::Down);
-        assert_eq!(sheet.get_cell(3, 0).unwrap().value, CellValue::Text("A".into()));
-        assert_eq!(sheet.get_cell(4, 0).unwrap().value, CellValue::Text("B".into()));
-        assert_eq!(sheet.get_cell(5, 0).unwrap().value, CellValue::Text("C".into()));
-        assert_eq!(sheet.get_cell(6, 0).unwrap().value, CellValue::Text("A".into()));
+        assert_eq!(
+            sheet.get_cell(3, 0).unwrap().value,
+            CellValue::Text("A".into())
+        );
+        assert_eq!(
+            sheet.get_cell(4, 0).unwrap().value,
+            CellValue::Text("B".into())
+        );
+        assert_eq!(
+            sheet.get_cell(5, 0).unwrap().value,
+            CellValue::Text("C".into())
+        );
+        assert_eq!(
+            sheet.get_cell(6, 0).unwrap().value,
+            CellValue::Text("A".into())
+        );
     }
 
     #[test]

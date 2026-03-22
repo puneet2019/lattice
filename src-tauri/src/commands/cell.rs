@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{CellValue, FormulaEngine, NumberFormat, Operation, format_value};
 use lattice_core::formula::evaluator::SimpleEvaluator;
+use lattice_core::{CellValue, FormulaEngine, NumberFormat, Operation, format_value};
 
 use crate::state::AppState;
 
@@ -136,9 +136,7 @@ fn recalculate_formulas(workbook: &mut lattice_core::Workbook, sheet_name: &str)
         };
         s.cells()
             .iter()
-            .filter_map(|(&(r, c), cell)| {
-                cell.formula.as_ref().map(|f| (r, c, f.clone()))
-            })
+            .filter_map(|(&(r, c), cell)| cell.formula.as_ref().map(|f| (r, c, f.clone())))
             .collect()
     };
 

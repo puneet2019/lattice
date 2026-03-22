@@ -6,8 +6,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close, svg_open,
-    svg_text, svg_title, Margins,
+    Margins, compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close,
+    svg_open, svg_text, svg_title,
 };
 
 /// Render scatter plot data as an SVG string.
@@ -134,21 +134,19 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
                 let px1 = margins.left;
                 let px2 = margins.left + pw;
                 let py1 = margins.top
-                    + ph
-                        * (1.0
-                            - if y_range_val.abs() > f64::EPSILON {
-                                (trend_y1 - y_scale.min) / y_range_val
-                            } else {
-                                0.5
-                            });
+                    + ph * (1.0
+                        - if y_range_val.abs() > f64::EPSILON {
+                            (trend_y1 - y_scale.min) / y_range_val
+                        } else {
+                            0.5
+                        });
                 let py2 = margins.top
-                    + ph
-                        * (1.0
-                            - if y_range_val.abs() > f64::EPSILON {
-                                (trend_y2 - y_scale.min) / y_range_val
-                            } else {
-                                0.5
-                            });
+                    + ph * (1.0
+                        - if y_range_val.abs() > f64::EPSILON {
+                            (trend_y2 - y_scale.min) / y_range_val
+                        } else {
+                            0.5
+                        });
 
                 svg.push_str(&format!(
                     r##"<line x1="{px1:.1}" y1="{py1:.1}" x2="{px2:.1}" y2="{py2:.1}" stroke="{color}" stroke-width="1" stroke-dasharray="5,3" opacity="0.5"/>"##,
@@ -186,8 +184,12 @@ fn x_range(values: &[f64]) -> (f64, f64) {
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for &v in values {
-        if v < min { min = v; }
-        if v > max { max = v; }
+        if v < min {
+            min = v;
+        }
+        if v > max {
+            max = v;
+        }
     }
     if min > max { (0.0, 1.0) } else { (min, max) }
 }
@@ -198,8 +200,12 @@ fn y_range_all(data: &ChartData) -> (f64, f64) {
     let mut max = f64::NEG_INFINITY;
     for s in &data.series {
         for &v in &s.values {
-            if v < min { min = v; }
-            if v > max { max = v; }
+            if v < min {
+                min = v;
+            }
+            if v > max {
+                max = v;
+            }
         }
     }
     if min > max { (0.0, 1.0) } else { (min, max) }
@@ -234,13 +240,7 @@ mod tests {
 
     fn sample_data() -> ChartData {
         ChartData {
-            labels: vec![
-                "1".into(),
-                "2".into(),
-                "3".into(),
-                "4".into(),
-                "5".into(),
-            ],
+            labels: vec!["1".into(), "2".into(), "3".into(), "4".into(), "5".into()],
             series: vec![DataSeries {
                 name: "Observations".into(),
                 values: vec![2.1, 4.0, 5.8, 8.2, 9.5],

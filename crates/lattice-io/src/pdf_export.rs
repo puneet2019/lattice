@@ -305,8 +305,13 @@ mod tests {
     #[test]
     fn test_export_html_escaping() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("<script>alert('xss')</script>".into()))
-            .unwrap();
+        wb.set_cell(
+            "Sheet1",
+            0,
+            0,
+            CellValue::Text("<script>alert('xss')</script>".into()),
+        )
+        .unwrap();
 
         let html = export_print_html(&wb, None).unwrap();
         assert!(!html.contains("<script>"));
@@ -335,8 +340,7 @@ mod tests {
     #[test]
     fn test_export_has_print_css() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0))
-            .unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
 
         let html = export_print_html(&wb, None).unwrap();
         assert!(html.contains("@media print"));

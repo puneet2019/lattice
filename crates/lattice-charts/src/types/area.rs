@@ -6,8 +6,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, data_range_with_zero, series_color, svg_axis_labels, svg_close,
-    svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape, Margins,
+    Margins, compute_axis_scale, data_range_with_zero, series_color, svg_axis_labels, svg_close,
+    svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape,
 };
 
 /// Render area chart data as an SVG string.
@@ -128,12 +128,7 @@ mod tests {
 
     fn sample_data() -> ChartData {
         ChartData {
-            labels: vec![
-                "Jan".into(),
-                "Feb".into(),
-                "Mar".into(),
-                "Apr".into(),
-            ],
+            labels: vec!["Jan".into(), "Feb".into(), "Mar".into(), "Apr".into()],
             series: vec![DataSeries {
                 name: "Downloads".into(),
                 values: vec![100.0, 250.0, 180.0, 300.0],

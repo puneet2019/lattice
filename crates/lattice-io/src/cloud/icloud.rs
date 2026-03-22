@@ -171,9 +171,7 @@ impl CloudProvider for ICloudProvider {
         }
 
         if !local_path.exists() {
-            return Err(IoError::FileNotFound(
-                local_path.display().to_string(),
-            ));
+            return Err(IoError::FileNotFound(local_path.display().to_string()));
         }
 
         let dest = self.root.join(name);
@@ -182,11 +180,12 @@ impl CloudProvider for ICloudProvider {
         // never picks up a partially-written file.
         crate::atomic::save_atomic(&dest, &fs::read(local_path)?)?;
 
-        self.path_to_cloud_file(&dest)?
-            .ok_or_else(|| IoError::Io(std::io::Error::new(
+        self.path_to_cloud_file(&dest)?.ok_or_else(|| {
+            IoError::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "failed to read back uploaded file metadata",
-            )))
+            ))
+        })
     }
 
     fn auth_url(&self) -> Option<String> {

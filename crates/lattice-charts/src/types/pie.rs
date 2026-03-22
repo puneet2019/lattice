@@ -124,14 +124,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
 }
 
 /// Build an SVG arc path for a pie wedge (or donut segment).
-fn arc_path(
-    cx: f64,
-    cy: f64,
-    outer_r: f64,
-    inner_r: f64,
-    start: f64,
-    end: f64,
-) -> String {
+fn arc_path(cx: f64, cy: f64, outer_r: f64, inner_r: f64, start: f64, end: f64) -> String {
     let large_arc = if (end - start).abs() > PI { 1 } else { 0 };
 
     let ox1 = cx + outer_r * start.cos();

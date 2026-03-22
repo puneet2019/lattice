@@ -6,8 +6,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close,
-    svg_grid_lines, svg_open, svg_text, svg_title, Margins,
+    Margins, compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close,
+    svg_grid_lines, svg_open, svg_text, svg_title,
 };
 
 /// Compute the number of bins using Sturges' rule: ceil(1 + 3.322 * log10(n)).
@@ -39,13 +39,21 @@ fn build_bins(values: &[f64], n_bins: usize) -> Vec<Bin> {
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for &v in values {
-        if v < min { min = v; }
-        if v > max { max = v; }
+        if v < min {
+            min = v;
+        }
+        if v > max {
+            max = v;
+        }
     }
 
     // Handle case where all values are equal
     if (max - min).abs() < f64::EPSILON {
-        return vec![Bin { lo: min - 0.5, hi: max + 0.5, count: values.len() }];
+        return vec![Bin {
+            lo: min - 0.5,
+            hi: max + 0.5,
+            count: values.len(),
+        }];
     }
 
     let bin_width = (max - min) / n_bins as f64;
@@ -171,7 +179,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
             let x = margins.left + x_frac * pw;
             let y = margins.top + ph + 18.0;
             svg.push_str(&svg_text(
-                x, y, "middle", 9, "#666666",
+                x,
+                y,
+                "middle",
+                9,
+                "#666666",
                 &format_axis_value(bin.lo),
             ));
             svg.push('\n');
@@ -182,7 +194,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
         let x = margins.left + pw;
         let y = margins.top + ph + 18.0;
         svg.push_str(&svg_text(
-            x, y, "middle", 9, "#666666",
+            x,
+            y,
+            "middle",
+            9,
+            "#666666",
             &format_axis_value(x_max),
         ));
         svg.push('\n');
@@ -212,8 +228,8 @@ mod tests {
             series: vec![DataSeries {
                 name: "Scores".into(),
                 values: vec![
-                    55.0, 60.0, 62.0, 65.0, 67.0, 70.0, 72.0, 75.0, 78.0, 80.0,
-                    82.0, 85.0, 88.0, 90.0, 92.0, 95.0, 97.0, 100.0, 58.0, 63.0,
+                    55.0, 60.0, 62.0, 65.0, 67.0, 70.0, 72.0, 75.0, 78.0, 80.0, 82.0, 85.0, 88.0,
+                    90.0, 92.0, 95.0, 97.0, 100.0, 58.0, 63.0,
                 ],
                 color: None,
             }],

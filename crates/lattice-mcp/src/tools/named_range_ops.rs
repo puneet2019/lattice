@@ -177,10 +177,8 @@ mod tests {
     fn test_add_named_range() {
         let mut wb = Workbook::new();
 
-        let result = handle_add_named_range(
-            &mut wb,
-            json!({"name": "Revenue", "range": "A1:A10"}),
-        ).unwrap();
+        let result =
+            handle_add_named_range(&mut wb, json!({"name": "Revenue", "range": "A1:A10"})).unwrap();
 
         assert_eq!(result["success"], true);
         assert_eq!(result["name"], "Revenue");
@@ -194,7 +192,8 @@ mod tests {
         let result = handle_add_named_range(
             &mut wb,
             json!({"name": "Sales", "range": "B2:D20", "sheet": "Data"}),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result["success"], true);
         assert_eq!(result["sheet"], "Data");
@@ -204,15 +203,9 @@ mod tests {
     fn test_add_named_range_duplicate() {
         let mut wb = Workbook::new();
 
-        handle_add_named_range(
-            &mut wb,
-            json!({"name": "Revenue", "range": "A1:A10"}),
-        ).unwrap();
+        handle_add_named_range(&mut wb, json!({"name": "Revenue", "range": "A1:A10"})).unwrap();
 
-        let result = handle_add_named_range(
-            &mut wb,
-            json!({"name": "Revenue", "range": "B1:B10"}),
-        );
+        let result = handle_add_named_range(&mut wb, json!({"name": "Revenue", "range": "B1:B10"}));
 
         assert!(result.is_err());
     }
@@ -221,10 +214,7 @@ mod tests {
     fn test_add_named_range_invalid_name() {
         let mut wb = Workbook::new();
 
-        let result = handle_add_named_range(
-            &mut wb,
-            json!({"name": "1bad", "range": "A1:A10"}),
-        );
+        let result = handle_add_named_range(&mut wb, json!({"name": "1bad", "range": "A1:A10"}));
 
         assert!(result.is_err());
     }
@@ -233,15 +223,9 @@ mod tests {
     fn test_remove_named_range() {
         let mut wb = Workbook::new();
 
-        handle_add_named_range(
-            &mut wb,
-            json!({"name": "Revenue", "range": "A1:A10"}),
-        ).unwrap();
+        handle_add_named_range(&mut wb, json!({"name": "Revenue", "range": "A1:A10"})).unwrap();
 
-        let result = handle_remove_named_range(
-            &mut wb,
-            json!({"name": "Revenue"}),
-        ).unwrap();
+        let result = handle_remove_named_range(&mut wb, json!({"name": "Revenue"})).unwrap();
 
         assert_eq!(result["success"], true);
         assert!(wb.named_ranges.get("Revenue").is_none());
@@ -251,10 +235,7 @@ mod tests {
     fn test_remove_named_range_not_found() {
         let mut wb = Workbook::new();
 
-        let result = handle_remove_named_range(
-            &mut wb,
-            json!({"name": "Nothing"}),
-        );
+        let result = handle_remove_named_range(&mut wb, json!({"name": "Nothing"}));
 
         assert!(result.is_err());
     }
@@ -263,14 +244,12 @@ mod tests {
     fn test_list_named_ranges() {
         let mut wb = Workbook::new();
 
-        handle_add_named_range(
-            &mut wb,
-            json!({"name": "Alpha", "range": "A1:A5"}),
-        ).unwrap();
+        handle_add_named_range(&mut wb, json!({"name": "Alpha", "range": "A1:A5"})).unwrap();
         handle_add_named_range(
             &mut wb,
             json!({"name": "Beta", "range": "B1:B10", "sheet": "Sheet1"}),
-        ).unwrap();
+        )
+        .unwrap();
 
         let result = handle_list_named_ranges(&wb).unwrap();
 
@@ -293,12 +272,14 @@ mod tests {
         handle_add_named_range(
             &mut wb,
             json!({"name": "Sales", "range": "C1:C100", "sheet": "Data"}),
-        ).unwrap();
+        )
+        .unwrap();
 
         let result = handle_resolve_named_range(
             &wb,
-            json!({"name": "sales"}),  // case-insensitive
-        ).unwrap();
+            json!({"name": "sales"}), // case-insensitive
+        )
+        .unwrap();
 
         assert_eq!(result["found"], true);
         assert_eq!(result["sheet"], "Data");
@@ -309,10 +290,7 @@ mod tests {
     fn test_resolve_named_range_not_found() {
         let wb = Workbook::new();
 
-        let result = handle_resolve_named_range(
-            &wb,
-            json!({"name": "Nothing"}),
-        );
+        let result = handle_resolve_named_range(&wb, json!({"name": "Nothing"}));
 
         assert!(result.is_err());
     }
@@ -321,15 +299,9 @@ mod tests {
     fn test_resolve_named_range_workbook_scoped() {
         let mut wb = Workbook::new();
 
-        handle_add_named_range(
-            &mut wb,
-            json!({"name": "Total", "range": "A1:A1"}),
-        ).unwrap();
+        handle_add_named_range(&mut wb, json!({"name": "Total", "range": "A1:A1"})).unwrap();
 
-        let result = handle_resolve_named_range(
-            &wb,
-            json!({"name": "Total"}),
-        ).unwrap();
+        let result = handle_resolve_named_range(&wb, json!({"name": "Total"})).unwrap();
 
         assert_eq!(result["found"], true);
         assert!(result["sheet"].is_null());

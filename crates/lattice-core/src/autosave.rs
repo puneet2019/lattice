@@ -100,7 +100,9 @@ mod tests {
 
     #[test]
     fn test_serde_round_trip() {
-        let cfg = AutoSaveConfig::new().with_interval(30).with_path("/tmp/test");
+        let cfg = AutoSaveConfig::new()
+            .with_interval(30)
+            .with_path("/tmp/test");
         let json = serde_json::to_string(&cfg).unwrap();
         let deserialized: AutoSaveConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, deserialized);

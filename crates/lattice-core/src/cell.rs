@@ -272,9 +272,10 @@ mod tests {
 
     #[test]
     fn test_array_serde_roundtrip() {
-        let v = CellValue::Array(vec![
-            vec![CellValue::Number(1.0), CellValue::Text("a".into())],
-        ]);
+        let v = CellValue::Array(vec![vec![
+            CellValue::Number(1.0),
+            CellValue::Text("a".into()),
+        ]]);
         let json = serde_json::to_string(&v).unwrap();
         let parsed: CellValue = serde_json::from_str(&json).unwrap();
         assert_eq!(v, parsed);

@@ -241,7 +241,10 @@ mod tests {
         graph.set_dependencies((0, 1), &[(0, 0)]);
         graph.remove_cell(&(0, 1));
 
-        assert!(graph.get_dependents(&(0, 0)).is_none() || graph.get_dependents(&(0, 0)).unwrap().is_empty());
+        assert!(
+            graph.get_dependents(&(0, 0)).is_none()
+                || graph.get_dependents(&(0, 0)).unwrap().is_empty()
+        );
     }
 
     #[test]

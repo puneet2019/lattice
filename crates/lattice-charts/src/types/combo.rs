@@ -8,8 +8,9 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    compute_axis_scale, data_range_with_zero, format_axis_value, series_color, svg_axis_labels,
-    svg_close, svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape, Margins,
+    Margins, compute_axis_scale, data_range_with_zero, format_axis_value, series_color,
+    svg_axis_labels, svg_close, svg_grid_lines, svg_legend, svg_open, svg_text, svg_title,
+    xml_escape,
 };
 
 /// Scale divergence threshold — if the secondary series range differs from
@@ -123,8 +124,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
 
         let mut points = Vec::with_capacity(n_categories);
         for (pi, &value) in series.values.iter().enumerate() {
-            let x = margins.left
-                + (pi as f64 + 0.5) * (pw / n_categories as f64);
+            let x = margins.left + (pi as f64 + 0.5) * (pw / n_categories as f64);
             let frac = if y_rng.abs() > f64::EPSILON {
                 (value - scale_ref.min) / y_rng
             } else {

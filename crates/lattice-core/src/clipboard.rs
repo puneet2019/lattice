@@ -197,10 +197,8 @@ fn paste_transposed(
                 Some(cell) => {
                     let mut new_cell = cell.clone();
                     if let Some(ref formula) = cell.formula {
-                        let row_offset =
-                            target_row as i32 - clipboard.source_origin.0 as i32;
-                        let col_offset =
-                            target_col as i32 - clipboard.source_origin.1 as i32;
+                        let row_offset = target_row as i32 - clipboard.source_origin.0 as i32;
+                        let col_offset = target_col as i32 - clipboard.source_origin.1 as i32;
                         new_cell.formula =
                             Some(adjust_formula_references(formula, row_offset, col_offset));
                     }
@@ -317,10 +315,7 @@ fn try_parse_and_adjust_ref(
     }
 
     // Also check that the character before start isn't alphanumeric (would be a function name)
-    if start > 0
-        && chars[start - 1].is_ascii_alphanumeric()
-        && !col_absolute
-    {
+    if start > 0 && chars[start - 1].is_ascii_alphanumeric() && !col_absolute {
         return None;
     }
 
@@ -441,33 +436,21 @@ mod tests {
     #[test]
     fn test_adjust_formula_references() {
         // Moving down 2 rows, right 1 column
-        assert_eq!(
-            adjust_formula_references("A1+B2", 2, 1),
-            "B3+C4"
-        );
+        assert_eq!(adjust_formula_references("A1+B2", 2, 1), "B3+C4");
     }
 
     #[test]
     fn test_adjust_absolute_references() {
         // $A$1 should not change
-        assert_eq!(
-            adjust_formula_references("$A$1+B2", 2, 1),
-            "$A$1+C4"
-        );
+        assert_eq!(adjust_formula_references("$A$1+B2", 2, 1), "$A$1+C4");
     }
 
     #[test]
     fn test_adjust_mixed_references() {
         // $A1 -> $A3 (col absolute, row relative)
         // A$1 -> B$1 (col relative, row absolute)
-        assert_eq!(
-            adjust_formula_references("$A1", 2, 1),
-            "$A3"
-        );
-        assert_eq!(
-            adjust_formula_references("A$1", 2, 1),
-            "B$1"
-        );
+        assert_eq!(adjust_formula_references("$A1", 2, 1), "$A3");
+        assert_eq!(adjust_formula_references("A$1", 2, 1), "B$1");
     }
 
     #[test]
@@ -559,9 +542,18 @@ mod tests {
         let mut dest = Sheet::new("D");
         paste(&mut dest, &clipboard, 5, 5, &PasteMode::Transposed).unwrap();
 
-        assert_eq!(dest.get_cell(5, 5).unwrap().value, CellValue::Text("a".into()));
-        assert_eq!(dest.get_cell(6, 5).unwrap().value, CellValue::Text("b".into()));
-        assert_eq!(dest.get_cell(7, 5).unwrap().value, CellValue::Text("c".into()));
+        assert_eq!(
+            dest.get_cell(5, 5).unwrap().value,
+            CellValue::Text("a".into())
+        );
+        assert_eq!(
+            dest.get_cell(6, 5).unwrap().value,
+            CellValue::Text("b".into())
+        );
+        assert_eq!(
+            dest.get_cell(7, 5).unwrap().value,
+            CellValue::Text("c".into())
+        );
         // No data in the original column direction
         assert!(dest.get_cell(5, 6).is_none());
     }

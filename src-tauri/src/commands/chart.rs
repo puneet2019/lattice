@@ -128,10 +128,7 @@ pub async fn list_charts(
 
 /// Delete a chart by its ID.
 #[tauri::command]
-pub async fn delete_chart(
-    state: State<'_, AppState>,
-    chart_id: String,
-) -> Result<(), String> {
+pub async fn delete_chart(state: State<'_, AppState>, chart_id: String) -> Result<(), String> {
     let mut store = state
         .chart_store
         .charts
@@ -218,7 +215,9 @@ fn parse_cell_ref(s: &str) -> Result<(u32, u32), String> {
 async fn extract_chart_data(state: &AppState, chart: &Chart) -> Result<ChartData, String> {
     let (sr, sc, er, ec) = parse_range(&chart.data_range)?;
     let workbook = state.workbook.read().await;
-    let sheet = workbook.get_sheet(&chart.sheet).map_err(|e| e.to_string())?;
+    let sheet = workbook
+        .get_sheet(&chart.sheet)
+        .map_err(|e| e.to_string())?;
 
     // Read raw values from cells.
     let mut rows: Vec<Vec<String>> = Vec::new();
@@ -229,7 +228,9 @@ async fn extract_chart_data(state: &AppState, chart: &Chart) -> Result<ChartData
                 Some(cell) => match &cell.value {
                     lattice_core::CellValue::Text(t) => t.clone(),
                     lattice_core::CellValue::Number(n) => n.to_string(),
-                    lattice_core::CellValue::Boolean(b) | lattice_core::CellValue::Checkbox(b) => b.to_string(),
+                    lattice_core::CellValue::Boolean(b) | lattice_core::CellValue::Checkbox(b) => {
+                        b.to_string()
+                    }
                     lattice_core::CellValue::Date(d) => d.clone(),
                     lattice_core::CellValue::Empty => String::new(),
                     lattice_core::CellValue::Error(e) => e.to_string(),

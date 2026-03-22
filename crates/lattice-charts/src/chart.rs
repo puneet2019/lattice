@@ -224,8 +224,7 @@ mod tests {
 
     #[test]
     fn test_chart_to_options() {
-        let chart =
-            Chart::new("c1", ChartType::Bar, "A1:B5", "Sheet1").with_title("Sales");
+        let chart = Chart::new("c1", ChartType::Bar, "A1:B5", "Sheet1").with_title("Sales");
         let opts = chart.to_options();
         assert_eq!(opts.title, Some("Sales".into()));
         assert_eq!(opts.width, 600);

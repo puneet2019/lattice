@@ -73,8 +73,8 @@ pub fn handle_find_in_workbook(workbook: &Workbook, args: Value) -> Result<Value
         sheet_name: args.sheet,
     };
 
-    let matches = lattice_core::find_replace::find(workbook, &options)
-        .map_err(|e| e.to_string())?;
+    let matches =
+        lattice_core::find_replace::find(workbook, &options).map_err(|e| e.to_string())?;
 
     let match_list: Vec<Value> = matches
         .iter()
@@ -109,10 +109,7 @@ struct ReplaceInWorkbookArgs {
 }
 
 /// Handle the `replace_in_workbook` tool call.
-pub fn handle_replace_in_workbook(
-    workbook: &mut Workbook,
-    args: Value,
-) -> Result<Value, String> {
+pub fn handle_replace_in_workbook(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
     let args: ReplaceInWorkbookArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {e}"))?;
 
@@ -142,14 +139,14 @@ mod tests {
     #[test]
     fn test_find_in_workbook_basic() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello World".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello there".into())).unwrap();
-        wb.set_cell("Sheet1", 2, 0, CellValue::Text("goodbye".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello World".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello there".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Text("goodbye".into()))
+            .unwrap();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "hello"}),
-        ).unwrap();
+        let result = handle_find_in_workbook(&wb, json!({"query": "hello"})).unwrap();
 
         assert_eq!(result["matches_found"], 2);
         let matches = result["matches"].as_array().unwrap();
@@ -160,13 +157,14 @@ mod tests {
     #[test]
     fn test_find_in_workbook_case_sensitive() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Hello".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello".into()))
+            .unwrap();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "Hello", "case_sensitive": true}),
-        ).unwrap();
+        let result =
+            handle_find_in_workbook(&wb, json!({"query": "Hello", "case_sensitive": true}))
+                .unwrap();
 
         assert_eq!(result["matches_found"], 1);
     }
@@ -174,13 +172,13 @@ mod tests {
     #[test]
     fn test_find_in_workbook_regex() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("abc123".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("xyz".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("abc123".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("xyz".into()))
+            .unwrap();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "\\d+", "use_regex": true}),
-        ).unwrap();
+        let result =
+            handle_find_in_workbook(&wb, json!({"query": "\\d+", "use_regex": true})).unwrap();
 
         assert_eq!(result["matches_found"], 1);
         assert_eq!(result["matches"][0]["matched_text"], "123");
@@ -189,13 +187,13 @@ mod tests {
     #[test]
     fn test_find_in_workbook_whole_cell() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("hello".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello world".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("hello".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello world".into()))
+            .unwrap();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "hello", "whole_cell": true}),
-        ).unwrap();
+        let result =
+            handle_find_in_workbook(&wb, json!({"query": "hello", "whole_cell": true})).unwrap();
 
         assert_eq!(result["matches_found"], 1);
         assert_eq!(result["matches"][0]["cell_ref"], "A1");
@@ -204,14 +202,14 @@ mod tests {
     #[test]
     fn test_find_in_workbook_sheet_scope() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("apple".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("apple".into()))
+            .unwrap();
         wb.add_sheet("Sheet2").unwrap();
-        wb.set_cell("Sheet2", 0, 0, CellValue::Text("apple pie".into())).unwrap();
+        wb.set_cell("Sheet2", 0, 0, CellValue::Text("apple pie".into()))
+            .unwrap();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "apple", "sheet": "Sheet2"}),
-        ).unwrap();
+        let result =
+            handle_find_in_workbook(&wb, json!({"query": "apple", "sheet": "Sheet2"})).unwrap();
 
         assert_eq!(result["matches_found"], 1);
         assert_eq!(result["matches"][0]["sheet"], "Sheet2");
@@ -221,10 +219,7 @@ mod tests {
     fn test_find_in_workbook_empty_query() {
         let wb = Workbook::new();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": ""}),
-        ).unwrap();
+        let result = handle_find_in_workbook(&wb, json!({"query": ""})).unwrap();
 
         assert_eq!(result["matches_found"], 0);
     }
@@ -233,10 +228,7 @@ mod tests {
     fn test_find_in_workbook_invalid_regex() {
         let wb = Workbook::new();
 
-        let result = handle_find_in_workbook(
-            &wb,
-            json!({"query": "[bad", "use_regex": true}),
-        );
+        let result = handle_find_in_workbook(&wb, json!({"query": "[bad", "use_regex": true}));
 
         assert!(result.is_err());
     }
@@ -244,13 +236,14 @@ mod tests {
     #[test]
     fn test_replace_in_workbook_basic() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("hello world".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello again".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("hello world".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("hello again".into()))
+            .unwrap();
 
-        let result = handle_replace_in_workbook(
-            &mut wb,
-            json!({"query": "hello", "replacement": "hi"}),
-        ).unwrap();
+        let result =
+            handle_replace_in_workbook(&mut wb, json!({"query": "hello", "replacement": "hi"}))
+                .unwrap();
 
         assert_eq!(result["matches_found"], 2);
         assert_eq!(result["replacements_made"], 2);
@@ -262,12 +255,12 @@ mod tests {
     #[test]
     fn test_replace_in_workbook_skips_numbers() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(42.0))
+            .unwrap();
 
-        let result = handle_replace_in_workbook(
-            &mut wb,
-            json!({"query": "42", "replacement": "99"}),
-        ).unwrap();
+        let result =
+            handle_replace_in_workbook(&mut wb, json!({"query": "42", "replacement": "99"}))
+                .unwrap();
 
         assert_eq!(result["matches_found"], 1);
         assert_eq!(result["replacements_made"], 0);
@@ -276,12 +269,14 @@ mod tests {
     #[test]
     fn test_replace_in_workbook_regex() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("foo123bar".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("foo123bar".into()))
+            .unwrap();
 
         let result = handle_replace_in_workbook(
             &mut wb,
             json!({"query": "\\d+", "replacement": "NUM", "use_regex": true}),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(result["replacements_made"], 1);
         let cell = wb.get_cell("Sheet1", 0, 0).unwrap().unwrap();
