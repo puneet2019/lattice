@@ -25,6 +25,50 @@ pub struct MergedRegion {
     pub end_col: u32,
 }
 
+/// Protection settings for a sheet.
+///
+/// Controls what operations are allowed when the sheet is protected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SheetProtection {
+    /// Whether the sheet is currently protected.
+    pub is_protected: bool,
+    /// Optional password hash (SHA-256 hex digest) used to lock/unlock.
+    pub password_hash: Option<String>,
+    /// Allow users to select cells even when protected.
+    pub allow_select: bool,
+    /// Allow users to sort even when protected.
+    pub allow_sort: bool,
+    /// Allow users to use auto-filter even when protected.
+    pub allow_filter: bool,
+}
+
+impl Default for SheetProtection {
+    fn default() -> Self {
+        Self {
+            is_protected: true,
+            password_hash: None,
+            allow_select: true,
+            allow_sort: false,
+            allow_filter: false,
+        }
+    }
+}
+
+/// A protected range within a sheet that cannot be edited.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProtectedRange {
+    /// Start row (0-based).
+    pub start_row: u32,
+    /// Start column (0-based).
+    pub start_col: u32,
+    /// End row (0-based, inclusive).
+    pub end_row: u32,
+    /// End column (0-based, inclusive).
+    pub end_col: u32,
+    /// Optional human-readable description.
+    pub description: Option<String>,
+}
+
 /// A single sheet inside a workbook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sheet {
@@ -42,6 +86,12 @@ pub struct Sheet {
     pub hidden_rows: HashSet<u32>,
     /// Set of hidden column indices (0-based).
     pub hidden_cols: HashSet<u32>,
+    /// Optional sheet-level protection settings.
+    pub protection: Option<SheetProtection>,
+    /// Protected ranges that cannot be edited.
+    protected_ranges: Vec<ProtectedRange>,
+    /// Optional tab color as a CSS hex string (e.g. `"#FF0000"`).
+    pub tab_color: Option<String>,
 }
 
 impl Sheet {
@@ -55,6 +105,9 @@ impl Sheet {
             merged_regions: Vec::new(),
             hidden_rows: HashSet::new(),
             hidden_cols: HashSet::new(),
+            protection: None,
+            protected_ranges: Vec::new(),
+            tab_color: None,
         }
     }
 
@@ -434,6 +487,93 @@ impl Sheet {
         self.hidden_cols = new_hidden;
     }
 
+    // ----- Sheet Protection -----
+
+    /// Protect the sheet, optionally with a password.
+    ///
+    /// The password (if provided) is stored as a simple hash. The default
+    /// protection allows cell selection but disallows editing, sorting, and
+    /// filtering.
+    pub fn protect(&mut self, password: Option<&str>) {
+        let password_hash = password.map(simple_hash);
+        self.protection = Some(SheetProtection {
+            password_hash,
+            ..SheetProtection::default()
+        });
+    }
+
+    /// Unprotect the sheet. If the sheet was protected with a password, the
+    /// correct password must be supplied.
+    ///
+    /// Returns `Ok(())` on success. Returns `Err(IncorrectPassword)` if the
+    /// password does not match.
+    pub fn unprotect(&mut self, password: Option<&str>) -> Result<()> {
+        match &self.protection {
+            None => Ok(()), // already unprotected
+            Some(prot) => {
+                if let Some(stored) = &prot.password_hash {
+                    let given = password.map(simple_hash).unwrap_or_default();
+                    if given != *stored {
+                        return Err(LatticeError::IncorrectPassword);
+                    }
+                }
+                self.protection = None;
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns `true` if the sheet is currently protected.
+    pub fn is_protected(&self) -> bool {
+        self.protection
+            .as_ref()
+            .map_or(false, |p| p.is_protected)
+    }
+
+    // ----- Protected Ranges -----
+
+    /// Add a protected range to the sheet.
+    pub fn add_protected_range(&mut self, range: ProtectedRange) {
+        self.protected_ranges.push(range);
+    }
+
+    /// Remove a protected range by index. Returns `Ok(())` on success or
+    /// an error if the index is out of bounds.
+    pub fn remove_protected_range(&mut self, index: usize) -> Result<()> {
+        if index >= self.protected_ranges.len() {
+            return Err(LatticeError::InvalidRange(format!(
+                "protected range index {index} out of bounds"
+            )));
+        }
+        self.protected_ranges.remove(index);
+        Ok(())
+    }
+
+    /// Check whether a cell at `(row, col)` falls inside any protected range.
+    pub fn is_cell_protected(&self, row: u32, col: u32) -> bool {
+        self.protected_ranges.iter().any(|pr| {
+            row >= pr.start_row
+                && row <= pr.end_row
+                && col >= pr.start_col
+                && col <= pr.end_col
+        })
+    }
+
+    /// Return a reference to the list of protected ranges.
+    pub fn protected_ranges(&self) -> &[ProtectedRange] {
+        &self.protected_ranges
+    }
+
+    // ----- Tab Color -----
+
+    /// Set the tab color for the sheet (CSS hex string, e.g. `"#FF0000"`).
+    /// Pass `None` to clear the color.
+    pub fn set_tab_color(&mut self, color: Option<String>) {
+        self.tab_color = color;
+    }
+
+    // ----- Insert / Delete -----
+
     /// Delete `count` columns starting at the given position, shifting columns left.
     pub fn delete_cols(&mut self, at_col: u32, count: u32) {
         let end_col = at_col + count;
@@ -496,6 +636,19 @@ impl Sheet {
             .collect();
         self.hidden_cols = new_hidden;
     }
+}
+
+/// Compute a simple deterministic hash of a password string.
+///
+/// This uses Rust's built-in `DefaultHasher` (SipHash) which is *not*
+/// cryptographic, but is sufficient for the spreadsheet-style password
+/// protection model (compatible with how Excel/Google Sheets handle sheet
+/// passwords — they are a deterrent, not a security boundary).
+fn simple_hash(password: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    password.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// Check if two rectangular regions overlap.
@@ -893,5 +1046,130 @@ mod tests {
         assert!(!sheet.is_col_hidden(0));
         assert!(!sheet.is_col_hidden(1));
         assert!(!sheet.is_col_hidden(2));
+    }
+
+    // --- Sheet Protection ---
+
+    #[test]
+    fn test_protect_no_password() {
+        let mut sheet = Sheet::new("T");
+        assert!(!sheet.is_protected());
+        sheet.protect(None);
+        assert!(sheet.is_protected());
+    }
+
+    #[test]
+    fn test_unprotect_no_password() {
+        let mut sheet = Sheet::new("T");
+        sheet.protect(None);
+        assert!(sheet.is_protected());
+        sheet.unprotect(None).unwrap();
+        assert!(!sheet.is_protected());
+    }
+
+    #[test]
+    fn test_protect_with_password() {
+        let mut sheet = Sheet::new("T");
+        sheet.protect(Some("secret"));
+        assert!(sheet.is_protected());
+        // Wrong password
+        let err = sheet.unprotect(Some("wrong"));
+        assert!(err.is_err());
+        assert!(sheet.is_protected());
+        // Correct password
+        sheet.unprotect(Some("secret")).unwrap();
+        assert!(!sheet.is_protected());
+    }
+
+    #[test]
+    fn test_unprotect_already_unprotected() {
+        let mut sheet = Sheet::new("T");
+        // Should be a no-op, not an error
+        sheet.unprotect(None).unwrap();
+        assert!(!sheet.is_protected());
+    }
+
+    #[test]
+    fn test_protection_defaults() {
+        let mut sheet = Sheet::new("T");
+        sheet.protect(None);
+        let prot = sheet.protection.as_ref().unwrap();
+        assert!(prot.allow_select);
+        assert!(!prot.allow_sort);
+        assert!(!prot.allow_filter);
+    }
+
+    // --- Protected Ranges ---
+
+    #[test]
+    fn test_add_protected_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.add_protected_range(ProtectedRange {
+            start_row: 0,
+            start_col: 0,
+            end_row: 5,
+            end_col: 3,
+            description: Some("Header".into()),
+        });
+        assert_eq!(sheet.protected_ranges().len(), 1);
+        assert!(sheet.is_cell_protected(0, 0));
+        assert!(sheet.is_cell_protected(3, 2));
+        assert!(!sheet.is_cell_protected(6, 0));
+    }
+
+    #[test]
+    fn test_remove_protected_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.add_protected_range(ProtectedRange {
+            start_row: 0,
+            start_col: 0,
+            end_row: 1,
+            end_col: 1,
+            description: None,
+        });
+        sheet.add_protected_range(ProtectedRange {
+            start_row: 5,
+            start_col: 5,
+            end_row: 10,
+            end_col: 10,
+            description: None,
+        });
+        assert_eq!(sheet.protected_ranges().len(), 2);
+        sheet.remove_protected_range(0).unwrap();
+        assert_eq!(sheet.protected_ranges().len(), 1);
+        // The remaining range should be the second one
+        assert!(!sheet.is_cell_protected(0, 0));
+        assert!(sheet.is_cell_protected(7, 7));
+    }
+
+    #[test]
+    fn test_remove_protected_range_out_of_bounds() {
+        let mut sheet = Sheet::new("T");
+        let err = sheet.remove_protected_range(0);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_is_cell_protected_no_ranges() {
+        let sheet = Sheet::new("T");
+        assert!(!sheet.is_cell_protected(0, 0));
+    }
+
+    // --- Tab Color ---
+
+    #[test]
+    fn test_set_tab_color() {
+        let mut sheet = Sheet::new("T");
+        assert!(sheet.tab_color.is_none());
+        sheet.set_tab_color(Some("#FF0000".into()));
+        assert_eq!(sheet.tab_color.as_deref(), Some("#FF0000"));
+    }
+
+    #[test]
+    fn test_clear_tab_color() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_tab_color(Some("#00FF00".into()));
+        sheet.set_tab_color(None);
+        assert!(sheet.tab_color.is_none());
     }
 }

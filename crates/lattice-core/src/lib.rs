@@ -6,6 +6,7 @@
 //! **no async** dependencies.
 
 pub mod autofill;
+pub mod autosave;
 pub mod cell;
 pub mod clipboard;
 pub mod conditional_format;
@@ -24,6 +25,7 @@ pub mod workbook;
 
 // Re-export key types at the crate root for ergonomic imports.
 pub use autofill::{FillDirection, FillPattern, detect_pattern, fill_range};
+pub use autosave::AutoSaveConfig;
 pub use cell::{Cell, CellError, CellValue};
 pub use clipboard::{ClipboardContent, PasteMode};
 pub use conditional_format::{
@@ -35,10 +37,10 @@ pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
 pub use format::{CellFormat, HAlign, NumberFormat, VAlign, format_value};
 pub use named_range::{NamedRange, NamedRangeStore};
-pub use formula::FormulaEngine;
+pub use formula::{FormulaEngine, SheetResolver};
 pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
-pub use sheet::{MergedRegion, Sheet};
+pub use sheet::{MergedRegion, ProtectedRange, Sheet, SheetProtection};
 pub use sort::{SortDirection, SortKey};
 pub use validation::{ValidationRule, ValidationStore, ValidationType};
 pub use workbook::Workbook;

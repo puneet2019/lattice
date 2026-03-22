@@ -35,6 +35,14 @@ pub enum LatticeError {
     #[error("nothing to redo")]
     NothingToRedo,
 
+    /// The sheet or range is protected and cannot be modified.
+    #[error("sheet is protected: {0}")]
+    SheetProtected(String),
+
+    /// Incorrect password for a protected sheet.
+    #[error("incorrect password")]
+    IncorrectPassword,
+
     /// Generic internal error.
     #[error("{0}")]
     Internal(String),
