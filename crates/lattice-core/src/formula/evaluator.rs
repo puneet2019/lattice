@@ -3893,4 +3893,117 @@ mod tests {
             .unwrap();
         assert_eq!(result, CellValue::Number(170000.0));
     }
+
+    // === QUERY function integration tests ===
+
+    fn make_query_sheet() -> Sheet {
+        let mut s = Sheet::new("Test");
+        // Header row (row 0): Name, Dept, Score
+        s.set_value(0, 0, CellValue::Text("Name".into()));
+        s.set_value(0, 1, CellValue::Text("Dept".into()));
+        s.set_value(0, 2, CellValue::Text("Score".into()));
+        // Data rows
+        s.set_value(1, 0, CellValue::Text("Alice".into()));
+        s.set_value(1, 1, CellValue::Text("Sales".into()));
+        s.set_value(1, 2, CellValue::Number(150.0));
+        s.set_value(2, 0, CellValue::Text("Bob".into()));
+        s.set_value(2, 1, CellValue::Text("Eng".into()));
+        s.set_value(2, 2, CellValue::Number(200.0));
+        s.set_value(3, 0, CellValue::Text("Carol".into()));
+        s.set_value(3, 1, CellValue::Text("Sales".into()));
+        s.set_value(3, 2, CellValue::Number(50.0));
+        s
+    }
+
+    #[test]
+    fn test_query_select_star() {
+        let sheet = make_query_sheet();
+        let result = eval(r#"QUERY(A1:C4, "SELECT *")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 4); // 1 header + 3 data
+            assert_eq!(rows[0][0], CellValue::Text("Name".into()));
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_select_columns() {
+        let sheet = make_query_sheet();
+        let result = eval(r#"QUERY(A1:C4, "SELECT A, C")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 4);
+            assert_eq!(rows[0].len(), 2);
+            assert_eq!(rows[1][0], CellValue::Text("Alice".into()));
+            assert_eq!(rows[1][1], CellValue::Number(150.0));
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_where_filter() {
+        let sheet = make_query_sheet();
+        let result = eval(r#"QUERY(A1:C4, "SELECT A WHERE C > 100")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            // Header + Alice(150) + Bob(200) = 3
+            assert_eq!(rows.len(), 3);
+            assert_eq!(rows[1][0], CellValue::Text("Alice".into()));
+            assert_eq!(rows[2][0], CellValue::Text("Bob".into()));
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_order_by_desc() {
+        let sheet = make_query_sheet();
+        let result = eval(r#"QUERY(A1:C4, "SELECT A, C ORDER BY C DESC")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows[1][0], CellValue::Text("Bob".into())); // 200
+            assert_eq!(rows[2][0], CellValue::Text("Alice".into())); // 150
+            assert_eq!(rows[3][0], CellValue::Text("Carol".into())); // 50
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_limit() {
+        let sheet = make_query_sheet();
+        let result = eval(r#"QUERY(A1:C4, "SELECT * LIMIT 2")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 3); // header + 2
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_combined() {
+        let sheet = make_query_sheet();
+        let result = eval(
+            r#"QUERY(A1:C4, "SELECT A, C WHERE C > 50 ORDER BY C DESC LIMIT 2")"#,
+            &sheet,
+        );
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 3); // header + 2
+            assert_eq!(rows[1][0], CellValue::Text("Bob".into())); // 200
+            assert_eq!(rows[2][0], CellValue::Text("Alice".into())); // 150
+        } else {
+            panic!("expected Array");
+        }
+    }
+
+    #[test]
+    fn test_query_no_headers() {
+        let sheet = make_query_sheet();
+        // headers = 0 means all rows are data
+        let result = eval(r#"QUERY(A1:C4, "SELECT *", 0)"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 4); // all rows are data, no header prepended
+        } else {
+            panic!("expected Array");
+        }
+    }
 }
