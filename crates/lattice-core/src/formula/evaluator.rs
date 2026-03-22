@@ -1,16 +1,39 @@
 //! Recursive formula evaluator supporting 70+ spreadsheet functions.
 //!
 //! The evaluator works on the [`Token`] stream produced by the parser and
-//! resolves cell references against the provided [`Sheet`].
+//! resolves cell references against the provided [`Sheet`]. Cross-sheet
+//! references (`Sheet2!A1`) are resolved via the optional [`SheetResolver`].
 
 use crate::cell::{CellError, CellValue};
 use crate::error::{LatticeError, Result};
-use crate::formula::FormulaEngine;
+use crate::formula::{FormulaEngine, SheetResolver};
 use crate::formula::parser::{Token, tokenize};
 use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
 use regex::Regex;
+
+/// Internal evaluation context that bundles the current sheet with an optional
+/// cross-sheet resolver.
+struct EvalCtx<'a> {
+    sheet: &'a Sheet,
+    resolver: Option<&'a dyn SheetResolver>,
+}
+
+impl<'a> EvalCtx<'a> {
+    fn new(sheet: &'a Sheet, resolver: Option<&'a dyn SheetResolver>) -> Self {
+        Self { sheet, resolver }
+    }
+
+    /// Resolve a cell reference from another sheet. Returns `#REF!` if no
+    /// resolver is available or if the sheet is not found.
+    fn resolve_cross_sheet(&self, sheet_name: &str, row: u32, col: u32) -> Result<CellValue> {
+        match self.resolver {
+            Some(resolver) => resolver.resolve_cell(sheet_name, row, col),
+            None => Ok(CellValue::Error(CellError::Ref)),
+        }
+    }
+}
 
 /// A recursive formula evaluator that supports 70+ spreadsheet functions,
 /// arithmetic, comparisons, string concatenation, and nested expressions.
@@ -18,9 +41,22 @@ pub struct SimpleEvaluator;
 
 impl FormulaEngine for SimpleEvaluator {
     fn evaluate(&self, formula: &str, sheet: &Sheet) -> Result<CellValue> {
+        let ctx = EvalCtx::new(sheet, None);
         let tokens = tokenize(formula);
         let mut pos = 0;
-        parse_expression(&tokens, &mut pos, sheet)
+        parse_expression(&tokens, &mut pos, &ctx)
+    }
+
+    fn evaluate_with_context(
+        &self,
+        formula: &str,
+        sheet: &Sheet,
+        resolver: Option<&dyn SheetResolver>,
+    ) -> Result<CellValue> {
+        let ctx = EvalCtx::new(sheet, resolver);
+        let tokens = tokenize(formula);
+        let mut pos = 0;
+        parse_expression(&tokens, &mut pos, &ctx)
     }
 }
 
@@ -35,19 +71,19 @@ impl FormulaEngine for SimpleEvaluator {
 //   5. Atoms: numbers, strings, booleans, cell refs, ranges, function calls
 
 /// Parse a complete expression.
-fn parse_expression(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
-    parse_comparison(tokens, pos, sheet)
+fn parse_expression(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
+    parse_comparison(tokens, pos, ctx)
 }
 
 /// Parse comparison operators (=, <, >, <=, >=, <>).
-fn parse_comparison(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
-    let mut left = parse_additive(tokens, pos, sheet)?;
+fn parse_comparison(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
+    let mut left = parse_additive(tokens, pos, ctx)?;
 
     while *pos < tokens.len() {
         if let Token::Comparison(op) = &tokens[*pos] {
             let op = op.clone();
             *pos += 1;
-            let right = parse_additive(tokens, pos, sheet)?;
+            let right = parse_additive(tokens, pos, ctx)?;
             let result = compare_values(&left, &right, &op);
             left = CellValue::Boolean(result);
         } else {
@@ -58,28 +94,28 @@ fn parse_comparison(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<
 }
 
 /// Parse additive expressions (+, -, &).
-fn parse_additive(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
-    let mut left = parse_multiplicative(tokens, pos, sheet)?;
+fn parse_additive(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
+    let mut left = parse_multiplicative(tokens, pos, ctx)?;
 
     while *pos < tokens.len() {
         match &tokens[*pos] {
             Token::Operator('+') => {
                 *pos += 1;
-                let right = parse_multiplicative(tokens, pos, sheet)?;
+                let right = parse_multiplicative(tokens, pos, ctx)?;
                 let l = coerce_to_number(&left)?;
                 let r = coerce_to_number(&right)?;
                 left = CellValue::Number(l + r);
             }
             Token::Operator('-') => {
                 *pos += 1;
-                let right = parse_multiplicative(tokens, pos, sheet)?;
+                let right = parse_multiplicative(tokens, pos, ctx)?;
                 let l = coerce_to_number(&left)?;
                 let r = coerce_to_number(&right)?;
                 left = CellValue::Number(l - r);
             }
             Token::Ampersand => {
                 *pos += 1;
-                let right = parse_multiplicative(tokens, pos, sheet)?;
+                let right = parse_multiplicative(tokens, pos, ctx)?;
                 let l = coerce_to_string(&left);
                 let r = coerce_to_string(&right);
                 left = CellValue::Text(format!("{}{}", l, r));
@@ -91,21 +127,21 @@ fn parse_additive(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<Ce
 }
 
 /// Parse multiplicative expressions (*, /).
-fn parse_multiplicative(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
-    let mut left = parse_unary(tokens, pos, sheet)?;
+fn parse_multiplicative(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
+    let mut left = parse_unary(tokens, pos, ctx)?;
 
     while *pos < tokens.len() {
         match &tokens[*pos] {
             Token::Operator('*') => {
                 *pos += 1;
-                let right = parse_unary(tokens, pos, sheet)?;
+                let right = parse_unary(tokens, pos, ctx)?;
                 let l = coerce_to_number(&left)?;
                 let r = coerce_to_number(&right)?;
                 left = CellValue::Number(l * r);
             }
             Token::Operator('/') => {
                 *pos += 1;
-                let right = parse_unary(tokens, pos, sheet)?;
+                let right = parse_unary(tokens, pos, ctx)?;
                 let l = coerce_to_number(&left)?;
                 let r = coerce_to_number(&right)?;
                 if r == 0.0 {
@@ -120,24 +156,24 @@ fn parse_multiplicative(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Res
 }
 
 /// Parse unary minus.
-fn parse_unary(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
+fn parse_unary(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
     if *pos < tokens.len() && tokens[*pos] == Token::Operator('-') {
         *pos += 1;
-        let val = parse_atom(tokens, pos, sheet)?;
+        let val = parse_atom(tokens, pos, ctx)?;
         let n = coerce_to_number(&val)?;
         return Ok(CellValue::Number(-n));
     }
     // Handle unary plus (just skip it)
     if *pos < tokens.len() && tokens[*pos] == Token::Operator('+') {
         *pos += 1;
-        return parse_atom(tokens, pos, sheet);
+        return parse_atom(tokens, pos, ctx);
     }
-    parse_atom(tokens, pos, sheet)
+    parse_atom(tokens, pos, ctx)
 }
 
-/// Parse an atomic expression: literal, cell ref, range, parenthesised
-/// expression, or function call.
-fn parse_atom(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellValue> {
+/// Parse an atomic expression: literal, cell ref, cross-sheet ref, range,
+/// parenthesised expression, or function call.
+fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
     if *pos >= tokens.len() {
         return Err(LatticeError::FormulaError(
             "unexpected end of expression".into(),
@@ -162,7 +198,7 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellVa
         }
         Token::LParen => {
             *pos += 1; // skip '('
-            let val = parse_expression(tokens, pos, sheet)?;
+            let val = parse_expression(tokens, pos, ctx)?;
             if *pos < tokens.len() && tokens[*pos] == Token::RParen {
                 *pos += 1; // skip ')'
             }
@@ -174,11 +210,11 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellVa
             if *pos < tokens.len() && tokens[*pos] == Token::LParen {
                 *pos += 1; // skip '('
             }
-            let args = parse_function_args(tokens, pos, sheet, &name)?;
+            let args = parse_function_args(tokens, pos, ctx, &name)?;
             if *pos < tokens.len() && tokens[*pos] == Token::RParen {
                 *pos += 1; // skip ')'
             }
-            evaluate_function(&name, args, sheet)
+            evaluate_function(&name, args, ctx)
         }
         Token::CellRef(r) => {
             let r = r.clone();
@@ -188,16 +224,29 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellVa
                 // This is a range — return it as-is; the caller (function) will handle it
                 // But if we're in expression context, just return the first cell's value
                 let cr = parse_cell_ref(&r)?;
-                return match sheet.get_cell(cr.row, cr.col) {
+                return match ctx.sheet.get_cell(cr.row, cr.col) {
                     Some(cell) => Ok(cell.value.clone()),
                     None => Ok(CellValue::Empty),
                 };
             }
             let cr = parse_cell_ref(&r)?;
-            match sheet.get_cell(cr.row, cr.col) {
+            match ctx.sheet.get_cell(cr.row, cr.col) {
                 Some(cell) => Ok(cell.value.clone()),
                 None => Ok(CellValue::Empty),
             }
+        }
+        Token::SheetRef(sheet_name, cell_ref) => {
+            let sheet_name = sheet_name.clone();
+            let cell_ref = cell_ref.clone();
+            *pos += 1;
+            // Check if this is a cross-sheet range (next token is ':')
+            if *pos < tokens.len() && tokens[*pos] == Token::Colon {
+                // Return the first cell value for expression context
+                let cr = parse_cell_ref(&cell_ref)?;
+                return ctx.resolve_cross_sheet(&sheet_name, cr.row, cr.col);
+            }
+            let cr = parse_cell_ref(&cell_ref)?;
+            ctx.resolve_cross_sheet(&sheet_name, cr.row, cr.col)
         }
         _ => Err(LatticeError::FormulaError(format!(
             "unexpected token: {:?}",
@@ -206,13 +255,16 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, sheet: &Sheet) -> Result<CellVa
     }
 }
 
-/// An argument to a function — either a single value or a range.
+/// An argument to a function — either a single value, a range, or a
+/// cross-sheet range.
 #[derive(Debug, Clone)]
 enum FuncArg {
     /// A single evaluated value.
     Value(CellValue),
     /// A range of cell references (start_ref, end_ref) — not yet resolved.
     Range(String, String),
+    /// A cross-sheet range (sheet_name, start_ref, end_ref).
+    SheetRange(String, String, String),
 }
 
 /// Parse the argument list of a function call.
@@ -220,11 +272,12 @@ enum FuncArg {
 /// This handles:
 /// - Single value arguments (expressions)
 /// - Range arguments (CellRef:CellRef)
+/// - Cross-sheet range arguments (SheetRef:CellRef)
 /// - Nested function calls
 fn parse_function_args(
     tokens: &[Token],
     pos: &mut usize,
-    sheet: &Sheet,
+    ctx: &EvalCtx<'_>,
     _func_name: &str,
 ) -> Result<Vec<FuncArg>> {
     let mut args: Vec<FuncArg> = Vec::new();
@@ -237,6 +290,24 @@ fn parse_function_args(
     loop {
         if *pos >= tokens.len() {
             break;
+        }
+
+        // Check if this argument is a cross-sheet range: SheetRef : CellRef
+        if let Token::SheetRef(sheet_name, start_ref) = &tokens[*pos] {
+            if *pos + 2 < tokens.len() && tokens[*pos + 1] == Token::Colon {
+                if let Token::CellRef(end_ref) = &tokens[*pos + 2] {
+                    let sheet_name = sheet_name.clone();
+                    let start_ref = start_ref.clone();
+                    let end_ref = end_ref.clone();
+                    *pos += 3; // skip SheetRef : CellRef
+                    args.push(FuncArg::SheetRange(sheet_name, start_ref, end_ref));
+                    if *pos < tokens.len() && tokens[*pos] == Token::Comma {
+                        *pos += 1;
+                        continue;
+                    }
+                    break;
+                }
+            }
         }
 
         // Check if this argument is a range: CellRef : CellRef
@@ -258,7 +329,7 @@ fn parse_function_args(
         }
 
         // Otherwise, parse a full expression as a single-value argument
-        let val = parse_expression(tokens, pos, sheet)?;
+        let val = parse_expression(tokens, pos, ctx)?;
         args.push(FuncArg::Value(val));
 
         if *pos < tokens.len() && tokens[*pos] == Token::Comma {
@@ -394,6 +465,29 @@ fn resolve_range_values(start_ref: &str, end_ref: &str, sheet: &Sheet) -> Result
     Ok(values)
 }
 
+/// Resolve a cross-sheet range to a flat list of CellValues.
+fn resolve_cross_sheet_range_values(
+    sheet_name: &str,
+    start_ref: &str,
+    end_ref: &str,
+    ctx: &EvalCtx<'_>,
+) -> Result<Vec<CellValue>> {
+    let start = parse_cell_ref(start_ref)?;
+    let end = parse_cell_ref(end_ref)?;
+    let r_min = start.row.min(end.row);
+    let r_max = start.row.max(end.row);
+    let c_min = start.col.min(end.col);
+    let c_max = start.col.max(end.col);
+
+    let mut values = Vec::new();
+    for r in r_min..=r_max {
+        for c in c_min..=c_max {
+            values.push(ctx.resolve_cross_sheet(sheet_name, r, c)?);
+        }
+    }
+    Ok(values)
+}
+
 /// Resolve a range to a flat list of numeric values, skipping non-numeric cells.
 fn resolve_range_numbers(start_ref: &str, end_ref: &str, sheet: &Sheet) -> Result<Vec<f64>> {
     let values = resolve_range_values(start_ref, end_ref, sheet)?;
@@ -435,12 +529,22 @@ fn resolve_range_2d(
 }
 
 /// Collect all numeric values from function arguments, expanding ranges.
-fn collect_numbers(args: &[FuncArg], sheet: &Sheet) -> Result<Vec<f64>> {
+fn collect_numbers(args: &[FuncArg], ctx: &EvalCtx<'_>) -> Result<Vec<f64>> {
     let mut nums = Vec::new();
     for arg in args {
         match arg {
             FuncArg::Range(start, end) => {
-                nums.extend(resolve_range_numbers(start, end, sheet)?);
+                nums.extend(resolve_range_numbers(start, end, ctx.sheet)?);
+            }
+            FuncArg::SheetRange(sheet_name, start, end) => {
+                let values = resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?;
+                for v in &values {
+                    match v {
+                        CellValue::Number(n) => nums.push(*n),
+                        CellValue::Boolean(b) => nums.push(if *b { 1.0 } else { 0.0 }),
+                        _ => {}
+                    }
+                }
             }
             FuncArg::Value(CellValue::Number(n)) => nums.push(*n),
             FuncArg::Value(CellValue::Boolean(b)) => nums.push(if *b { 1.0 } else { 0.0 }),
@@ -457,12 +561,15 @@ fn collect_numbers(args: &[FuncArg], sheet: &Sheet) -> Result<Vec<f64>> {
 }
 
 /// Collect all CellValues from function arguments, expanding ranges.
-fn collect_values(args: &[FuncArg], sheet: &Sheet) -> Result<Vec<CellValue>> {
+fn collect_values(args: &[FuncArg], ctx: &EvalCtx<'_>) -> Result<Vec<CellValue>> {
     let mut vals = Vec::new();
     for arg in args {
         match arg {
             FuncArg::Range(start, end) => {
-                vals.extend(resolve_range_values(start, end, sheet)?);
+                vals.extend(resolve_range_values(start, end, ctx.sheet)?);
+            }
+            FuncArg::SheetRange(sheet_name, start, end) => {
+                vals.extend(resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?);
             }
             FuncArg::Value(v) => vals.push(v.clone()),
         }
@@ -482,7 +589,7 @@ fn require_args(args: &[FuncArg], n: usize, func_name: &str) -> Result<Vec<CellV
     for arg in args {
         match arg {
             FuncArg::Value(v) => result.push(v.clone()),
-            FuncArg::Range(_, _) => {
+            FuncArg::Range(_, _) | FuncArg::SheetRange(_, _, _) => {
                 return Err(LatticeError::FormulaError(format!(
                     "{func_name}: unexpected range argument"
                 )));
@@ -504,7 +611,7 @@ fn require_min_args(args: &[FuncArg], min: usize, func_name: &str) -> Result<Vec
     for arg in args {
         match arg {
             FuncArg::Value(v) => result.push(v.clone()),
-            FuncArg::Range(_, _) => {
+            FuncArg::Range(_, _) | FuncArg::SheetRange(_, _, _) => {
                 return Err(LatticeError::FormulaError(format!(
                     "{func_name}: unexpected range argument"
                 )));
@@ -520,15 +627,15 @@ fn require_min_args(args: &[FuncArg], min: usize, func_name: &str) -> Result<Vec
 
 /// Evaluate a function call by name with its parsed arguments.
 #[allow(clippy::too_many_lines)]
-fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<CellValue> {
+fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Result<CellValue> {
     match name {
         // ===== MATH / AGGREGATE =====
         "SUM" => {
-            let nums = collect_numbers(&args, sheet)?;
+            let nums = collect_numbers(&args, ctx)?;
             Ok(CellValue::Number(nums.iter().sum()))
         }
         "AVERAGE" => {
-            let nums = collect_numbers(&args, sheet)?;
+            let nums = collect_numbers(&args, ctx)?;
             if nums.is_empty() {
                 return Err(LatticeError::FormulaError(
                     "AVERAGE: no numeric values".into(),
@@ -537,7 +644,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             Ok(CellValue::Number(nums.iter().sum::<f64>() / nums.len() as f64))
         }
         "COUNT" => {
-            let vals = collect_values(&args, sheet)?;
+            let vals = collect_values(&args, ctx)?;
             let count = vals
                 .iter()
                 .filter(|v| matches!(v, CellValue::Number(_)))
@@ -545,7 +652,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             Ok(CellValue::Number(count as f64))
         }
         "COUNTA" => {
-            let vals = collect_values(&args, sheet)?;
+            let vals = collect_values(&args, ctx)?;
             let count = vals
                 .iter()
                 .filter(|v| !matches!(v, CellValue::Empty))
@@ -553,7 +660,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             Ok(CellValue::Number(count as f64))
         }
         "MIN" => {
-            let nums = collect_numbers(&args, sheet)?;
+            let nums = collect_numbers(&args, ctx)?;
             if nums.is_empty() {
                 return Ok(CellValue::Number(0.0));
             }
@@ -562,7 +669,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             ))
         }
         "MAX" => {
-            let nums = collect_numbers(&args, sheet)?;
+            let nums = collect_numbers(&args, ctx)?;
             if nums.is_empty() {
                 return Ok(CellValue::Number(0.0));
             }
@@ -571,7 +678,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             ))
         }
         "PRODUCT" => {
-            let nums = collect_numbers(&args, sheet)?;
+            let nums = collect_numbers(&args, ctx)?;
             if nums.is_empty() {
                 return Ok(CellValue::Number(0.0));
             }
@@ -588,7 +695,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             for arg in &args {
                 match arg {
                     FuncArg::Range(start, end) => {
-                        arrays.push(resolve_range_numbers(start, end, sheet)?);
+                        arrays.push(resolve_range_numbers(start, end, ctx.sheet)?);
                     }
                     _ => {
                         return Err(LatticeError::FormulaError(
@@ -621,7 +728,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let criteria_range = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "SUMIF: first argument must be a range".into(),
@@ -638,7 +745,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             };
             let sum_range = if args.len() == 3 {
                 match &args[2] {
-                    FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                    FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                     _ => {
                         return Err(LatticeError::FormulaError(
                             "SUMIF: third argument must be a range".into(),
@@ -665,7 +772,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             // COUNTIF(range, criteria)
             let a = require_min_args_mixed(&args, 2, "COUNTIF")?;
             let range_vals = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "COUNTIF: first argument must be a range".into(),
@@ -687,7 +794,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let criteria_range = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "AVERAGEIF: first argument must be a range".into(),
@@ -704,7 +811,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             };
             let avg_range = if args.len() == 3 {
                 match &args[2] {
-                    FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                    FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                     _ => {
                         return Err(LatticeError::FormulaError(
                             "AVERAGEIF: third argument must be a range".into(),
@@ -975,7 +1082,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
 
         // ===== TEXT =====
         "CONCATENATE" | "CONCAT" => {
-            let vals = collect_values(&args, sheet)?;
+            let vals = collect_values(&args, ctx)?;
             let s: String = vals.iter().map(|v| coerce_to_string(v)).collect();
             Ok(CellValue::Text(s))
         }
@@ -1220,7 +1327,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let table = match &args[1] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "VLOOKUP: second argument must be a range".into(),
@@ -1276,7 +1383,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let table = match &args[1] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "HLOOKUP: second argument must be a range".into(),
@@ -1319,7 +1426,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let table = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "INDEX: first argument must be a range".into(),
@@ -1367,7 +1474,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let range_vals = match &args[1] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "MATCH: second argument must be a range".into(),
@@ -1417,7 +1524,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let lookup_vals = match &args[1] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "XLOOKUP: second argument must be a range".into(),
@@ -1425,7 +1532,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let return_vals = match &args[2] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "XLOOKUP: third argument must be a range".into(),
@@ -1523,7 +1630,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let data_vals = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "FILTER: first argument must be a range".into(),
@@ -1531,7 +1638,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let cond_vals = match &args[1] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "FILTER: second argument must be a range".into(),
@@ -1568,7 +1675,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let mut vals = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "SORT: first argument must be a range".into(),
@@ -1609,7 +1716,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let vals = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "UNIQUE: argument must be a range".into(),
@@ -1953,7 +2060,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let grid = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "TRANSPOSE: argument must be a range".into(),
@@ -2033,7 +2140,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 ));
             }
             let vals = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(
                         "FLATTEN: argument must be a range".into(),
@@ -2056,7 +2163,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 )));
             }
             let database = match &args[0] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(format!(
                         "{name}: first argument must be a range"
@@ -2072,7 +2179,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                 }
             };
             let criteria = match &args[2] {
-                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
                 _ => {
                     return Err(LatticeError::FormulaError(format!(
                         "{name}: third argument must be a range"
@@ -2272,7 +2379,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                     ));
                 }
             };
-            let cashflows = collect_numbers(&args[1..], sheet)?;
+            let cashflows = collect_numbers(&args[1..], ctx)?;
             let mut npv = 0.0;
             for (i, cf) in cashflows.iter().enumerate() {
                 npv += cf / (1.0 + rate).powi(i as i32 + 1);
@@ -2281,7 +2388,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
         }
         "IRR" => {
             // IRR(values, [guess]) — Newton's method
-            let cashflows = collect_numbers(&args, sheet)?;
+            let cashflows = collect_numbers(&args, ctx)?;
             if cashflows.is_empty() {
                 return Ok(CellValue::Error(CellError::Num));
             }
@@ -2479,7 +2586,9 @@ fn require_min_args_mixed(
     for arg in args {
         match arg {
             FuncArg::Value(v) => result.push(v.clone()),
-            FuncArg::Range(_, _) => result.push(CellValue::Empty), // placeholder
+            FuncArg::Range(_, _) | FuncArg::SheetRange(_, _, _) => {
+                result.push(CellValue::Empty); // placeholder
+            }
         }
     }
     Ok(result)

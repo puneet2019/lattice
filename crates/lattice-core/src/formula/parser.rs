@@ -5,6 +5,9 @@ pub enum Token {
     Number(f64),
     /// A cell reference such as `A1` or `$A$1`.
     CellRef(String),
+    /// A cross-sheet cell reference such as `Sheet2!A1`.
+    /// Contains (sheet_name, cell_ref).
+    SheetRef(String, String),
     /// A function name such as `SUM`.
     Function(String),
     /// Opening parenthesis `(`.
@@ -194,10 +197,24 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 }
             }
             '!' => {
-                // Sheet reference separator — attach to previous token
-                // e.g. "Sheet1" + "!" + "A1" => the previous CellRef becomes part of a
-                // sheet-qualified reference.
-                i += 1;
+                // Sheet reference separator: e.g. "Sheet1" + "!" + "A1"
+                // The previous token should be a CellRef containing the sheet name.
+                i += 1; // skip '!'
+                // Read the cell reference that follows
+                let ref_start = i;
+                while i < chars.len()
+                    && (chars[i].is_ascii_alphanumeric() || chars[i] == '$' || chars[i] == '_')
+                {
+                    i += 1;
+                }
+                if i > ref_start {
+                    let cell_ref: String = chars[ref_start..i].iter().collect();
+                    // Pop the previous CellRef token and convert to SheetRef
+                    if let Some(Token::CellRef(sheet_name)) = tokens.last().cloned() {
+                        tokens.pop();
+                        tokens.push(Token::SheetRef(sheet_name, cell_ref));
+                    }
+                }
             }
             _ => {
                 i += 1; // skip unknown
@@ -287,5 +304,41 @@ mod tests {
         let tokens = tokenize("SUM(IF(A1>0,A1,0),B1)");
         assert_eq!(tokens[0], Token::Function("SUM".to_string()));
         assert_eq!(tokens[2], Token::Function("IF".to_string()));
+    }
+
+    #[test]
+    fn test_cross_sheet_reference() {
+        let tokens = tokenize("Sheet2!A1");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(
+            tokens[0],
+            Token::SheetRef("Sheet2".to_string(), "A1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_cross_sheet_reference_in_expression() {
+        let tokens = tokenize("Sheet2!A1+10");
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(
+            tokens[0],
+            Token::SheetRef("Sheet2".to_string(), "A1".to_string())
+        );
+        assert_eq!(tokens[1], Token::Operator('+'));
+        assert_eq!(tokens[2], Token::Number(10.0));
+    }
+
+    #[test]
+    fn test_cross_sheet_range_in_sum() {
+        let tokens = tokenize("SUM(Sheet2!A1:A5)");
+        assert_eq!(tokens[0], Token::Function("SUM".to_string()));
+        assert_eq!(tokens[1], Token::LParen);
+        assert_eq!(
+            tokens[2],
+            Token::SheetRef("Sheet2".to_string(), "A1".to_string())
+        );
+        assert_eq!(tokens[3], Token::Colon);
+        assert_eq!(tokens[4], Token::CellRef("A5".to_string()));
+        assert_eq!(tokens[5], Token::RParen);
     }
 }
