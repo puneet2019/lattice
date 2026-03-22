@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
-import { renderChartSvg, createChart } from '../../bridge/tauri';
+import { renderChartSvg, createChart, deleteChart } from '../../bridge/tauri';
 import type { ChartTypeStr } from '../../bridge/tauri';
 
 /** Chart type options shown in the dialog. */
@@ -48,8 +48,7 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
           const prevId = previewChartId();
           if (prevId) {
             try {
-              const { deleteChart: del } = await import('../../bridge/tauri');
-              await del(prevId);
+              await deleteChart(prevId);
             } catch {
               // Ignore cleanup failures.
             }
@@ -117,8 +116,7 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
     const prevId = previewChartId();
     if (prevId) {
       try {
-        const { deleteChart: del } = await import('../../bridge/tauri');
-        await del(prevId);
+        await deleteChart(prevId);
       } catch {
         // Ignore.
       }
