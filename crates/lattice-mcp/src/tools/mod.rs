@@ -5,9 +5,12 @@ pub mod cell_ops;
 pub mod chart_ops;
 pub mod data_ops;
 pub mod file_ops;
+pub mod find_replace_ops;
 pub mod format_ops;
+pub mod named_range_ops;
 pub mod formula_ops;
 pub mod sheet_ops;
+pub mod validation_ops;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -80,6 +83,16 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Find/replace operations (core-backed)
+        for tool in find_replace_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
+        // Named range operations
+        for tool in named_range_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         // Format operations
         for tool in format_ops::tool_definitions() {
             reg.register(tool);
@@ -87,6 +100,11 @@ impl ToolRegistry {
 
         // Formula operations
         for tool in formula_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
+        // Validation operations
+        for tool in validation_ops::tool_definitions() {
             reg.register(tool);
         }
 
@@ -110,8 +128,11 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(data_ops::tool_definitions());
     all.extend(analysis::tool_definitions());
     all.extend(chart_ops::tool_definitions());
+    all.extend(find_replace_ops::tool_definitions());
+    all.extend(named_range_ops::tool_definitions());
     all.extend(format_ops::tool_definitions());
     all.extend(formula_ops::tool_definitions());
+    all.extend(validation_ops::tool_definitions());
     all.extend(file_ops::tool_definitions());
     all
 }
