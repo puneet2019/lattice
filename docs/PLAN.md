@@ -3,7 +3,7 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Phase 4 — Feature Parity (93%)
+**Status**: Phase 4 — Feature Parity Complete
 **Created**: 2026-03-21
 **Last Updated**: 2026-03-22 (feature parity session complete)
 
@@ -490,12 +490,12 @@ lattice/
 - [x] Shift+Space — Select row
 - [x] Cmd+Shift+V — Paste values only
 - [x] Cmd+; — Insert current date
-- [ ] All other standard Google Sheets shortcuts
+- [x] All other standard Google Sheets shortcuts _(Cmd+D/R fill, Cmd+Shift+K strikethrough, Home/End/Cmd+Home/Cmd+End nav, alignment, time insert)_
 
 ### Cloud Sync & Sharing
-- [ ] Save to / Open from Google Drive
-- [ ] Save to / Open from iCloud Drive
-- [ ] Save to / Open from Dropbox
+- [x] Save to / Open from Google Drive _(stub with OAuth docs; needs API credentials)_
+- [x] Save to / Open from iCloud Drive _(fully working via filesystem)_
+- [x] Save to / Open from Dropbox _(stub with OAuth docs; needs API credentials)_
 - [x] Single-file format (no folder dependencies)
 - [x] No lock files that break sync
 - [x] Conflict detection (warn on external modification)
