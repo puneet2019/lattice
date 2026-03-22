@@ -360,6 +360,30 @@ fn cell_value_as_text(value: &CellValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cell::CellError;
+
+    fn make_rule(rule_type: ConditionalRuleType, priority: u32) -> ConditionalRule {
+        ConditionalRule {
+            rule_type,
+            style: ConditionalStyle { bold: Some(true), ..Default::default() },
+            priority,
+            stop_if_true: false,
+        }
+    }
+
+    fn cmp_rule(op: ComparisonOperator, v1: f64, v2: Option<f64>, p: u32) -> ConditionalRule {
+        make_rule(ConditionalRuleType::CellValue { operator: op, value1: v1, value2: v2 }, p)
+    }
+
+    fn gt_rule(val: f64, priority: u32) -> ConditionalRule {
+        cmp_rule(ComparisonOperator::GreaterThan, val, None, priority)
+    }
+
+    fn eval(val: &CellValue, rule: &ConditionalRule) -> bool {
+        ConditionalFormatStore::evaluate(val, rule)
+    }
+
+    // ── Store basics ────────────────────────────────────────────────
 
     #[test]
     fn test_store_new_is_empty() {
@@ -371,24 +395,358 @@ mod tests {
     #[test]
     fn test_add_and_get_rule() {
         let mut store = ConditionalFormatStore::new();
-        let rule = ConditionalRule {
-            rule_type: ConditionalRuleType::CellValue {
-                operator: ComparisonOperator::GreaterThan,
-                value1: 10.0,
-                value2: None,
-            },
-            style: ConditionalStyle {
-                bold: Some(true),
-                ..Default::default()
-            },
-            priority: 1,
-            stop_if_true: false,
-        };
-        store.add_rule("Sheet1", 0, 0, 9, 9, rule);
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
         assert_eq!(store.len(), 1);
+        assert_eq!(store.get_rules("S1", 5, 5).len(), 1);
+    }
 
-        let rules = store.get_rules("Sheet1", 5, 5);
-        assert_eq!(rules.len(), 1);
+    #[test]
+    fn test_add_same_range_appends() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(20.0, 2));
+        assert_eq!(store.len(), 1); // still one range
+        assert_eq!(store.get_rules("S1", 0, 0).len(), 2);
+    }
+
+    #[test]
+    fn test_remove_rule() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(20.0, 2));
+        assert!(store.remove_rule("S1", 0, 0, 9, 9, 0));
+        assert_eq!(store.get_rules("S1", 0, 0).len(), 1);
+    }
+
+    #[test]
+    fn test_remove_last_rule_removes_range() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        assert!(store.remove_rule("S1", 0, 0, 9, 9, 0));
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn test_remove_rule_invalid_index() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        assert!(!store.remove_rule("S1", 0, 0, 9, 9, 5));
+    }
+
+    #[test]
+    fn test_remove_rule_wrong_range() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        assert!(!store.remove_rule("S1", 0, 0, 5, 5, 0));
+    }
+
+    #[test]
+    fn test_cell_outside_range_gets_no_rules() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(10.0, 1));
+        assert!(store.get_rules("S1", 6, 6).is_empty());
+    }
+
+    #[test]
+    fn test_list_ranges() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(10.0, 1));
+        store.add_rule("S1", 10, 10, 20, 20, gt_rule(10.0, 1));
+        store.add_rule("S2", 0, 0, 5, 5, gt_rule(10.0, 1));
+        assert_eq!(store.list_ranges("S1").len(), 2);
+        assert_eq!(store.list_ranges("S2").len(), 1);
+        assert_eq!(store.list_ranges("S3").len(), 0);
+    }
+
+    #[test]
+    fn test_clear_sheet() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(10.0, 1));
+        store.add_rule("S2", 0, 0, 5, 5, gt_rule(10.0, 1));
+        store.clear("S1");
+        assert!(store.list_ranges("S1").is_empty());
+        assert_eq!(store.list_ranges("S2").len(), 1);
+    }
+
+    // ── ComparisonOperator tests ────────────────────────────────────
+
+    #[test]
+    fn test_greater_than() {
+        let r = gt_rule(10.0, 1);
+        assert!(eval(&CellValue::Number(11.0), &r));
+        assert!(!eval(&CellValue::Number(10.0), &r));
+        assert!(!eval(&CellValue::Number(9.0), &r));
+    }
+
+    #[test]
+    fn test_less_than() {
+        let r = cmp_rule(ComparisonOperator::LessThan, 10.0, None, 1);
+        assert!(eval(&CellValue::Number(9.0), &r));
+        assert!(!eval(&CellValue::Number(10.0), &r));
+    }
+
+    #[test]
+    fn test_gte_lte() {
+        let gte = cmp_rule(ComparisonOperator::GreaterThanOrEqual, 10.0, None, 1);
+        assert!(eval(&CellValue::Number(10.0), &gte));
+        assert!(!eval(&CellValue::Number(9.99), &gte));
+        let lte = cmp_rule(ComparisonOperator::LessThanOrEqual, 10.0, None, 1);
+        assert!(eval(&CellValue::Number(10.0), &lte));
+        assert!(!eval(&CellValue::Number(10.01), &lte));
+    }
+
+    #[test]
+    fn test_equal_not_equal() {
+        let eq = cmp_rule(ComparisonOperator::Equal, 42.0, None, 1);
+        assert!(eval(&CellValue::Number(42.0), &eq));
+        assert!(!eval(&CellValue::Number(42.1), &eq));
+        let neq = cmp_rule(ComparisonOperator::NotEqual, 42.0, None, 1);
+        assert!(!eval(&CellValue::Number(42.0), &neq));
+        assert!(eval(&CellValue::Number(43.0), &neq));
+    }
+
+    #[test]
+    fn test_between() {
+        let r = cmp_rule(ComparisonOperator::Between, 10.0, Some(20.0), 1);
+        assert!(eval(&CellValue::Number(10.0), &r));
+        assert!(eval(&CellValue::Number(15.0), &r));
+        assert!(eval(&CellValue::Number(20.0), &r));
+        assert!(!eval(&CellValue::Number(9.0), &r));
+        assert!(!eval(&CellValue::Number(21.0), &r));
+    }
+
+    #[test]
+    fn test_not_between() {
+        let r = cmp_rule(ComparisonOperator::NotBetween, 10.0, Some(20.0), 1);
+        assert!(eval(&CellValue::Number(9.0), &r));
+        assert!(eval(&CellValue::Number(21.0), &r));
+        assert!(!eval(&CellValue::Number(15.0), &r));
+    }
+
+    #[test]
+    fn test_cell_value_with_boolean() {
+        let r = gt_rule(0.5, 1);
+        assert!(eval(&CellValue::Boolean(true), &r));
+        assert!(!eval(&CellValue::Boolean(false), &r));
+    }
+
+    #[test]
+    fn test_cell_value_rejects_text() {
+        let r = gt_rule(10.0, 1);
+        assert!(!eval(&CellValue::Text("hello".into()), &r));
+    }
+
+    // ── Text rules ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_text_contains() {
+        let r = make_rule(ConditionalRuleType::TextContains("hello".into()), 1);
+        assert!(eval(&CellValue::Text("say HELLO world".into()), &r));
+        assert!(!eval(&CellValue::Text("goodbye".into()), &r));
+    }
+
+    #[test]
+    fn test_text_starts_with() {
+        let r = make_rule(ConditionalRuleType::TextStartsWith("Pre".into()), 1);
+        assert!(eval(&CellValue::Text("prefix".into()), &r));
+        assert!(!eval(&CellValue::Text("not prefix".into()), &r));
+    }
+
+    #[test]
+    fn test_text_ends_with() {
+        let r = make_rule(ConditionalRuleType::TextEndsWith("FIX".into()), 1);
+        assert!(eval(&CellValue::Text("suffix".into()), &r));
+        assert!(!eval(&CellValue::Text("fixme".into()), &r));
+    }
+
+    #[test]
+    fn test_text_contains_number_value() {
+        let r = make_rule(ConditionalRuleType::TextContains("42".into()), 1);
+        assert!(eval(&CellValue::Number(42.0), &r));
+        assert!(!eval(&CellValue::Number(43.0), &r));
+    }
+
+    #[test]
+    fn test_text_contains_empty_needle() {
+        let r = make_rule(ConditionalRuleType::TextContains("".into()), 1);
+        assert!(eval(&CellValue::Text("anything".into()), &r));
+        assert!(eval(&CellValue::Empty, &r));
+    }
+
+    // ── IsBlank / IsNotBlank / IsError ──────────────────────────────
+
+    #[test]
+    fn test_is_blank() {
+        let r = make_rule(ConditionalRuleType::IsBlank, 1);
+        assert!(eval(&CellValue::Empty, &r));
+        assert!(!eval(&CellValue::Text("hi".into()), &r));
+        assert!(!eval(&CellValue::Number(0.0), &r));
+    }
+
+    #[test]
+    fn test_is_not_blank() {
+        let r = make_rule(ConditionalRuleType::IsNotBlank, 1);
+        assert!(!eval(&CellValue::Empty, &r));
+        assert!(eval(&CellValue::Number(0.0), &r));
+        assert!(eval(&CellValue::Text("".into()), &r));
+    }
+
+    #[test]
+    fn test_is_error() {
+        let r = make_rule(ConditionalRuleType::IsError, 1);
+        assert!(eval(&CellValue::Error(CellError::DivZero), &r));
+        assert!(eval(&CellValue::Error(CellError::Ref), &r));
+        assert!(!eval(&CellValue::Number(1.0), &r));
+        assert!(!eval(&CellValue::Empty, &r));
+    }
+
+    // ── Visual rules ────────────────────────────────────────────────
+
+    #[test]
+    fn test_color_scale_always_matches() {
+        let r = make_rule(
+            ConditionalRuleType::ColorScale {
+                min_color: "#FF0000".into(),
+                max_color: "#00FF00".into(),
+                mid_color: None,
+            }, 1,
+        );
+        assert!(eval(&CellValue::Number(50.0), &r));
+        assert!(eval(&CellValue::Empty, &r));
+    }
+
+    #[test]
+    fn test_data_bar_always_matches() {
+        let r = make_rule(
+            ConditionalRuleType::DataBar { color: "#0000FF".into(), max_length_percent: 100 }, 1,
+        );
+        assert!(eval(&CellValue::Number(0.0), &r));
+    }
+
+    #[test]
+    fn test_icon_set_always_matches() {
+        let r = make_rule(
+            ConditionalRuleType::IconSet {
+                icons: vec!["up".into(), "down".into()],
+                thresholds: vec![50.0],
+            }, 1,
+        );
+        assert!(eval(&CellValue::Number(0.0), &r));
+    }
+
+    // ── DuplicateValues / UniqueValues / Formula return false ────────
+
+    #[test]
+    fn test_duplicate_unique_formula_return_false() {
+        let dup = make_rule(ConditionalRuleType::DuplicateValues, 1);
+        let uniq = make_rule(ConditionalRuleType::UniqueValues, 1);
+        let formula = make_rule(ConditionalRuleType::Formula("=A1>0".into()), 1);
+        let val = CellValue::Number(42.0);
+        assert!(!eval(&val, &dup));
+        assert!(!eval(&val, &uniq));
+        assert!(!eval(&val, &formula));
+    }
+
+    // ── Priority ordering ───────────────────────────────────────────
+
+    #[test]
+    fn test_rules_sorted_by_priority() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(10.0, 3));
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(20.0, 1));
+        store.add_rule("S1", 0, 0, 5, 5, gt_rule(15.0, 2));
+        let rules = store.get_rules("S1", 0, 0);
         assert_eq!(rules[0].priority, 1);
+        assert_eq!(rules[1].priority, 2);
+        assert_eq!(rules[2].priority, 3);
+    }
+
+    // ── stop_if_true ────────────────────────────────────────────────
+
+    #[test]
+    fn test_stop_if_true_prevents_merging() {
+        let mut store = ConditionalFormatStore::new();
+        let mut r1 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 1);
+        r1.style = ConditionalStyle { bold: Some(true), ..Default::default() };
+        r1.stop_if_true = true;
+        let mut r2 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 2);
+        r2.style = ConditionalStyle { italic: Some(true), ..Default::default() };
+        store.add_rule("S1", 0, 0, 9, 9, r1);
+        store.add_rule("S1", 0, 0, 9, 9, r2);
+        let style = store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).unwrap();
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.italic, None); // r2 was not evaluated
+    }
+
+    // ── get_effective_style merging ─────────────────────────────────
+
+    #[test]
+    fn test_effective_style_merges_fields() {
+        let mut store = ConditionalFormatStore::new();
+        let mut r1 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 1);
+        r1.style = ConditionalStyle {
+            bold: Some(true), italic: None,
+            font_color: Some("#FF0000".into()), bg_color: None,
+        };
+        let mut r2 = cmp_rule(ComparisonOperator::GreaterThan, 0.0, None, 2);
+        r2.style = ConditionalStyle {
+            bold: Some(false), italic: Some(true),
+            font_color: Some("#0000FF".into()), bg_color: Some("#FFFF00".into()),
+        };
+        store.add_rule("S1", 0, 0, 9, 9, r1);
+        store.add_rule("S1", 0, 0, 9, 9, r2);
+        let style = store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).unwrap();
+        assert_eq!(style.bold, Some(true));         // from r1 (first match)
+        assert_eq!(style.italic, Some(true));        // from r2 (r1 had None)
+        assert_eq!(style.font_color, Some("#FF0000".into())); // from r1
+        assert_eq!(style.bg_color, Some("#FFFF00".into()));   // from r2
+    }
+
+    #[test]
+    fn test_effective_style_no_match_returns_none() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(100.0, 1));
+        assert!(store.get_effective_style("S1", 0, 0, &CellValue::Number(5.0)).is_none());
+    }
+
+    #[test]
+    fn test_effective_style_empty_cell_no_match() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 9, 9, gt_rule(10.0, 1));
+        assert!(store.get_effective_style("S1", 0, 0, &CellValue::Empty).is_none());
+    }
+
+    // ── Edge cases ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_between_without_value2_uses_value1() {
+        let r = cmp_rule(ComparisonOperator::Between, 10.0, None, 1);
+        assert!(eval(&CellValue::Number(10.0), &r));  // degrades to Equal
+        assert!(!eval(&CellValue::Number(11.0), &r));
+    }
+
+    #[test]
+    fn test_comparison_with_negative_numbers() {
+        let r = gt_rule(-5.0, 1);
+        assert!(eval(&CellValue::Number(-4.0), &r));
+        assert!(!eval(&CellValue::Number(-5.0), &r));
+        assert!(!eval(&CellValue::Number(-6.0), &r));
+    }
+
+    #[test]
+    fn test_comparison_with_zero() {
+        let eq = cmp_rule(ComparisonOperator::Equal, 0.0, None, 1);
+        assert!(eval(&CellValue::Number(0.0), &eq));
+        assert!(eval(&CellValue::Boolean(false), &eq));
+    }
+
+    #[test]
+    fn test_overlapping_ranges_return_all_rules() {
+        let mut store = ConditionalFormatStore::new();
+        store.add_rule("S1", 0, 0, 10, 10, gt_rule(5.0, 1));
+        store.add_rule("S1", 5, 5, 15, 15, gt_rule(10.0, 2));
+        // Cell (7, 7) is inside both ranges
+        let rules = store.get_rules("S1", 7, 7);
+        assert_eq!(rules.len(), 2);
     }
 }
