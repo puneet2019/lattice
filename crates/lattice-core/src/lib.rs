@@ -17,6 +17,7 @@ pub mod history;
 pub mod selection;
 pub mod sheet;
 pub mod sort;
+pub mod validation;
 pub mod workbook;
 
 // Re-export key types at the crate root for ergonomic imports.
@@ -32,4 +33,5 @@ pub use history::{Operation, UndoStack};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
 pub use sheet::{MergedRegion, Sheet};
 pub use sort::{SortDirection, SortKey};
+pub use validation::{ValidationRule, ValidationStore, ValidationType};
 pub use workbook::Workbook;
