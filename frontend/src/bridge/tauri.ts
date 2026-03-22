@@ -70,6 +70,19 @@ export async function getRange(
   });
 }
 
+/**
+ * Store an image (as a data URL) in a cell.
+ * The image is stored as the cell value with a `data:image/...` prefix.
+ */
+export async function setCellImage(
+  sheet: string,
+  row: number,
+  col: number,
+  imageDataUrl: string,
+): Promise<void> {
+  return setCell(sheet, row, col, imageDataUrl, undefined);
+}
+
 // ---------------------------------------------------------------------------
 // Format commands
 // ---------------------------------------------------------------------------
