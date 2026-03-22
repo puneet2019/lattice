@@ -2,6 +2,7 @@
 //!
 //! Supports reading and writing `.xlsx`, `.csv`, and JSON export.
 
+pub mod atomic;
 pub mod csv_io;
 pub mod format_detect;
 pub mod json_export;
@@ -66,6 +67,7 @@ pub enum IoError {
 pub type Result<T> = std::result::Result<T, IoError>;
 
 // Re-exports for convenience.
+pub use atomic::{save_atomic, write_atomic};
 pub use csv_io::{read_csv, write_csv};
 pub use format_detect::{FileFormat, detect_format};
 pub use json_export::{export_json, export_range_json};
@@ -74,4 +76,4 @@ pub use recent_files::{RecentFile, RecentFileStore};
 pub use tsv_io::{read_tsv, write_tsv};
 pub use watcher::FileWatcher;
 pub use xlsx_reader::read_xlsx;
-pub use xlsx_writer::write_xlsx;
+pub use xlsx_writer::{write_xlsx, write_xlsx_to_buffer};
