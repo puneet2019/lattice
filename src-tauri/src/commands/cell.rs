@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{CellValue, NumberFormat, Operation, format_value};
+use lattice_core::{CellValue, FormulaEngine, NumberFormat, Operation, format_value};
+use lattice_core::formula::evaluator::SimpleEvaluator;
 
 use crate::state::AppState;
 
@@ -46,6 +47,11 @@ pub async fn get_cell(
 }
 
 /// Set a cell's value (and optionally a formula).
+///
+/// When a formula is provided (value starting with `=`), the formula is
+/// evaluated using [`SimpleEvaluator`] and the computed result is stored
+/// as the cell's value. The raw formula text is preserved on the cell so
+/// it can be shown in the formula bar.
 #[tauri::command]
 pub async fn set_cell(
     state: State<'_, AppState>,
@@ -64,14 +70,27 @@ pub async fn set_cell(
         .map(|c| c.value.clone())
         .unwrap_or(CellValue::Empty);
 
-    let new_value = parse_cell_value(&value);
+    let new_value = if let Some(ref formula_text) = formula {
+        // Evaluate the formula to get the computed value.
+        let evaluator = SimpleEvaluator;
+        let eval_result = {
+            let s = workbook.get_sheet(&sheet).map_err(|e| e.to_string())?;
+            evaluator.evaluate_with_context(formula_text, s, Some(&*workbook))
+        };
+        match eval_result {
+            Ok(v) => v,
+            Err(_) => CellValue::Error(lattice_core::CellError::Value),
+        }
+    } else {
+        parse_cell_value(&value)
+    };
 
     // Set the cell value on the sheet.
     workbook
         .set_cell(&sheet, row, col, new_value.clone())
         .map_err(|e| e.to_string())?;
 
-    // If a formula was provided, set it on the cell.
+    // If a formula was provided, store it on the cell.
     if let Some(ref formula_text) = formula {
         let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
         if let Some(cell) = s.get_cell(row, col) {
@@ -84,14 +103,60 @@ pub async fn set_cell(
     // Push to undo stack.
     let mut stack = state.undo_stack.write().await;
     stack.push(Operation::SetCell {
-        sheet,
+        sheet: sheet.clone(),
         row,
         col,
         old_value,
         new_value,
     });
 
+    // Recalculate dependent cells: any cell in this sheet that has a formula
+    // might depend on the cell we just changed. Re-evaluate all formula cells.
+    recalculate_formulas(&mut workbook, &sheet);
+
     Ok(())
+}
+
+/// Re-evaluate all formula cells on the given sheet.
+///
+/// This is a simple brute-force recalculation. A future optimisation would
+/// build a dependency graph and only recalculate affected cells.
+fn recalculate_formulas(workbook: &mut lattice_core::Workbook, sheet_name: &str) {
+    // Collect all cells with formulas first (to avoid borrow conflicts).
+    let formula_cells: Vec<(u32, u32, String)> = {
+        let Ok(s) = workbook.get_sheet(sheet_name) else {
+            return;
+        };
+        s.cells()
+            .iter()
+            .filter_map(|(&(r, c), cell)| {
+                cell.formula.as_ref().map(|f| (r, c, f.clone()))
+            })
+            .collect()
+    };
+
+    let evaluator = SimpleEvaluator;
+
+    for (r, c, formula_text) in formula_cells {
+        let result = {
+            let Ok(s) = workbook.get_sheet(sheet_name) else {
+                continue;
+            };
+            evaluator.evaluate_with_context(&formula_text, s, Some(&*workbook))
+        };
+        let new_val = match result {
+            Ok(v) => v,
+            Err(_) => CellValue::Error(lattice_core::CellError::Value),
+        };
+        // Update the value without clearing the formula.
+        if let Ok(s) = workbook.get_sheet_mut(sheet_name) {
+            if let Some(cell) = s.get_cell(r, c) {
+                let mut cell = cell.clone();
+                cell.value = new_val;
+                s.set_cell(r, c, cell);
+            }
+        }
+    }
 }
 
 /// Get a rectangular range of cells.
