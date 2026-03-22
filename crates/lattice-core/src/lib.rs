@@ -7,6 +7,7 @@
 
 pub mod cell;
 pub mod clipboard;
+pub mod conditional_format;
 pub mod error;
 pub mod filter;
 pub mod find_replace;
@@ -23,6 +24,10 @@ pub mod workbook;
 // Re-export key types at the crate root for ergonomic imports.
 pub use cell::{Cell, CellError, CellValue};
 pub use clipboard::{ClipboardContent, PasteMode};
+pub use conditional_format::{
+    ComparisonOperator, ConditionalFormatRange, ConditionalFormatStore, ConditionalRule,
+    ConditionalRuleType, ConditionalStyle,
+};
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
