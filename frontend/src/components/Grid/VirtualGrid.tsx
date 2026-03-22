@@ -171,6 +171,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
 
+  // Marching ants (copy indicator) state
+  let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
+  let marchingAntOffset = 0;
+  let marchingAntAnimId: number | null = null;
+
+  function startMarchingAnts() {
+    if (marchingAntAnimId !== null) return;
+    const animate = () => {
+      marchingAntOffset = (marchingAntOffset + 0.5) % 16;
+      scheduleDraw();
+      marchingAntAnimId = requestAnimationFrame(animate);
+    };
+    marchingAntAnimId = requestAnimationFrame(animate);
+  }
+
+  function stopMarchingAnts() {
+    if (marchingAntAnimId !== null) {
+      cancelAnimationFrame(marchingAntAnimId);
+      marchingAntAnimId = null;
+    }
+    copiedRange = null;
+    marchingAntOffset = 0;
+  }
+
   // Cell data cache: maps "row:col" to CellData
   const cellCache = new Map<string, CellData>();
   let lastFetchKey = ''; // tracks last fetched range to avoid duplicate calls
@@ -355,6 +379,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function startEditing(clearContent: boolean) {
+    // Clear marching ants when editing starts
+    stopMarchingAnts();
+
     const row = selectedRow();
     const col = selectedCol();
     const cell = cellCache.get(`${row}:${col}`);
@@ -1153,6 +1180,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.fillRect(handleX, handleY, FILL_HANDLE_SIZE, FILL_HANDLE_SIZE);
       ctx.fillStyle = COLORS.selectionBorder;
       ctx.fillRect(handleX + 1, handleY + 1, FILL_HANDLE_SIZE - 2, FILL_HANDLE_SIZE - 2);
+    }
+
+    // Draw marching ants around copied range
+    if (copiedRange) {
+      const cr = copiedRange;
+      const mx = ROW_NUMBER_WIDTH + getColX(cr.minCol) - sx;
+      const my = HEADER_HEIGHT + getRowY(cr.minRow) - sy;
+      const mw = getColX(cr.maxCol + 1) - getColX(cr.minCol);
+      const mh = getRowY(cr.maxRow + 1) - getRowY(cr.minRow);
+      ctx.strokeStyle = COLORS.selectionBorder;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.lineDashOffset = -marchingAntOffset;
+      ctx.strokeRect(mx, my, mw, mh);
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.lineWidth = 1;
     }
   }
 
@@ -2100,6 +2144,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const tsv = await getSelectionTSV();
     try {
       await navigator.clipboard.writeText(tsv);
+      copiedRange = { ...getSelectionRange() };
+      startMarchingAnts();
       props.onStatusChange('Copied to clipboard');
     } catch {
       props.onStatusChange('Copy failed');
@@ -2497,6 +2543,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     if (editing()) return; // editor handles its own keys
+
+    // Escape: clear marching ants (copy indicator)
+    if (e.key === 'Escape') {
+      if (copiedRange) {
+        e.preventDefault();
+        stopMarchingAnts();
+        draw();
+        return;
+      }
+    }
 
     // F2 enters edit mode without clearing
     if (e.key === 'F2') {
@@ -3019,8 +3075,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     darkModeQuery.addEventListener('change', handleColorSchemeChange);
     onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
 
-    // Clean up drag listeners on unmount
+    // Clean up drag listeners and marching ants on unmount
     onCleanup(() => {
+      stopMarchingAnts();
       if (isDragging) {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);
