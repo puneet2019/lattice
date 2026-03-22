@@ -4,6 +4,7 @@
 
 pub mod atomic;
 pub mod csv_io;
+pub mod file_info;
 pub mod format_detect;
 pub mod json_export;
 pub mod pdf_export;
@@ -69,6 +70,7 @@ pub type Result<T> = std::result::Result<T, IoError>;
 // Re-exports for convenience.
 pub use atomic::{save_atomic, write_atomic};
 pub use csv_io::{read_csv, write_csv};
+pub use file_info::{FileInfo, get_file_info};
 pub use format_detect::{FileFormat, detect_format};
 pub use json_export::{export_json, export_range_json};
 pub use pdf_export::export_print_html;
