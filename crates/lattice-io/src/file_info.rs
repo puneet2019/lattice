@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use lattice_core::Workbook;
 
-use crate::format_detect::{FileFormat, detect_format};
+use crate::format_detect::detect_format;
 use crate::{IoError, Result};
 
 /// Summary information about a spreadsheet file on disk.

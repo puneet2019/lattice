@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use lattice_core::{UndoStack, Workbook};
+use lattice_core::{AutoSaveConfig, UndoStack, Workbook};
 use tokio::sync::RwLock;
 
 use crate::commands::chart::ChartStore;
@@ -13,6 +13,10 @@ pub struct AppState {
     pub undo_stack: Arc<RwLock<UndoStack>>,
     /// In-memory chart definitions.
     pub chart_store: ChartStore,
+    /// Auto-save configuration.
+    pub autosave_config: Arc<RwLock<AutoSaveConfig>>,
+    /// Path to the currently open file (None for unsaved workbooks).
+    pub file_path: Arc<RwLock<Option<String>>>,
 }
 
 impl AppState {
@@ -22,6 +26,8 @@ impl AppState {
             workbook: Arc::new(RwLock::new(Workbook::new())),
             undo_stack: Arc::new(RwLock::new(UndoStack::new(1000))),
             chart_store: ChartStore::new(),
+            autosave_config: Arc::new(RwLock::new(AutoSaveConfig::default())),
+            file_path: Arc::new(RwLock::new(None)),
         }
     }
 

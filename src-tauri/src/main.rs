@@ -131,6 +131,10 @@ fn main() {
             commands::chart::render_chart_svg,
             commands::chart::list_charts,
             commands::chart::delete_chart,
+            // Autosave commands
+            commands::autosave::get_autosave_config,
+            commands::autosave::set_autosave_config,
+            commands::autosave::trigger_autosave,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");
