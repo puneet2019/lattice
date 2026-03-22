@@ -126,6 +126,11 @@ fn main() {
             commands::data::delete_rows,
             commands::data::insert_cols,
             commands::data::delete_cols,
+            // Chart commands
+            commands::chart::create_chart,
+            commands::chart::render_chart_svg,
+            commands::chart::list_charts,
+            commands::chart::delete_chart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");

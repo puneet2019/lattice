@@ -3,12 +3,16 @@ use std::sync::Arc;
 use lattice_core::{UndoStack, Workbook};
 use tokio::sync::RwLock;
 
+use crate::commands::chart::ChartStore;
+
 /// Shared application state accessible by all Tauri commands.
 pub struct AppState {
     /// The current workbook, protected by an async-aware read-write lock.
     pub workbook: Arc<RwLock<Workbook>>,
     /// Undo/redo stack for the workbook.
     pub undo_stack: Arc<RwLock<UndoStack>>,
+    /// In-memory chart definitions.
+    pub chart_store: ChartStore,
 }
 
 impl AppState {
@@ -17,6 +21,7 @@ impl AppState {
         Self {
             workbook: Arc::new(RwLock::new(Workbook::new())),
             undo_stack: Arc::new(RwLock::new(UndoStack::new(1000))),
+            chart_store: ChartStore::new(),
         }
     }
 

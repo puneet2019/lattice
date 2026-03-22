@@ -12,6 +12,7 @@ export interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onFreezeToggle: () => void;
+  onInsertChart: () => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
@@ -224,6 +225,21 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <rect x="2" y="2" width="12" height="12" rx="1" />
           <line x1="6" y1="2" x2="6" y2="14" stroke-dasharray="2 1" />
           <line x1="2" y1="6" x2="14" y2="6" stroke-dasharray="2 1" />
+        </svg>
+      </button>
+
+      <div class="toolbar-separator" />
+
+      {/* Insert Chart */}
+      <button
+        class="toolbar-btn toolbar-btn-wide"
+        title="Insert chart"
+        onClick={props.onInsertChart}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="8" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.3" />
+          <rect x="6.5" y="4" width="3" height="10" rx="0.5" fill="currentColor" opacity="0.5" />
+          <rect x="11" y="6" width="3" height="8" rx="0.5" fill="currentColor" opacity="0.7" />
         </svg>
       </button>
 

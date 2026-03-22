@@ -8,6 +8,9 @@ import FindBar from './components/FindBar';
 import VirtualGrid from './components/Grid/VirtualGrid';
 import SheetTabs from './components/SheetTabs';
 import StatusBar from './components/StatusBar';
+import ChartContainer from './components/Charts/ChartContainer';
+import type { ChartOverlay } from './components/Charts/ChartContainer';
+import ChartDialog from './components/Charts/ChartDialog';
 import {
   listSheets,
   addSheet,
@@ -22,7 +25,9 @@ import {
   newWorkbook,
   undo as tauriUndo,
   redo as tauriRedo,
+  listCharts,
 } from './bridge/tauri';
+import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
 
@@ -411,6 +416,87 @@ const App: Component = () => {
     setShowFindBar(false);
   };
 
+  // -------------------------------------------------------------------
+  // Chart state
+  // -------------------------------------------------------------------
+
+  const [chartOverlays, setChartOverlays] = createSignal<ChartOverlay[]>([]);
+  const [showChartDialog, setShowChartDialog] = createSignal(false);
+
+  const handleInsertChart = () => {
+    setShowChartDialog(true);
+  };
+
+  const handleChartInserted = (chartId: string) => {
+    setShowChartDialog(false);
+    // Fetch the new chart info and add it as an overlay.
+    void loadChartOverlay(chartId);
+    setStatusMessage('Chart inserted');
+  };
+
+  const loadChartOverlay = async (chartId: string) => {
+    try {
+      const charts = await listCharts(activeSheetName());
+      const info = charts.find((c: ChartInfo) => c.id === chartId);
+      if (info) {
+        // Position new charts with a slight offset so they don't stack exactly.
+        const offset = chartOverlays().length * 30;
+        const overlay: ChartOverlay = {
+          info,
+          x: 120 + offset,
+          y: 80 + offset,
+          width: info.width,
+          height: info.height,
+        };
+        setChartOverlays([...chartOverlays(), overlay]);
+      }
+    } catch {
+      // Ignore in browser dev mode.
+    }
+  };
+
+  const handleChartDelete = (chartId: string) => {
+    setChartOverlays(chartOverlays().filter((c) => c.info.id !== chartId));
+    setStatusMessage('Chart deleted');
+  };
+
+  const handleChartMove = (chartId: string, x: number, y: number) => {
+    setChartOverlays(
+      chartOverlays().map((c) =>
+        c.info.id === chartId ? { ...c, x, y } : c,
+      ),
+    );
+  };
+
+  const handleChartResize = (chartId: string, width: number, height: number) => {
+    setChartOverlays(
+      chartOverlays().map((c) =>
+        c.info.id === chartId ? { ...c, width, height } : c,
+      ),
+    );
+  };
+
+  const handleChartDialogClose = () => {
+    setShowChartDialog(false);
+  };
+
+  // Load existing charts on mount.
+  onMount(async () => {
+    try {
+      const charts = await listCharts(activeSheetName());
+      const overlays: ChartOverlay[] = charts.map((info: ChartInfo, i: number) => ({
+        info,
+        x: 120 + i * 30,
+        y: 80 + i * 30,
+        width: info.width,
+        height: info.height,
+      }));
+      setChartOverlays(overlays);
+    } catch {
+      // Ignore in browser dev mode.
+    }
+  });
+
   return (
     <div class="app-container">
       <Toolbar
@@ -424,6 +510,7 @@ const App: Component = () => {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onFreezeToggle={handleFreezeToggle}
+        onInsertChart={handleInsertChart}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
@@ -450,26 +537,41 @@ const App: Component = () => {
           onDataChanged={() => setRefreshTrigger((n) => n + 1)}
         />
       </Show>
-      <VirtualGrid
-        activeSheet={activeSheetName()}
-        refreshTrigger={refreshTrigger()}
-        frozenRows={frozenRows()}
-        frozenCols={frozenCols()}
-        zoom={zoom()}
-        onSelectionChange={handleSelectionChange}
-        onContentChange={handleContentChange}
-        onCellCommit={handleCellCommit}
-        onStatusChange={setStatusMessage}
-        onModeChange={setMode}
-        onBoldToggle={handleBold}
-        onItalicToggle={handleItalic}
-        onUnderlineToggle={handleUnderline}
-        onFindOpen={handleFindOpen}
-        onFindReplaceOpen={handleFindReplaceOpen}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onZoomReset={handleZoomReset}
-      />
+      <div style={{ position: 'relative', flex: '1', overflow: 'hidden', display: 'flex', "flex-direction": 'column' }}>
+        <VirtualGrid
+          activeSheet={activeSheetName()}
+          refreshTrigger={refreshTrigger()}
+          frozenRows={frozenRows()}
+          frozenCols={frozenCols()}
+          zoom={zoom()}
+          onSelectionChange={handleSelectionChange}
+          onContentChange={handleContentChange}
+          onCellCommit={handleCellCommit}
+          onStatusChange={setStatusMessage}
+          onModeChange={setMode}
+          onBoldToggle={handleBold}
+          onItalicToggle={handleItalic}
+          onUnderlineToggle={handleUnderline}
+          onFindOpen={handleFindOpen}
+          onFindReplaceOpen={handleFindReplaceOpen}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onZoomReset={handleZoomReset}
+        />
+        <ChartContainer
+          charts={chartOverlays()}
+          onDelete={handleChartDelete}
+          onMove={handleChartMove}
+          onResize={handleChartResize}
+        />
+      </div>
+      <Show when={showChartDialog()}>
+        <ChartDialog
+          activeSheet={activeSheetName()}
+          onInsert={handleChartInserted}
+          onClose={handleChartDialogClose}
+        />
+      </Show>
       <SheetTabs
         sheets={sheets()}
         activeSheet={activeSheetName()}
