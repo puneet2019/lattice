@@ -236,7 +236,7 @@ fn compute_aggregation(
                 .filter(|&&row| {
                     sheet
                         .get_cell(row, abs_col)
-                        .map_or(false, |c| c.value != CellValue::Empty)
+                        .is_some_and(|c| c.value != CellValue::Empty)
                 })
                 .count();
             CellValue::Number(count as f64)

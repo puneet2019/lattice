@@ -759,7 +759,7 @@ impl Sheet {
                 .map(|&col| {
                     self.get_cell(row, col)
                         .map(|c| cell_value_to_key(&c.value))
-                        .unwrap_or_else(|| String::new())
+                        .unwrap_or_default()
                 })
                 .collect();
 
@@ -814,8 +814,6 @@ impl Sheet {
         }
 
         // Step 3: shift rows below end_row up by removed_count.
-        let new_end = start_row + kept_rows.len() as u32; // first empty slot after compacted rows
-
         // Collect all cells below end_row and shift them up.
         let mut below_keys: Vec<(u32, u32)> = self
             .cells
