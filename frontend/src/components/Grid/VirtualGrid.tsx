@@ -599,6 +599,167 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   // -----------------------------------------------------------------------
+  // Resize state
+  // -----------------------------------------------------------------------
+
+  // Pixel tolerance for detecting header border hover.
+  const RESIZE_HANDLE_PX = 5;
+
+  // Active resize drag state (null when not resizing).
+  let resizeDrag: {
+    kind: 'col' | 'row';
+    index: number;
+    startMouse: number; // clientX for col, clientY for row
+    startSize: number;  // original width/height
+  } | null = null;
+
+  // Double-click tracking for auto-fit.
+  let lastResizeBorderClickTime = 0;
+  let lastResizeBorderCol = -1;
+  let lastResizeBorderRow = -1;
+
+  /**
+   * Check if the mouse is over a column header border (right edge).
+   * Returns the column index whose right edge is near the mouse, or -1.
+   */
+  function hitColHeaderBorder(localX: number, localY: number): number {
+    if (localY >= HEADER_HEIGHT || localY < 0) return -1;
+    if (localX < ROW_NUMBER_WIDTH) return -1;
+    const contentX = localX - ROW_NUMBER_WIDTH + scrollX();
+    // Check nearby columns
+    const approxCol = Math.floor(contentX / DEFAULT_COL_WIDTH);
+    const start = Math.max(0, approxCol - 2);
+    const end = Math.min(TOTAL_COLS, approxCol + 3);
+    for (let c = start; c < end; c++) {
+      const rightEdge = getColX(c + 1);
+      const screenRight = ROW_NUMBER_WIDTH + rightEdge - scrollX();
+      if (Math.abs(localX - screenRight) <= RESIZE_HANDLE_PX) {
+        return c;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Check if the mouse is over a row header border (bottom edge).
+   * Returns the row index whose bottom edge is near the mouse, or -1.
+   */
+  function hitRowHeaderBorder(localX: number, localY: number): number {
+    if (localX >= ROW_NUMBER_WIDTH || localX < 0) return -1;
+    if (localY < HEADER_HEIGHT) return -1;
+    const contentY = localY - HEADER_HEIGHT + scrollY();
+    const approxRow = Math.floor(contentY / DEFAULT_ROW_HEIGHT);
+    const start = Math.max(0, approxRow - 2);
+    const end = Math.min(TOTAL_ROWS, approxRow + 3);
+    for (let r = start; r < end; r++) {
+      const bottomEdge = getRowY(r + 1);
+      const screenBottom = HEADER_HEIGHT + bottomEdge - scrollY();
+      if (Math.abs(localY - screenBottom) <= RESIZE_HANDLE_PX) {
+        return r;
+      }
+    }
+    return -1;
+  }
+
+  /** Auto-fit a column width based on measuring visible cell text widths. */
+  function autoFitColumn(col: number) {
+    const canvas = canvasRef;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const PADDING = 4;
+    let maxW = MIN_COL_WIDTH;
+
+    // Measure header text
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    const headerW = ctx.measureText(col_to_letter(col)).width + PADDING * 2;
+    maxW = Math.max(maxW, headerW);
+
+    // Measure visible cell text
+    const startRow = firstVisibleRow();
+    const rowCount = visibleRowCount();
+    for (let r = 0; r < rowCount; r++) {
+      const row = startRow + r;
+      const cell = cellCache.get(`${row}:${col}`);
+      if (!cell || !cell.value) continue;
+      const fontWeight = cell.bold ? 'bold' : 'normal';
+      const fontStyle = cell.italic ? 'italic' : 'normal';
+      ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+      const tw = ctx.measureText(cell.value).width + PADDING * 2 + 4;
+      maxW = Math.max(maxW, tw);
+    }
+
+    maxW = Math.ceil(maxW);
+    if (maxW === DEFAULT_COL_WIDTH) {
+      colWidths.delete(col);
+    } else {
+      colWidths.set(col, maxW);
+    }
+    draw();
+  }
+
+  /** Auto-fit a row height based on the default (reset to default). */
+  function autoFitRow(row: number) {
+    rowHeights.delete(row);
+    draw();
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!containerRef) return;
+    const rect = containerRef.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    // If actively resizing, update size.
+    if (resizeDrag) {
+      if (resizeDrag.kind === 'col') {
+        const delta = e.clientX - resizeDrag.startMouse;
+        const newW = Math.max(MIN_COL_WIDTH, resizeDrag.startSize + delta);
+        colWidths.set(resizeDrag.index, newW);
+      } else {
+        const delta = e.clientY - resizeDrag.startMouse;
+        const newH = Math.max(MIN_ROW_HEIGHT, resizeDrag.startSize + delta);
+        rowHeights.set(resizeDrag.index, newH);
+      }
+      scheduleDraw();
+      return;
+    }
+
+    // Update cursor based on hover position.
+    if (hitColHeaderBorder(localX, localY) >= 0) {
+      containerRef.style.cursor = 'col-resize';
+    } else if (hitRowHeaderBorder(localX, localY) >= 0) {
+      containerRef.style.cursor = 'row-resize';
+    } else {
+      containerRef.style.cursor = '';
+    }
+  }
+
+  function handleResizeMouseUp() {
+    if (!resizeDrag) return;
+    // If the width/height matches the default, remove the override.
+    if (resizeDrag.kind === 'col') {
+      const w = colWidths.get(resizeDrag.index);
+      if (w !== undefined && w === DEFAULT_COL_WIDTH) {
+        colWidths.delete(resizeDrag.index);
+      }
+    } else {
+      const h = rowHeights.get(resizeDrag.index);
+      if (h !== undefined && h === DEFAULT_ROW_HEIGHT) {
+        rowHeights.delete(resizeDrag.index);
+      }
+    }
+    resizeDrag = null;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleResizeMouseUp);
+    if (containerRef) {
+      containerRef.style.cursor = '';
+    }
+    draw();
+  }
+
+  // -----------------------------------------------------------------------
   // Hit testing & event handlers
   // -----------------------------------------------------------------------
 
@@ -645,6 +806,71 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function handleMouseDown(e: MouseEvent) {
     if (editing()) return; // let the editor handle clicks
+    if (!containerRef) return;
+
+    const rect = containerRef.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    // Check for column header border resize drag.
+    const resizeCol = hitColHeaderBorder(localX, localY);
+    if (resizeCol >= 0) {
+      const now = Date.now();
+      if (
+        now - lastResizeBorderClickTime < 400 &&
+        resizeCol === lastResizeBorderCol
+      ) {
+        // Double-click: auto-fit column width.
+        autoFitColumn(resizeCol);
+        lastResizeBorderClickTime = 0;
+        lastResizeBorderCol = -1;
+        return;
+      }
+      lastResizeBorderClickTime = now;
+      lastResizeBorderCol = resizeCol;
+
+      resizeDrag = {
+        kind: 'col',
+        index: resizeCol,
+        startMouse: e.clientX,
+        startSize: getColWidth(resizeCol),
+      };
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleResizeMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // Check for row header border resize drag.
+    const resizeRow = hitRowHeaderBorder(localX, localY);
+    if (resizeRow >= 0) {
+      const now = Date.now();
+      if (
+        now - lastResizeBorderClickTime < 400 &&
+        resizeRow === lastResizeBorderRow
+      ) {
+        // Double-click: auto-fit row height.
+        autoFitRow(resizeRow);
+        lastResizeBorderClickTime = 0;
+        lastResizeBorderRow = -1;
+        return;
+      }
+      lastResizeBorderClickTime = now;
+      lastResizeBorderRow = resizeRow;
+
+      resizeDrag = {
+        kind: 'row',
+        index: resizeRow,
+        startMouse: e.clientY,
+        startSize: getRowHeight(resizeRow),
+      };
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleResizeMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // Normal cell click handling.
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
 
@@ -1010,6 +1236,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       class="virtual-grid-container"
       tabIndex={0}
       onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
       onKeyDown={handleKeyDown}
       onWheel={handleWheel}
       style={{ outline: 'none' }}
