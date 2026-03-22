@@ -10,6 +10,7 @@ use crate::formula::parser::{Token, tokenize};
 use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
+use regex::Regex;
 
 /// A recursive formula evaluator that supports 70+ spreadsheet functions,
 /// arithmetic, comparisons, string concatenation, and nested expressions.
@@ -1891,6 +1892,156 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
         }
         "NA" => Ok(CellValue::Error(CellError::NA)),
 
+        // ===== REGEX TEXT =====
+        "REGEXMATCH" => {
+            // REGEXMATCH(text, pattern) — returns TRUE if text matches regex
+            let a = require_args(&args, 2, "REGEXMATCH")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            match Regex::new(&pattern) {
+                Ok(re) => Ok(CellValue::Boolean(re.is_match(&text))),
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "REGEXEXTRACT" => {
+            // REGEXEXTRACT(text, pattern) — returns first match
+            let a = require_args(&args, 2, "REGEXEXTRACT")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            match Regex::new(&pattern) {
+                Ok(re) => {
+                    if let Some(caps) = re.captures(&text) {
+                        // Return first capture group if present, else full match
+                        let result = caps
+                            .get(1)
+                            .or_else(|| caps.get(0))
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default();
+                        Ok(CellValue::Text(result))
+                    } else {
+                        Ok(CellValue::Error(CellError::NA))
+                    }
+                }
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "REGEXREPLACE" => {
+            // REGEXREPLACE(text, pattern, replacement) — replace regex matches
+            let a = require_args(&args, 3, "REGEXREPLACE")?;
+            let text = coerce_to_string(&a[0]);
+            let pattern = coerce_to_string(&a[1]);
+            let replacement = coerce_to_string(&a[2]);
+            match Regex::new(&pattern) {
+                Ok(re) => {
+                    let result = re.replace_all(&text, replacement.as_str()).to_string();
+                    Ok(CellValue::Text(result))
+                }
+                Err(_) => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+
+        // ===== ARRAY =====
+        "TRANSPOSE" => {
+            // TRANSPOSE(range) — swap rows and columns, return as CSV text.
+            // Each row separated by semicolons, values within a row by commas.
+            // NOTE: Array return limitation; we serialize to text.
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "TRANSPOSE requires exactly 1 argument".into(),
+                ));
+            }
+            let grid = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "TRANSPOSE: argument must be a range".into(),
+                    ));
+                }
+            };
+            if grid.is_empty() {
+                return Ok(CellValue::Text(String::new()));
+            }
+            let num_rows = grid.len();
+            let num_cols = grid.iter().map(|r| r.len()).max().unwrap_or(0);
+            let mut transposed_strs: Vec<String> = Vec::new();
+            for c in 0..num_cols {
+                let mut row_vals: Vec<String> = Vec::new();
+                for row in grid.iter().take(num_rows) {
+                    let val = row.get(c).cloned().unwrap_or(CellValue::Empty);
+                    row_vals.push(coerce_to_string(&val));
+                }
+                transposed_strs.push(row_vals.join(","));
+            }
+            Ok(CellValue::Text(transposed_strs.join(";")))
+        }
+        "SEQUENCE" => {
+            // SEQUENCE(rows, [cols], [start], [step])
+            // Returns a comma-separated sequence of numbers.
+            // Multiple rows separated by semicolons.
+            if args.is_empty() || args.len() > 4 {
+                return Err(LatticeError::FormulaError(
+                    "SEQUENCE requires 1 to 4 arguments".into(),
+                ));
+            }
+            let a = require_min_args(&args, 1, "SEQUENCE")?;
+            let rows = coerce_to_number(&a[0])? as usize;
+            let cols = if a.len() > 1 {
+                coerce_to_number(&a[1])? as usize
+            } else {
+                1
+            };
+            let start = if a.len() > 2 {
+                coerce_to_number(&a[2])?
+            } else {
+                1.0
+            };
+            let step = if a.len() > 3 {
+                coerce_to_number(&a[3])?
+            } else {
+                1.0
+            };
+            if rows == 0 || cols == 0 {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            let mut current = start;
+            let mut row_strs: Vec<String> = Vec::new();
+            for _ in 0..rows {
+                let mut col_vals: Vec<String> = Vec::new();
+                for _ in 0..cols {
+                    if current == current.floor() && current.abs() < 1e15 {
+                        col_vals.push(format!("{}", current as i64));
+                    } else {
+                        col_vals.push(format!("{current}"));
+                    }
+                    current += step;
+                }
+                row_strs.push(col_vals.join(","));
+            }
+            if rows == 1 {
+                Ok(CellValue::Text(row_strs.join(",")))
+            } else {
+                Ok(CellValue::Text(row_strs.join(";")))
+            }
+        }
+        "FLATTEN" => {
+            // FLATTEN(range) — flatten a 2D range to a 1D comma-separated list.
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "FLATTEN requires exactly 1 argument".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "FLATTEN: argument must be a range".into(),
+                    ));
+                }
+            };
+            let strs: Vec<String> = vals.iter().map(|v| coerce_to_string(v)).collect();
+            Ok(CellValue::Text(strs.join(",")))
+        }
+
         // ===== FINANCIAL =====
         "PMT" => {
             // PMT(rate, nper, pv, [fv], [type])
@@ -3129,4 +3280,148 @@ mod tests {
         assert_eq!(result, CellValue::Text("1,2,3".to_string()));
     }
 
+    // === REGEXMATCH ===
+
+    #[test]
+    fn test_regexmatch_true() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("hello world", "world")"#, &sheet),
+            CellValue::Boolean(true)
+        );
+    }
+
+    #[test]
+    fn test_regexmatch_false() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("hello world", "^world")"#, &sheet),
+            CellValue::Boolean(false)
+        );
+    }
+
+    #[test]
+    fn test_regexmatch_pattern() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXMATCH("abc123", "\d+")"#, &sheet),
+            CellValue::Boolean(true)
+        );
+    }
+
+    // === REGEXEXTRACT ===
+
+    #[test]
+    fn test_regexextract_basic() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("abc123def", "\d+")"#, &sheet),
+            CellValue::Text("123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexextract_capture_group() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("hello world", "(\w+) world")"#, &sheet),
+            CellValue::Text("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexextract_no_match() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXEXTRACT("hello", "\d+")"#, &sheet),
+            CellValue::Error(CellError::NA)
+        );
+    }
+
+    // === REGEXREPLACE ===
+
+    #[test]
+    fn test_regexreplace_basic() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXREPLACE("hello 123 world 456", "\d+", "NUM")"#, &sheet),
+            CellValue::Text("hello NUM world NUM".to_string())
+        );
+    }
+
+    #[test]
+    fn test_regexreplace_no_match() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"REGEXREPLACE("hello", "\d+", "X")"#, &sheet),
+            CellValue::Text("hello".to_string())
+        );
+    }
+
+    // === TRANSPOSE ===
+
+    #[test]
+    fn test_transpose_2x3() {
+        let mut sheet = Sheet::new("T");
+        // 2 rows x 3 cols:
+        // A1=1, B1=2, C1=3
+        // A2=4, B2=5, C2=6
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(0, 2, CellValue::Number(3.0));
+        sheet.set_value(1, 0, CellValue::Number(4.0));
+        sheet.set_value(1, 1, CellValue::Number(5.0));
+        sheet.set_value(1, 2, CellValue::Number(6.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine
+            .evaluate("TRANSPOSE(A1:C2)", &sheet)
+            .unwrap();
+        // Transposed: 3 rows x 2 cols -> "1,4;2,5;3,6"
+        assert_eq!(result, CellValue::Text("1,4;2,5;3,6".to_string()));
+    }
+
+    // === SEQUENCE ===
+
+    #[test]
+    fn test_sequence_simple() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(5)", &sheet),
+            CellValue::Text("1;2;3;4;5".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sequence_with_cols() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(2, 3)", &sheet),
+            CellValue::Text("1,2,3;4,5,6".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sequence_with_start_step() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("SEQUENCE(1, 4, 10, 5)", &sheet),
+            CellValue::Text("10,15,20,25".to_string())
+        );
+    }
+
+    // === FLATTEN ===
+
+    #[test]
+    fn test_flatten() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+
+        let eval_engine = SimpleEvaluator;
+        let result = eval_engine.evaluate("FLATTEN(A1:B2)", &sheet).unwrap();
+        assert_eq!(result, CellValue::Text("1,2,3,4".to_string()));
+    }
 }
