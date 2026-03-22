@@ -52,6 +52,8 @@ const App: Component = () => {
   const [sheets, setSheets] = createSignal<string[]>(['Sheet1']);
   const [activeSheetName, setActiveSheetLocal] = createSignal('Sheet1');
   const [selectedCell, setSelectedCell] = createSignal<[number, number]>([0, 0]);
+  // Track the full selection range (minRow, minCol, maxRow, maxCol) for multi-cell operations.
+  const [selRange, setSelRange] = createSignal<[number, number, number, number]>([0, 0, 0, 0]);
   const [formulaContent, setFormulaContent] = createSignal('');
   const [statusMessage, setStatusMessage] = createSignal('Ready');
   const [mode, setMode] = createSignal<'Ready' | 'Edit'>('Ready');
@@ -297,16 +299,17 @@ const App: Component = () => {
     setSheets(current);
   };
 
-  const handleSelectionChange = (row: number, col: number) => {
+  const handleSelectionChange = (row: number, col: number, minRow?: number, minCol?: number, maxRow?: number, maxCol?: number) => {
     setSelectedCell([row, col]);
+    // Update the full selection range (defaults to single cell if no range provided).
+    setSelRange([minRow ?? row, minCol ?? col, maxRow ?? row, maxCol ?? col]);
     setStatusMessage(`Cell ${cellRefStr(row, col)}`);
     // Sync toolbar format state from the selected cell
     getCell(activeSheetName(), row, col)
       .then((cell) => {
         setBoldActive(cell?.bold ?? false);
         setItalicActive(cell?.italic ?? false);
-        // underline is not yet in CellData, default to false
-        setUnderlineActive(false);
+        setUnderlineActive(cell?.underline ?? false);
       })
       .catch(() => {
         setBoldActive(false);
@@ -352,9 +355,9 @@ const App: Component = () => {
 
   // Toolbar format actions.
   const applyFormat = async (format: Record<string, unknown>) => {
-    const [row, col] = selectedCell();
+    const [minR, minC, maxR, maxC] = selRange();
     try {
-      await formatCells(activeSheetName(), row, col, row, col, format);
+      await formatCells(activeSheetName(), minR, minC, maxR, maxC, format);
       // Refresh the grid so the canvas re-fetches and renders the new format.
       setRefreshTrigger((n) => n + 1);
     } catch {

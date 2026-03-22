@@ -405,7 +405,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function selectCell(row: number, col: number) {
-    props.onSelectionChange(row, col);
+    // Pass both the active cell and the full selection range to the parent.
+    const range = getSelectionRange();
+    props.onSelectionChange(row, col, range.minRow, range.minCol, range.maxRow, range.maxCol);
     // Fetch cell data for formula bar display
     getCell(props.activeSheet, row, col)
       .then((cell) => {
