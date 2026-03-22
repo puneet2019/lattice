@@ -1467,11 +1467,12 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                     let mut best_idx: Option<usize> = None;
                     let mut best_val = f64::NEG_INFINITY;
                     for (i, val) in lookup_vals.iter().enumerate() {
-                        if let Ok(n) = try_as_number(val) {
-                            if n <= sn && n > best_val {
-                                best_val = n;
-                                best_idx = Some(i);
-                            }
+                        if let Ok(n) = try_as_number(val)
+                            && n <= sn
+                            && n > best_val
+                        {
+                            best_val = n;
+                            best_idx = Some(i);
                         }
                     }
                     if let Some(idx) = best_idx {
@@ -1489,11 +1490,12 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                     let mut best_idx: Option<usize> = None;
                     let mut best_val = f64::INFINITY;
                     for (i, val) in lookup_vals.iter().enumerate() {
-                        if let Ok(n) = try_as_number(val) {
-                            if n >= sn && n < best_val {
-                                best_val = n;
-                                best_idx = Some(i);
-                            }
+                        if let Ok(n) = try_as_number(val)
+                            && n >= sn
+                            && n < best_val
+                        {
+                            best_val = n;
+                            best_idx = Some(i);
                         }
                     }
                     if let Some(idx) = best_idx {
@@ -1543,10 +1545,10 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                     CellValue::Number(n) => *n != 0.0,
                     _ => false,
                 };
-                if is_true {
-                    if let Some(v) = data_vals.get(i) {
-                        results.push(coerce_to_string(v));
-                    }
+                if is_true
+                    && let Some(v) = data_vals.get(i)
+                {
+                    results.push(coerce_to_string(v));
                 }
             }
             if results.is_empty() {
@@ -1595,7 +1597,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             if order == -1 {
                 vals.reverse();
             }
-            let strs: Vec<String> = vals.iter().map(|v| coerce_to_string(v)).collect();
+            let strs: Vec<String> = vals.iter().map(coerce_to_string).collect();
             Ok(CellValue::Text(strs.join(",")))
         }
         "UNIQUE" => {
@@ -2038,7 +2040,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
                     ));
                 }
             };
-            let strs: Vec<String> = vals.iter().map(|v| coerce_to_string(v)).collect();
+            let strs: Vec<String> = vals.iter().map(coerce_to_string).collect();
             Ok(CellValue::Text(strs.join(",")))
         }
 
