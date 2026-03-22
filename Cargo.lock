@@ -1888,6 +1888,7 @@ dependencies = [
  "calamine",
  "csv",
  "lattice-core",
+ "libc",
  "notify",
  "rust_xlsxwriter",
  "serde",

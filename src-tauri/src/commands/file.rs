@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use lattice_core::Workbook;
-use lattice_io::{read_xlsx, write_xlsx};
+use lattice_io::{read_xlsx, write_atomic};
 
 use crate::state::AppState;
 
@@ -27,15 +27,23 @@ pub async fn open_file(state: State<'_, AppState>, path: String) -> Result<Workb
         active_sheet: wb.active_sheet.clone(),
     };
     state.replace_workbook(wb).await;
+    // Track the file path for autosave.
+    let mut file_path = state.file_path.write().await;
+    *file_path = Some(path);
     Ok(info)
 }
 
-/// Save the current workbook to an xlsx file.
+/// Save the current workbook to an xlsx file using atomic writes.
 #[tauri::command]
 pub async fn save_file(state: State<'_, AppState>, path: String) -> Result<(), String> {
     let workbook = state.workbook.read().await;
     let p = Path::new(&path);
-    write_xlsx(&workbook, p).map_err(|e| e.to_string())
+    write_atomic(&workbook, p).map_err(|e| e.to_string())?;
+    drop(workbook);
+    // Track the file path for autosave.
+    let mut file_path = state.file_path.write().await;
+    *file_path = Some(path);
+    Ok(())
 }
 
 /// Create a new empty workbook, replacing the current one.
@@ -47,5 +55,8 @@ pub async fn new_workbook(state: State<'_, AppState>) -> Result<WorkbookInfo, St
         active_sheet: wb.active_sheet.clone(),
     };
     state.replace_workbook(wb).await;
+    // Clear the file path since this is a new unsaved workbook.
+    let mut file_path = state.file_path.write().await;
+    *file_path = None;
     Ok(info)
 }

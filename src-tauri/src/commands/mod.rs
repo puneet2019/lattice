@@ -1,3 +1,4 @@
+pub mod autosave;
 pub mod cell;
 pub mod chart;
 pub mod data;

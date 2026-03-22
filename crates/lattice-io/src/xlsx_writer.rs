@@ -17,6 +17,30 @@ use crate::{IoError, Result};
 /// Iterates over all sheets and cells, writing values with appropriate types.
 /// Formatting is mapped from `CellFormat` to rust_xlsxwriter `Format`.
 pub fn write_xlsx(workbook: &Workbook, path: &Path) -> Result<()> {
+    let mut xlsx = build_xlsx_workbook(workbook)?;
+
+    xlsx.save(path)
+        .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Serialize a `Workbook` to `.xlsx` bytes in memory.
+///
+/// Returns the raw bytes of a valid `.xlsx` file. Useful for atomic saves
+/// where the data is first written to a temp file before being renamed.
+pub fn write_xlsx_to_buffer(workbook: &Workbook) -> Result<Vec<u8>> {
+    let mut xlsx = build_xlsx_workbook(workbook)?;
+
+    xlsx.save_to_buffer()
+        .map_err(|e| IoError::XlsxWrite(e.to_string()))
+}
+
+/// Build a rust_xlsxwriter `Workbook` from our Lattice `Workbook`.
+///
+/// This is the shared implementation used by both `write_xlsx` (file path)
+/// and `write_xlsx_to_buffer` (in-memory).
+fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
     let mut xlsx = XlsxWorkbook::new();
 
     for sheet_name in workbook.sheet_names() {
@@ -110,10 +134,7 @@ pub fn write_xlsx(workbook: &Workbook, path: &Path) -> Result<()> {
         }
     }
 
-    xlsx.save(path)
-        .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
-
-    Ok(())
+    Ok(xlsx)
 }
 
 /// Convert our `CellFormat` to a rust_xlsxwriter `Format`.
