@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{IoError, Result};
+use crate::Result;
 
 /// Metadata for a recently opened file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

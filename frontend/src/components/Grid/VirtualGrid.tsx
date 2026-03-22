@@ -1383,10 +1383,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
-        // Draw cell background color if set (even for empty cells)
+        // Draw cell background color if set (even for empty cells).
+        // Inset by 1px to preserve grid lines.
         if (cell?.bg_color) {
           ctx.fillStyle = cell.bg_color;
-          ctx.fillRect(x, y, cw, rh);
+          ctx.fillRect(x + 1, y + 1, cw - 1, rh - 1);
         }
 
         // Draw find match highlights
