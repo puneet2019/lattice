@@ -12,3 +12,14 @@ indexmap = { workspace = true }
 thiserror = { workspace = true }
 rand = "0.9"
 regex = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "formula_bench"
+harness = false
+
+[[bench]]
+name = "cell_ops_bench"
+harness = false

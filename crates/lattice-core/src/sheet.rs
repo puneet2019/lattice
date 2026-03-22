@@ -2172,4 +2172,67 @@ mod tests {
         sheet.toggle_checkbox(0, 0).unwrap();
         assert_eq!(sheet.get_cell(0, 0).unwrap().value, CellValue::Checkbox(true));
     }
+
+    // --- Performance sanity tests ---
+
+    #[test]
+    fn test_large_sheet_performance() {
+        use std::time::Instant;
+
+        let cell_count: u32 = 100_000;
+        let mut sheet = Sheet::new("PerfTest");
+
+        // Benchmark: write 100K cells.
+        let start = Instant::now();
+        for r in 0..cell_count {
+            sheet.set_value(r, 0, CellValue::Number(r as f64));
+        }
+        let write_elapsed = start.elapsed();
+        // Writing 100K cells should complete in under 1 second.
+        assert!(
+            write_elapsed.as_secs() < 1,
+            "Writing 100K cells took {:?}, expected < 1s",
+            write_elapsed,
+        );
+
+        // Benchmark: read 100K cells.
+        let start = Instant::now();
+        for r in 0..cell_count {
+            let cell = sheet.get_cell(r, 0);
+            assert!(cell.is_some());
+        }
+        let read_elapsed = start.elapsed();
+        // Reading 100K cells should complete in under 1 second.
+        assert!(
+            read_elapsed.as_secs() < 1,
+            "Reading 100K cells took {:?}, expected < 1s",
+            read_elapsed,
+        );
+
+        // Benchmark: used_range on 100K cells.
+        let start = Instant::now();
+        let (max_row, max_col) = sheet.used_range();
+        let range_elapsed = start.elapsed();
+        assert_eq!(max_row, cell_count - 1);
+        assert_eq!(max_col, 0);
+        assert!(
+            range_elapsed.as_millis() < 100,
+            "used_range on 100K cells took {:?}, expected < 100ms",
+            range_elapsed,
+        );
+
+        // Benchmark: clear 100K cells.
+        let start = Instant::now();
+        for r in 0..cell_count {
+            sheet.clear_cell(r, 0);
+        }
+        let clear_elapsed = start.elapsed();
+        assert!(
+            clear_elapsed.as_secs() < 1,
+            "Clearing 100K cells took {:?}, expected < 1s",
+            clear_elapsed,
+        );
+
+        assert_eq!(sheet.used_range(), (0, 0));
+    }
 }

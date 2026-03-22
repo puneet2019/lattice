@@ -83,6 +83,15 @@ impl McpServer {
         Ok(())
     }
 
+    /// Run the MCP server as a Streamable HTTP service.
+    ///
+    /// Listens on `localhost:{port}` and handles JSON-RPC 2.0 messages via
+    /// `POST /mcp`, SSE notifications via `GET /mcp/sse`, and health checks
+    /// via `GET /health`.
+    pub async fn run_http(self, port: u16) -> std::io::Result<()> {
+        crate::transport::http::run_http(self, port).await
+    }
+
     /// Handle an incoming JSON-RPC 2.0 message and return a response.
     ///
     /// Parses the method, dispatches to the appropriate handler,
