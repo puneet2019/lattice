@@ -299,6 +299,132 @@ body,
 }
 
 /* -----------------------------------------------------------------------
+   Find Bar
+   ----------------------------------------------------------------------- */
+
+.find-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--formula-bar-bg);
+  border-bottom: 1px solid var(--formula-bar-border);
+  flex-shrink: 0;
+}
+
+.find-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.find-bar-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 4px 8px;
+  border: 1px solid var(--grid-border);
+  border-radius: 4px;
+  outline: none;
+  font-size: 12px;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  background: var(--cell-bg);
+}
+
+.find-bar-input:focus {
+  border-color: var(--selection-border);
+}
+
+.find-bar-match-info {
+  font-size: 11px;
+  color: var(--header-text);
+  min-width: 60px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.find-bar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--grid-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--header-text);
+  font-size: 10px;
+  font-family: var(--font-family);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.find-bar-toggle:hover {
+  background: var(--selection-bg);
+}
+
+.find-bar-toggle.active {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+  border-color: var(--selection-border);
+}
+
+.find-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cell-text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.find-bar-btn:hover {
+  background: var(--selection-bg);
+}
+
+.find-bar-btn-text {
+  padding: 4px 10px;
+  border: 1px solid var(--grid-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cell-text);
+  font-size: 11px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+
+.find-bar-btn-text:hover {
+  background: var(--selection-bg);
+}
+
+.find-bar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--header-text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.find-bar-close:hover {
+  background: var(--selection-bg);
+  color: var(--danger-color);
+}
+
+/* -----------------------------------------------------------------------
    Virtual Grid (Canvas-based)
    ----------------------------------------------------------------------- */
 

@@ -1,9 +1,10 @@
 import type { Component } from 'solid-js';
-import { createSignal, onMount, onCleanup } from 'solid-js';
+import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { listen } from '@tauri-apps/api/event';
 import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 import Toolbar from './components/Toolbar';
 import FormulaBar from './components/FormulaBar';
+import FindBar from './components/FindBar';
 import VirtualGrid from './components/Grid/VirtualGrid';
 import SheetTabs from './components/SheetTabs';
 import StatusBar from './components/StatusBar';
@@ -436,6 +437,19 @@ const App: Component = () => {
         onNavigate={handleFormulaNavigate}
         onContentChange={handleContentChange}
       />
+      <Show when={showFindBar()}>
+        <FindBar
+          activeSheet={activeSheetName()}
+          showReplace={findBarReplace()}
+          onClose={handleFindClose}
+          onNavigateToCell={(row, col) => {
+            setSelectedCell([row, col]);
+            setStatusMessage(`Cell ${cellRefStr(row, col)}`);
+          }}
+          onStatusChange={setStatusMessage}
+          onDataChanged={() => setRefreshTrigger((n) => n + 1)}
+        />
+      </Show>
       <VirtualGrid
         activeSheet={activeSheetName()}
         refreshTrigger={refreshTrigger()}
