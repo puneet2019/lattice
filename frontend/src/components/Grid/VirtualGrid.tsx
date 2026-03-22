@@ -1425,9 +1425,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
         ctx.fillStyle = cell.font_color || COLORS.cellText;
 
-        // Right-align numbers, left-align strings (unless h_align is set)
+        // Auto-align: numbers right, text left — unless user explicitly set center/right.
+        // Backend default is "left", so treat "left" as auto (allows number right-align).
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
-        const align = cell.h_align ?? (isNumber ? 'right' : 'left');
+        const userSetAlign = cell.h_align && cell.h_align !== 'left';
+        const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
         const maxTextW = cw - PADDING * 2;
         let displayText = cell.value;
 
