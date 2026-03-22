@@ -993,3 +993,119 @@ body,
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* -----------------------------------------------------------------------
+   Paste Special Dialog
+   ----------------------------------------------------------------------- */
+
+.paste-special-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.paste-special-dialog {
+  background: var(--cell-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.paste-special-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--toolbar-border);
+}
+
+.paste-special-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cell-text);
+  margin: 0;
+}
+
+.paste-special-body {
+  padding: 16px;
+}
+
+.paste-special-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.paste-special-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--header-text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.paste-special-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.paste-special-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.paste-special-option:hover {
+  background: var(--selection-bg);
+}
+
+.paste-special-option.selected {
+  background: var(--selection-bg);
+}
+
+.paste-special-option input[type="radio"] {
+  margin: 0;
+  accent-color: var(--selection-border);
+}
+
+.paste-special-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.paste-special-option-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cell-text);
+}
+
+.paste-special-option-desc {
+  font-size: 11px;
+  color: var(--header-text);
+}
+
+.paste-special-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--toolbar-border);
+}
