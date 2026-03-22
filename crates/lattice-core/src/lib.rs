@@ -35,7 +35,10 @@ pub use conditional_format::{
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
-pub use format::{CellFormat, HAlign, NumberFormat, VAlign, format_value};
+pub use format::{
+    Border, BorderStyle, CellBorders, CellFormat, HAlign, NumberFormat, TextWrap, VAlign,
+    format_value,
+};
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use formula::{FormulaEngine, SheetResolver};
 pub use history::{Operation, UndoStack};

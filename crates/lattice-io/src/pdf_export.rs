@@ -286,6 +286,7 @@ mod tests {
                 h_align: HAlign::Center,
                 v_align: VAlign::Middle,
                 number_format: None,
+                ..CellFormat::default()
             },
             style_id: 0,
             comment: None,
