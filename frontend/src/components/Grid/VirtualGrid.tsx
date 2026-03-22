@@ -1369,13 +1369,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
         const cell = cellCache.get(`${row}:${col}`);
-        if (!cell || !cell.value) continue;
-
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
-        // Draw cell background color if set
-        if (cell.bg_color) {
+        // Draw cell background color if set (even for empty cells)
+        if (cell?.bg_color) {
           ctx.fillStyle = cell.bg_color;
           ctx.fillRect(x, y, cw, rh);
         }
@@ -1386,6 +1384,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillStyle = isActive ? 'rgba(0, 180, 80, 0.25)' : 'rgba(255, 235, 59, 0.35)';
           ctx.fillRect(x, y, cw, rh);
         }
+
+        // Skip text rendering for cells with no value
+        if (!cell || !cell.value) continue;
 
         // Image cell: value starts with data:image/
         if (cell.value.startsWith('data:image/')) {
@@ -1419,8 +1420,39 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const maxTextW = cw - PADDING * 2;
         let displayText = cell.value;
 
+        // Helper to draw underline and strikethrough decorations on a text segment
+        const drawTextDecorations = (textX: number, textY: number, text: string, textAlign: CanvasTextAlign) => {
+          if (!cell.underline && !cell.strikethrough) return;
+          const tw = ctx.measureText(text).width;
+          let lineStartX: number;
+          if (textAlign === 'right') {
+            lineStartX = textX - tw;
+          } else if (textAlign === 'center') {
+            lineStartX = textX - tw / 2;
+          } else {
+            lineStartX = textX;
+          }
+          ctx.strokeStyle = cell.font_color || COLORS.cellText;
+          ctx.lineWidth = Math.max(1, fontSize / 12);
+          if (cell.underline) {
+            const underlineY = textY + fontSize * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(lineStartX, underlineY);
+            ctx.lineTo(lineStartX + tw, underlineY);
+            ctx.stroke();
+          }
+          if (cell.strikethrough) {
+            const strikeY = textY;
+            ctx.beginPath();
+            ctx.moveTo(lineStartX, strikeY);
+            ctx.lineTo(lineStartX + tw, strikeY);
+            ctx.stroke();
+          }
+          ctx.lineWidth = 1;
+        };
+
         // Determine text rendering mode
-        const textWrap = cell.text_wrap ?? 'Overflow';
+        const textWrap = (cell as CellData).text_wrap ?? 'Overflow';
 
         if (textWrap === 'Wrap') {
           // Wrap mode: split text into lines that fit cell width
@@ -1449,6 +1481,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               : align === 'center' ? x + cw / 2
               : x + PADDING;
             ctx.fillText(lines[li], textX, lineY);
+            drawTextDecorations(textX, lineY, lines[li], align as CanvasTextAlign);
           }
         } else {
           // Overflow or Clip mode
@@ -1472,6 +1505,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.clip();
               ctx.textAlign = 'left';
               ctx.fillText(displayText, x + PADDING, y + rh / 2);
+              drawTextDecorations(x + PADDING, y + rh / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -1490,6 +1524,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
                 : align === 'center' ? x + cw / 2
                 : x + PADDING;
               ctx.fillText(displayText, textX, y + rh / 2);
+              drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
             }
           } else {
             ctx.textAlign = align;
@@ -1497,6 +1532,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               : align === 'center' ? x + cw / 2
               : x + PADDING;
             ctx.fillText(displayText, textX, y + rh / 2);
+            drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
           }
         }
       }
