@@ -2040,13 +2040,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function handleFillMouseUp() {
     if (!isFillDragging) return;
-    isFillDragging = false;
+    // Execute fill BEFORE clearing the drag state, since getFillPreviewRange()
+    // checks isFillDragging.
     document.removeEventListener('mousemove', handleFillMouseMove);
     document.removeEventListener('mouseup', handleFillMouseUp);
     if (containerRef) {
       containerRef.style.cursor = '';
     }
     executeFill();
+    isFillDragging = false;
     setFillDragRow(-1);
     setFillDragCol(-1);
     draw();
