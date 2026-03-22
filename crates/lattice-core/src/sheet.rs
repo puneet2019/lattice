@@ -496,6 +496,83 @@ impl Sheet {
             .collect();
         self.hidden_cols = new_hidden;
     }
+
+    // ----- Text to Columns -----
+
+    /// Split text in a column by a delimiter into adjacent columns.
+    ///
+    /// For each row in `[start_row, end_row]` (inclusive), reads the text
+    /// value from column `col`, splits it by `delimiter`, and writes each
+    /// piece to `col`, `col+1`, `col+2`, etc. Non-text cells (numbers,
+    /// booleans, etc.) are left untouched.
+    ///
+    /// Returns the maximum number of columns produced across all rows.
+    ///
+    /// # Example
+    ///
+    /// If column A contains `"a,b,c"` and you call
+    /// `text_to_columns(0, ",", 0, 0)`, the result is:
+    /// - A0 = `"a"`, B0 = `"b"`, C0 = `"c"`
+    pub fn text_to_columns(
+        &mut self,
+        col: u32,
+        delimiter: &str,
+        start_row: u32,
+        end_row: u32,
+    ) -> u32 {
+        if delimiter.is_empty() {
+            return 0;
+        }
+
+        let mut max_parts: u32 = 0;
+
+        for row in start_row..=end_row {
+            let text = match self.get_cell(row, col) {
+                Some(cell) => match &cell.value {
+                    CellValue::Text(s) => s.clone(),
+                    _ => continue, // skip non-text cells
+                },
+                None => continue, // skip empty cells
+            };
+
+            let parts: Vec<&str> = text.split(delimiter).collect();
+            let num_parts = parts.len() as u32;
+            if num_parts > max_parts {
+                max_parts = num_parts;
+            }
+
+            for (i, part) in parts.iter().enumerate() {
+                let target_col = col + i as u32;
+                let trimmed = part.trim();
+                let value = if trimmed.is_empty() {
+                    CellValue::Empty
+                } else if let Ok(n) = trimmed.parse::<f64>() {
+                    CellValue::Number(n)
+                } else {
+                    match trimmed.to_lowercase().as_str() {
+                        "true" => CellValue::Boolean(true),
+                        "false" => CellValue::Boolean(false),
+                        _ => CellValue::Text(part.to_string()),
+                    }
+                };
+
+                if value == CellValue::Empty {
+                    self.cells.remove(&(row, target_col));
+                } else {
+                    let cell = Cell {
+                        value,
+                        formula: None,
+                        format: Default::default(),
+                        style_id: 0,
+                        comment: None,
+                    };
+                    self.cells.insert((row, target_col), cell);
+                }
+            }
+        }
+
+        max_parts
+    }
 }
 
 /// Check if two rectangular regions overlap.
@@ -893,5 +970,156 @@ mod tests {
         assert!(!sheet.is_col_hidden(0));
         assert!(!sheet.is_col_hidden(1));
         assert!(!sheet.is_col_hidden(2));
+    }
+
+    // --- Text to Columns ---
+
+    #[test]
+    fn test_text_to_columns_basic() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("a,b,c".into()));
+        sheet.set_value(1, 0, CellValue::Text("d,e,f".into()));
+
+        let max = sheet.text_to_columns(0, ",", 0, 1);
+        assert_eq!(max, 3);
+
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("a".into())
+        );
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Text("b".into())
+        );
+        assert_eq!(
+            sheet.get_cell(0, 2).unwrap().value,
+            CellValue::Text("c".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 0).unwrap().value,
+            CellValue::Text("d".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_parses_numbers() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("1,2.5,hello".into()));
+
+        sheet.text_to_columns(0, ",", 0, 0);
+
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Number(1.0)
+        );
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Number(2.5)
+        );
+        assert_eq!(
+            sheet.get_cell(0, 2).unwrap().value,
+            CellValue::Text("hello".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_parses_booleans() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("true,FALSE,text".into()));
+
+        sheet.text_to_columns(0, ",", 0, 0);
+
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Boolean(true)
+        );
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Boolean(false)
+        );
+        assert_eq!(
+            sheet.get_cell(0, 2).unwrap().value,
+            CellValue::Text("text".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_skips_non_text() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(42.0));
+        sheet.set_value(1, 0, CellValue::Text("a,b".into()));
+
+        sheet.text_to_columns(0, ",", 0, 1);
+
+        // Number cell should be untouched.
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Number(42.0)
+        );
+        // Text cell should be split.
+        assert_eq!(
+            sheet.get_cell(1, 0).unwrap().value,
+            CellValue::Text("a".into())
+        );
+        assert_eq!(
+            sheet.get_cell(1, 1).unwrap().value,
+            CellValue::Text("b".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_tab_delimiter() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("x\ty\tz".into()));
+
+        let max = sheet.text_to_columns(0, "\t", 0, 0);
+        assert_eq!(max, 3);
+        assert_eq!(
+            sheet.get_cell(0, 1).unwrap().value,
+            CellValue::Text("y".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_empty_delimiter() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("abc".into()));
+
+        let max = sheet.text_to_columns(0, "", 0, 0);
+        assert_eq!(max, 0);
+        // Cell should be untouched.
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("abc".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_single_row() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("only".into()));
+
+        let max = sheet.text_to_columns(0, ",", 0, 0);
+        assert_eq!(max, 1);
+        assert_eq!(
+            sheet.get_cell(0, 0).unwrap().value,
+            CellValue::Text("only".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_uneven_splits() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("a,b".into()));
+        sheet.set_value(1, 0, CellValue::Text("c,d,e,f".into()));
+
+        let max = sheet.text_to_columns(0, ",", 0, 1);
+        assert_eq!(max, 4);
+        // Row 0 has 2 parts, row 1 has 4 parts.
+        assert!(sheet.get_cell(0, 2).is_none());
+        assert_eq!(
+            sheet.get_cell(1, 3).unwrap().value,
+            CellValue::Text("f".into())
+        );
     }
 }
