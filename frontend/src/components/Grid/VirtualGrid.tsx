@@ -1187,12 +1187,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
         // Right-align numbers, left-align strings
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
+        const maxTextW = cw - PADDING * 2;
+        let displayText = cell.value;
+
+        // Truncate with ellipsis if text overflows cell width
+        const measured = ctx.measureText(displayText);
+        if (measured.width > maxTextW && maxTextW > 0) {
+          const ellipsis = '\u2026';
+          const ellipsisW = ctx.measureText(ellipsis).width;
+          let truncLen = displayText.length;
+          while (truncLen > 0) {
+            truncLen--;
+            if (ctx.measureText(displayText.slice(0, truncLen)).width + ellipsisW <= maxTextW) {
+              break;
+            }
+          }
+          displayText = displayText.slice(0, truncLen) + ellipsis;
+        }
+
         if (isNumber) {
           ctx.textAlign = 'right';
-          ctx.fillText(cell.value, x + cw - PADDING, y + rh / 2, cw - PADDING * 2);
+          ctx.fillText(displayText, x + cw - PADDING, y + rh / 2);
         } else {
           ctx.textAlign = 'left';
-          ctx.fillText(cell.value, x + PADDING, y + rh / 2, cw - PADDING * 2);
+          ctx.fillText(displayText, x + PADDING, y + rh / 2);
         }
       }
     }

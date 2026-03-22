@@ -46,12 +46,12 @@ describe('getColX', () => {
 
   it('accounts for custom widths before the target column', () => {
     const widths = new Map<number, number>([[1, 120]]);
-    // Col 0 is at x=0, col 1 is at x=80 (default), col 2 is at 80 + 120 = 200
+    // Col 0 is at x=0, col 1 is at x=DEFAULT_COL_WIDTH, col 2 is at DEFAULT_COL_WIDTH + 120
     expect(getColX(widths, 0)).toBe(0);
     expect(getColX(widths, 1)).toBe(DEFAULT_COL_WIDTH);
-    // Col 2 = default calculation (2*80=160) + adjustment (120-80=40) = 200
-    expect(getColX(widths, 2)).toBe(200);
-    expect(getColX(widths, 3)).toBe(280);
+    // Col 2 = default calculation (2*DEFAULT_COL_WIDTH) + adjustment (120-DEFAULT_COL_WIDTH)
+    expect(getColX(widths, 2)).toBe(DEFAULT_COL_WIDTH + 120);
+    expect(getColX(widths, 3)).toBe(DEFAULT_COL_WIDTH + 120 + DEFAULT_COL_WIDTH);
   });
 
   it('handles narrower custom widths', () => {
@@ -62,17 +62,17 @@ describe('getColX', () => {
 
   it('handles multiple custom widths', () => {
     const widths = new Map<number, number>([
-      [0, 100],
+      [0, 150],
       [2, 50],
     ]);
     // Col 0: x=0
-    // Col 1: x=100
-    // Col 2: x=100+80=180
-    // Col 3: x=100+80+50=230
+    // Col 1: x=150
+    // Col 2: x=150+DEFAULT_COL_WIDTH
+    // Col 3: x=150+DEFAULT_COL_WIDTH+50
     expect(getColX(widths, 0)).toBe(0);
-    expect(getColX(widths, 1)).toBe(100);
-    expect(getColX(widths, 2)).toBe(180);
-    expect(getColX(widths, 3)).toBe(230);
+    expect(getColX(widths, 1)).toBe(150);
+    expect(getColX(widths, 2)).toBe(150 + DEFAULT_COL_WIDTH);
+    expect(getColX(widths, 3)).toBe(150 + DEFAULT_COL_WIDTH + 50);
   });
 });
 
@@ -103,23 +103,23 @@ describe('colAtX', () => {
   it('finds correct column with custom widths', () => {
     const widths = new Map<number, number>([[0, 120]]);
     // Col 0: 0..119 (width 120)
-    // Col 1: 120..199 (width 80)
+    // Col 1: 120..(120+DEFAULT_COL_WIDTH-1)
     expect(colAtX(widths, 0)).toBe(0);
     expect(colAtX(widths, 119)).toBe(0);
     expect(colAtX(widths, 120)).toBe(1);
-    expect(colAtX(widths, 199)).toBe(1);
-    expect(colAtX(widths, 200)).toBe(2);
+    expect(colAtX(widths, 120 + DEFAULT_COL_WIDTH - 1)).toBe(1);
+    expect(colAtX(widths, 120 + DEFAULT_COL_WIDTH)).toBe(2);
   });
 
   it('finds correct column with narrow custom width', () => {
     const widths = new Map<number, number>([[1, 30]]);
-    // Col 0: 0..79 (width 80)
-    // Col 1: 80..109 (width 30)
-    // Col 2: 110..189 (width 80)
-    expect(colAtX(widths, 79)).toBe(0);
-    expect(colAtX(widths, 80)).toBe(1);
-    expect(colAtX(widths, 109)).toBe(1);
-    expect(colAtX(widths, 110)).toBe(2);
+    // Col 0: 0..(DEFAULT_COL_WIDTH-1)
+    // Col 1: DEFAULT_COL_WIDTH..(DEFAULT_COL_WIDTH+29) (width 30)
+    // Col 2: (DEFAULT_COL_WIDTH+30)..
+    expect(colAtX(widths, DEFAULT_COL_WIDTH - 1)).toBe(0);
+    expect(colAtX(widths, DEFAULT_COL_WIDTH)).toBe(1);
+    expect(colAtX(widths, DEFAULT_COL_WIDTH + 29)).toBe(1);
+    expect(colAtX(widths, DEFAULT_COL_WIDTH + 30)).toBe(2);
   });
 });
 

@@ -18,6 +18,7 @@ import {
   addSheet,
   setActiveSheet,
   setCell,
+  getCell,
   renameSheet,
   deleteSheet,
   duplicateSheet,
@@ -266,6 +267,19 @@ const App: Component = () => {
   const handleSelectionChange = (row: number, col: number) => {
     setSelectedCell([row, col]);
     setStatusMessage(`Cell ${cellRefStr(row, col)}`);
+    // Sync toolbar format state from the selected cell
+    getCell(activeSheetName(), row, col)
+      .then((cell) => {
+        setBoldActive(cell?.bold ?? false);
+        setItalicActive(cell?.italic ?? false);
+        // underline is not yet in CellData, default to false
+        setUnderlineActive(false);
+      })
+      .catch(() => {
+        setBoldActive(false);
+        setItalicActive(false);
+        setUnderlineActive(false);
+      });
   };
 
   const handleFormulaCommit = async (value: string) => {
