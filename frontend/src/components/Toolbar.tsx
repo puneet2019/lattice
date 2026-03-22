@@ -12,11 +12,13 @@ export interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onFreezeToggle: () => void;
+  onSplitToggle: () => void;
   onInsertChart: () => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
   freezeActive: boolean;
+  splitActive: boolean;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
@@ -225,6 +227,19 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <rect x="2" y="2" width="12" height="12" rx="1" />
           <line x1="6" y1="2" x2="6" y2="14" stroke-dasharray="2 1" />
           <line x1="2" y1="6" x2="14" y2="6" stroke-dasharray="2 1" />
+        </svg>
+      </button>
+
+      {/* Split Panes */}
+      <button
+        class={`toolbar-btn toolbar-btn-wide ${props.splitActive ? 'active' : ''}`}
+        title="Split panes at selection"
+        onClick={props.onSplitToggle}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="1" />
+          <line x1="8" y1="2" x2="8" y2="14" />
+          <line x1="2" y1="8" x2="14" y2="8" />
         </svg>
       </button>
 

@@ -58,6 +58,8 @@ const App: Component = () => {
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
   const [frozenRows, setFrozenRows] = createSignal(0);
   const [frozenCols, setFrozenCols] = createSignal(0);
+  const [splitRow, setSplitRow] = createSignal(0);
+  const [splitCol, setSplitCol] = createSignal(0);
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
@@ -382,6 +384,21 @@ const App: Component = () => {
     }
   };
 
+  const handleSplitToggle = () => {
+    if (splitRow() > 0 || splitCol() > 0) {
+      // Remove split
+      setSplitRow(0);
+      setSplitCol(0);
+      setStatusMessage('Split panes removed');
+    } else {
+      // Split at current selection
+      const [row, col] = selectedCell();
+      setSplitRow(row > 0 ? row : 1);
+      setSplitCol(col > 0 ? col : 1);
+      setStatusMessage(`Split: row ${row > 0 ? row : 1}, col ${col > 0 ? col : 1}`);
+    }
+  };
+
   const handleZoomChange = (z: number) => {
     setZoom(Math.max(0.25, Math.min(2.0, z)));
   };
@@ -510,11 +527,13 @@ const App: Component = () => {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onFreezeToggle={handleFreezeToggle}
+        onSplitToggle={handleSplitToggle}
         onInsertChart={handleInsertChart}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
         freezeActive={frozenRows() > 0 || frozenCols() > 0}
+        splitActive={splitRow() > 0 || splitCol() > 0}
       />
       <FormulaBar
         cellRef={cellRefStr(selectedCell()[0], selectedCell()[1])}
@@ -543,6 +562,8 @@ const App: Component = () => {
           refreshTrigger={refreshTrigger()}
           frozenRows={frozenRows()}
           frozenCols={frozenCols()}
+          splitRow={splitRow()}
+          splitCol={splitCol()}
           zoom={zoom()}
           onSelectionChange={handleSelectionChange}
           onContentChange={handleContentChange}

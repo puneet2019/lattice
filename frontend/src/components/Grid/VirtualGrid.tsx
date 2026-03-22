@@ -51,6 +51,10 @@ export interface VirtualGridProps {
   frozenRows?: number;
   /** Number of columns to freeze at the left (0 = none). */
   frozenCols?: number;
+  /** Split pane: row index where the horizontal split occurs (0 = no split). */
+  splitRow?: number;
+  /** Split pane: column index where the vertical split occurs (0 = no split). */
+  splitCol?: number;
   /** Zoom level (1.0 = 100%). Applied to the canvas rendering. */
   zoom?: number;
   onSelectionChange: (row: number, col: number) => void;
@@ -80,6 +84,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [scrollY, setScrollY] = createSignal(0);
   const [canvasWidth, setCanvasWidth] = createSignal(800);
   const [canvasHeight, setCanvasHeight] = createSignal(600);
+
+  // Split pane scroll state: top-left pane has separate scroll from bottom-right.
+  // scrollX/scrollY are used for the bottom-right pane.
+  // splitScrollX/splitScrollY are used for the top/left panes.
+  const [splitScrollX, setSplitScrollX] = createSignal(0);
+  const [splitScrollY, setSplitScrollY] = createSignal(0);
+
+  // Split pane divider drag state
+  let splitDrag: {
+    kind: 'row' | 'col';
+    startMouse: number;
+    startSplitRow: number;
+    startSplitCol: number;
+  } | null = null;
 
   // Selection state
   const [selectedRow, setSelectedRow] = createSignal(0);
@@ -428,8 +446,19 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const row = selectedRow();
     const fc = props.frozenCols ?? 0;
     const fr = props.frozenRows ?? 0;
-    const sx = col < fc ? 0 : scrollX();
-    const sy = row < fr ? 0 : scrollY();
+    const sc = props.splitCol ?? 0;
+    const sr = props.splitRow ?? 0;
+
+    let sx: number;
+    if (col < fc) sx = 0;
+    else if (sc > 0 && col < sc) sx = splitScrollX();
+    else sx = scrollX();
+
+    let sy: number;
+    if (row < fr) sy = 0;
+    else if (sr > 0 && row < sr) sy = splitScrollY();
+    else sy = scrollY();
+
     const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
     const y = HEADER_HEIGHT + getRowY(row) - sy;
     return {
@@ -460,6 +489,91 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return getRowY(fr);
   }
 
+  /** Whether split panes are active. */
+  function isSplit(): boolean {
+    return (props.splitRow ?? 0) > 0 || (props.splitCol ?? 0) > 0;
+  }
+
+  /** Width of the left split pane region in pixels. */
+  function splitColsPx(): number {
+    const sc = props.splitCol ?? 0;
+    if (sc <= 0) return 0;
+    return getColX(sc);
+  }
+
+  /** Height of the top split pane region in pixels. */
+  function splitRowsPx(): number {
+    const sr = props.splitRow ?? 0;
+    if (sr <= 0) return 0;
+    return getRowY(sr);
+  }
+
+  /** Find the first visible column for a given scroll offset. */
+  function firstVisibleColAt(sx: number): number {
+    let col = Math.floor(sx / DEFAULT_COL_WIDTH);
+    while (col > 0 && getColX(col) > sx) col--;
+    while (col < TOTAL_COLS - 1 && getColX(col + 1) <= sx) col++;
+    return Math.max(0, col - BUFFER_COLS);
+  }
+
+  /** Find the first visible row for a given scroll offset. */
+  function firstVisibleRowAt(sy: number): number {
+    let row = Math.floor(sy / DEFAULT_ROW_HEIGHT);
+    while (row > 0 && getRowY(row) > sy) row--;
+    while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= sy) row++;
+    return Math.max(0, row - BUFFER_ROWS);
+  }
+
+  /** Count visible columns for a given scroll offset and viewport width. */
+  function visibleColCountAt(sx: number, viewW: number): number {
+    const start = firstVisibleColAt(sx);
+    let count = 0;
+    let x = getColX(start) - sx;
+    while (start + count < TOTAL_COLS && x < viewW + sx) {
+      x += getColWidth(start + count);
+      count++;
+      if (x >= viewW && count > BUFFER_COLS * 2) break;
+    }
+    return Math.min(count + BUFFER_COLS, TOTAL_COLS - start);
+  }
+
+  /** Count visible rows for a given scroll offset and viewport height. */
+  function visibleRowCountAt(sy: number, viewH: number): number {
+    const start = firstVisibleRowAt(sy);
+    let count = 0;
+    let y = getRowY(start) - sy;
+    while (start + count < TOTAL_ROWS && y < viewH + sy) {
+      y += getRowHeight(start + count);
+      count++;
+      if (y >= viewH && count > BUFFER_ROWS * 2) break;
+    }
+    return Math.min(count + BUFFER_ROWS, TOTAL_ROWS - start);
+  }
+
+  /** Render a single pane region: grid lines, selection, cell data. */
+  function drawPane(
+    ctx: CanvasRenderingContext2D,
+    clipX: number,
+    clipY: number,
+    clipW: number,
+    clipH: number,
+    sx: number,
+    sy: number,
+    startCol: number,
+    startRow: number,
+    colCount: number,
+    rowCount: number,
+  ) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipX, clipY, clipW, clipH);
+    ctx.clip();
+    drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, clipX + clipW, clipY + clipH);
+    drawSelection(ctx, sx, sy);
+    drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
+    ctx.restore();
+  }
+
   function draw() {
     const canvas = canvasRef;
     if (!canvas) return;
@@ -483,7 +597,98 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const fpx = frozenColsPx();
     const fpy = frozenRowsPx();
 
-    if (fc <= 0 && fr <= 0) {
+    if (isSplit() && fc <= 0 && fr <= 0) {
+      // Split panes: each quadrant scrolls independently.
+      const sc = props.splitCol ?? 0;
+      const sr = props.splitRow ?? 0;
+      const spx = splitColsPx();
+      const spy = splitRowsPx();
+      const ssx = splitScrollX();
+      const ssy = splitScrollY();
+
+      // Bottom-right pane (main scroll)
+      {
+        const paneW = sc > 0 ? w - ROW_NUMBER_WIDTH - spx : w - ROW_NUMBER_WIDTH;
+        const paneH = sr > 0 ? h - HEADER_HEIGHT - spy : h - HEADER_HEIGHT;
+        const paneLeft = ROW_NUMBER_WIDTH + (sc > 0 ? spx : 0);
+        const paneTop = HEADER_HEIGHT + (sr > 0 ? spy : 0);
+        const startCol = firstVisibleColAt(sx);
+        const startRow = firstVisibleRowAt(sy);
+        const colCount = visibleColCountAt(sx, paneW);
+        const rowCount = visibleRowCountAt(sy, paneH);
+        drawPane(ctx, paneLeft, paneTop, paneW, paneH, sx, sy, startCol, startRow, colCount, rowCount);
+        drawColumnHeaders(ctx, sx, startCol, colCount, w);
+        drawRowNumbers(ctx, sy, startRow, rowCount, h);
+      }
+
+      // Top pane (horizontal split) — uses splitScrollY
+      if (sr > 0) {
+        const paneW = sc > 0 ? w - ROW_NUMBER_WIDTH - spx : w - ROW_NUMBER_WIDTH;
+        const paneH = spy;
+        const paneLeft = ROW_NUMBER_WIDTH + (sc > 0 ? spx : 0);
+        const startCol = firstVisibleColAt(sx);
+        const startRow = firstVisibleRowAt(ssy);
+        const colCount = visibleColCountAt(sx, paneW);
+        const rowCount = visibleRowCountAt(ssy, paneH);
+        drawPane(ctx, paneLeft, HEADER_HEIGHT, paneW, paneH, sx, ssy, startCol, startRow, colCount, rowCount);
+        // Row numbers for top pane
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, HEADER_HEIGHT, ROW_NUMBER_WIDTH, paneH);
+        ctx.clip();
+        drawRowNumbers(ctx, ssy, startRow, rowCount, HEADER_HEIGHT + paneH);
+        ctx.restore();
+      }
+
+      // Left pane (vertical split) — uses splitScrollX
+      if (sc > 0) {
+        const paneW = spx;
+        const paneH = sr > 0 ? h - HEADER_HEIGHT - spy : h - HEADER_HEIGHT;
+        const paneTop = HEADER_HEIGHT + (sr > 0 ? spy : 0);
+        const startCol = firstVisibleColAt(ssx);
+        const startRow = firstVisibleRowAt(sy);
+        const colCount = visibleColCountAt(ssx, paneW);
+        const rowCount = visibleRowCountAt(sy, paneH);
+        drawPane(ctx, ROW_NUMBER_WIDTH, paneTop, paneW, paneH, ssx, sy, startCol, startRow, colCount, rowCount);
+        // Column headers for left pane
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, 0, paneW, HEADER_HEIGHT);
+        ctx.clip();
+        drawColumnHeaders(ctx, ssx, startCol, colCount, ROW_NUMBER_WIDTH + paneW);
+        ctx.restore();
+      }
+
+      // Top-left pane (both split) — uses splitScrollX + splitScrollY
+      if (sc > 0 && sr > 0) {
+        const startCol = firstVisibleColAt(ssx);
+        const startRow = firstVisibleRowAt(ssy);
+        const colCount = visibleColCountAt(ssx, spx);
+        const rowCount = visibleRowCountAt(ssy, spy);
+        drawPane(ctx, ROW_NUMBER_WIDTH, HEADER_HEIGHT, spx, spy, ssx, ssy, startCol, startRow, colCount, rowCount);
+      }
+
+      drawCorner(ctx);
+
+      // Draw split divider lines (thicker, distinct from freeze)
+      ctx.strokeStyle = COLORS.freezeBorder;
+      ctx.lineWidth = 3;
+      if (sc > 0) {
+        const dx = ROW_NUMBER_WIDTH + spx;
+        ctx.beginPath();
+        ctx.moveTo(dx, 0);
+        ctx.lineTo(dx, h);
+        ctx.stroke();
+      }
+      if (sr > 0) {
+        const dy = HEADER_HEIGHT + spy;
+        ctx.beginPath();
+        ctx.moveTo(0, dy);
+        ctx.lineTo(w, dy);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    } else if (fc <= 0 && fr <= 0) {
       // No freeze panes: simple single-pass render.
       const startCol = firstVisibleCol();
       const startRow = firstVisibleRow();
@@ -894,17 +1099,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
    * Check if the mouse is over a column header border (right edge).
    * Returns the column index whose right edge is near the mouse, or -1.
    */
-  /** Get the effective scroll-X for a given screen local-X, accounting for freeze. */
+  /** Get the effective scroll-X for a given screen local-X, accounting for freeze/split. */
   function effectiveScrollX(localX: number): number {
     const fc = props.frozenCols ?? 0;
     if (fc > 0 && localX < ROW_NUMBER_WIDTH + frozenColsPx()) return 0;
+    const sc = props.splitCol ?? 0;
+    if (sc > 0 && localX < ROW_NUMBER_WIDTH + splitColsPx()) return splitScrollX();
     return scrollX();
   }
 
-  /** Get the effective scroll-Y for a given screen local-Y, accounting for freeze. */
+  /** Get the effective scroll-Y for a given screen local-Y, accounting for freeze/split. */
   function effectiveScrollY(localY: number): number {
     const fr = props.frozenRows ?? 0;
     if (fr > 0 && localY < HEADER_HEIGHT + frozenRowsPx()) return 0;
+    const sr = props.splitRow ?? 0;
+    if (sr > 0 && localY < HEADER_HEIGHT + splitRowsPx()) return splitScrollY();
     return scrollY();
   }
 
@@ -1597,8 +1806,32 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     e.preventDefault();
     const maxX = Math.max(0, totalContentWidth() - canvasWidth());
     const maxY = Math.max(0, totalContentHeight() - canvasHeight());
-    setScrollX(Math.max(0, Math.min(maxX, scrollX() + e.deltaX)));
-    setScrollY(Math.max(0, Math.min(maxY, scrollY() + e.deltaY)));
+
+    // When split panes are active, route scroll to the correct pane
+    if (isSplit() && containerRef) {
+      const rect = containerRef.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      const localY = e.clientY - rect.top;
+      const sc = props.splitCol ?? 0;
+      const sr = props.splitRow ?? 0;
+      const inLeftPane = sc > 0 && localX < ROW_NUMBER_WIDTH + splitColsPx();
+      const inTopPane = sr > 0 && localY < HEADER_HEIGHT + splitRowsPx();
+
+      if (inLeftPane) {
+        setSplitScrollX(Math.max(0, Math.min(maxX, splitScrollX() + e.deltaX)));
+      } else {
+        setScrollX(Math.max(0, Math.min(maxX, scrollX() + e.deltaX)));
+      }
+      if (inTopPane) {
+        setSplitScrollY(Math.max(0, Math.min(maxY, splitScrollY() + e.deltaY)));
+      } else {
+        setScrollY(Math.max(0, Math.min(maxY, scrollY() + e.deltaY)));
+      }
+    } else {
+      setScrollX(Math.max(0, Math.min(maxX, scrollX() + e.deltaX)));
+      setScrollY(Math.max(0, Math.min(maxY, scrollY() + e.deltaY)));
+    }
+
     scheduleDraw();
     fetchVisibleData();
   }
