@@ -1274,6 +1274,8 @@ mod tests {
             sheet.get_cell(1, 3).unwrap().value,
             CellValue::Text("f".into())
         );
+    }
+
     // --- Sheet Protection ---
 
     #[test]
