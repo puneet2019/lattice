@@ -52,7 +52,7 @@ const App: Component = () => {
   const [formulaContent, setFormulaContent] = createSignal('');
   const [statusMessage, setStatusMessage] = createSignal('Ready');
   const [mode, setMode] = createSignal<'Ready' | 'Edit'>('Ready');
-  const [selectionSummary] = createSignal('');
+  const [selectionSummary, setSelectionSummary] = createSignal('');
   const [zoom, setZoom] = createSignal(1.0);
   const [refreshTrigger, setRefreshTrigger] = createSignal(0);
   const [boldActive, setBoldActive] = createSignal(false);
@@ -606,6 +606,7 @@ const App: Component = () => {
           splitCol={splitCol()}
           zoom={zoom()}
           onSelectionChange={handleSelectionChange}
+          onSelectionSummary={setSelectionSummary}
           onContentChange={handleContentChange}
           onCellCommit={handleCellCommit}
           onStatusChange={setStatusMessage}

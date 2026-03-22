@@ -134,6 +134,8 @@ export interface VirtualGridProps {
   pasteSpecialMode?: PasteMode | null;
   /** Called after a paste special operation completes so App can reset the signal. */
   onPasteSpecialDone?: () => void;
+  /** Called when selection summary (Sum/Average/Count) changes for the status bar. */
+  onSelectionSummary?: (summary: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -945,6 +947,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       }
       ctx.lineWidth = 1;
     }
+
+    // Update status bar selection summary after each draw
+    updateSelectionSummary();
   }
 
   // -----------------------------------------------------------------------
@@ -1032,6 +1037,45 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       minCol: selectedCol(),
       maxCol: selectedCol(),
     };
+  }
+
+  /** Compute selection summary (Sum, Average, Count) and notify parent. */
+  function updateSelectionSummary() {
+    if (!props.onSelectionSummary) return;
+    const range = getSelectionRange();
+    const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+    if (!isMulti) {
+      props.onSelectionSummary('');
+      return;
+    }
+
+    let sum = 0;
+    let count = 0;
+    let numericCount = 0;
+
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        const cell = cellCache.get(`${r}:${c}`);
+        if (cell && cell.value && cell.value.trim() !== '') {
+          count++;
+          const num = Number(cell.value);
+          if (!isNaN(num)) {
+            sum += num;
+            numericCount++;
+          }
+        }
+      }
+    }
+
+    if (numericCount > 0) {
+      const avg = sum / numericCount;
+      const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      props.onSelectionSummary(`Sum: ${sum}  Average: ${avgStr}  Count: ${count}`);
+    } else if (count > 0) {
+      props.onSelectionSummary(`Count: ${count}`);
+    } else {
+      props.onSelectionSummary('');
+    }
   }
 
   function isColInSelection(col: number): boolean {
