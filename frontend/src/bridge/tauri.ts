@@ -7,6 +7,16 @@ export interface CellData {
   format_id: number;
   bold: boolean;
   italic: boolean;
+  /** Font family name (optional -- returned from backend when set). */
+  font_family?: string;
+  /** Font color hex string (optional). */
+  font_color?: string;
+  /** Background color hex string (optional). */
+  bg_color?: string;
+  /** Horizontal alignment (optional). */
+  h_align?: 'left' | 'center' | 'right';
+  /** Text wrap mode (optional). */
+  text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
 }
 
 /** Sheet summary information. */
@@ -28,10 +38,13 @@ export interface FormatOptions {
   underline?: boolean;
   strikethrough?: boolean;
   font_size?: number;
+  font_family?: string;
   font_color?: string;
   bg_color?: string;
   h_align?: 'left' | 'center' | 'right';
+  v_align?: 'top' | 'middle' | 'bottom';
   number_format?: string;
+  text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +154,56 @@ export async function deleteCols(
   count: number,
 ): Promise<void> {
   return invoke('delete_cols', { sheet, col, count });
+}
+
+// ---------------------------------------------------------------------------
+// Column/Row sizing (persist to backend)
+// ---------------------------------------------------------------------------
+
+export async function setColWidth(
+  sheet: string,
+  col: number,
+  width: number,
+): Promise<void> {
+  return invoke('set_col_width', { sheet, col, width });
+}
+
+export async function setRowHeight(
+  sheet: string,
+  row: number,
+  height: number,
+): Promise<void> {
+  return invoke('set_row_height', { sheet, row, height });
+}
+
+export async function getColWidths(
+  sheet: string,
+): Promise<Record<number, number>> {
+  return invoke('get_col_widths', { sheet });
+}
+
+export async function getRowHeights(
+  sheet: string,
+): Promise<Record<number, number>> {
+  return invoke('get_row_heights', { sheet });
+}
+
+// ---------------------------------------------------------------------------
+// Sheet tab color and reorder
+// ---------------------------------------------------------------------------
+
+export async function setSheetTabColor(
+  name: string,
+  color: string | null,
+): Promise<void> {
+  return invoke('set_sheet_tab_color', { name, color });
+}
+
+export async function moveSheet(
+  name: string,
+  toIndex: number,
+): Promise<void> {
+  return invoke('move_sheet', { name, toIndex });
 }
 
 // ---------------------------------------------------------------------------

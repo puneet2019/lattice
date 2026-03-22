@@ -136,6 +136,22 @@ body,
   font-size: 12px;
 }
 
+.toolbar-font-family-btn {
+  width: auto;
+  min-width: 80px;
+  max-width: 120px;
+  padding: 0 8px;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-font-family-menu {
+  min-width: 160px;
+}
+
 .toolbar-separator {
   width: 1px;
   height: 20px;

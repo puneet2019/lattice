@@ -6,6 +6,7 @@ export interface ToolbarProps {
   onItalic: () => void;
   onUnderline: () => void;
   onFontSize: (size: number) => void;
+  onFontFamily: (family: string) => void;
   onFontColor: (color: string) => void;
   onBgColor: (color: string) => void;
   onAlign: (align: 'left' | 'center' | 'right') => void;
@@ -20,9 +21,19 @@ export interface ToolbarProps {
   underlineActive: boolean;
   freezeActive: boolean;
   splitActive: boolean;
+  currentFontFamily?: string;
 }
 
 const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+
+const FONT_FAMILIES = [
+  'Arial',
+  'Helvetica',
+  'Times New Roman',
+  'Courier New',
+  'Georgia',
+  'Verdana',
+];
 
 const PRESET_COLORS = [
   '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
@@ -33,10 +44,18 @@ const PRESET_COLORS = [
 ];
 
 const Toolbar: Component<ToolbarProps> = (props) => {
+  const [showFontFamilyDropdown, setShowFontFamilyDropdown] = createSignal(false);
   const [showFontSizeDropdown, setShowFontSizeDropdown] = createSignal(false);
   const [showFontColorPicker, setShowFontColorPicker] = createSignal(false);
   const [showBgColorPicker, setShowBgColorPicker] = createSignal(false);
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
+
+  const currentFamily = () => props.currentFontFamily ?? 'Arial';
+
+  const handleFontFamilySelect = (family: string) => {
+    setShowFontFamilyDropdown(false);
+    props.onFontFamily(family);
+  };
 
   const handleFontSizeSelect = (size: number) => {
     setCurrentFontSize(size);
@@ -56,6 +75,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
   // Close dropdowns when clicking elsewhere.
   const closeDropdowns = () => {
+    setShowFontFamilyDropdown(false);
     setShowFontSizeDropdown(false);
     setShowFontColorPicker(false);
     setShowBgColorPicker(false);
@@ -78,6 +98,32 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       </button>
 
       <div class="toolbar-separator" />
+
+      {/* Font Family */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn toolbar-font-family-btn"
+          title="Font family"
+          onClick={(e) => { e.stopPropagation(); setShowFontFamilyDropdown(!showFontFamilyDropdown()); }}
+        >
+          {currentFamily()}
+        </button>
+        <Show when={showFontFamilyDropdown()}>
+          <div class="toolbar-dropdown-menu toolbar-font-family-menu">
+            <For each={FONT_FAMILIES}>
+              {(family) => (
+                <div
+                  class={`toolbar-dropdown-item ${family === currentFamily() ? 'active' : ''}`}
+                  style={{ "font-family": family }}
+                  onClick={() => handleFontFamilySelect(family)}
+                >
+                  {family}
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
 
       {/* Font Size */}
       <div class="toolbar-dropdown" style={{ position: 'relative' }}>

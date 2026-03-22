@@ -136,6 +136,10 @@ export interface VirtualGridProps {
   onPasteSpecialDone?: () => void;
   /** Called when selection summary (Sum/Average/Count) changes for the status bar. */
   onSelectionSummary?: (summary: string) => void;
+  /** Find match positions to highlight on canvas. */
+  findMatches?: { row: number; col: number }[];
+  /** Index of the active find match (highlighted differently). */
+  findActiveIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +198,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     copiedRange = null;
     marchingAntOffset = 0;
   }
+
+  // Find match tracking for canvas highlights
+  let findMatchSet: Set<string> | null = null;
+  let findActiveRow = -1;
+  let findActiveCol = -1;
 
   // Cell data cache: maps "row:col" to CellData
   const cellCache = new Map<string, CellData>();
@@ -1323,18 +1332,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
+        // Draw cell background color if set
+        if (cell.bg_color) {
+          ctx.fillStyle = cell.bg_color;
+          ctx.fillRect(x, y, cw, rh);
+        }
+
+        // Draw find match highlights
+        if (findMatchSet && findMatchSet.has(`${row}:${col}`)) {
+          const isActive = findActiveRow === row && findActiveCol === col;
+          ctx.fillStyle = isActive ? 'rgba(0, 180, 80, 0.25)' : 'rgba(255, 235, 59, 0.35)';
+          ctx.fillRect(x, y, cw, rh);
+        }
+
         // Image cell: value starts with data:image/
         if (cell.value.startsWith('data:image/')) {
           const img = getCachedImage(cell.value);
           if (img) {
-            // Scale image to fit within the cell with padding, preserving aspect ratio
             const maxW = cw - PADDING * 2;
             const maxH = rh - PADDING * 2;
             if (maxW > 0 && maxH > 0) {
               const scale = Math.min(maxW / img.width, maxH / img.height, 1);
               const drawW = img.width * scale;
               const drawH = img.height * scale;
-              // Center the image in the cell
               const drawX = x + PADDING + (maxW - drawW) / 2;
               const drawY = y + PADDING + (maxH - drawH) / 2;
               ctx.drawImage(img, drawX, drawY, drawW, drawH);
@@ -1346,35 +1366,95 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         // Determine font style
         const fontWeight = cell.bold ? 'bold' : 'normal';
         const fontStyle = cell.italic ? 'italic' : 'normal';
-        ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
-        ctx.fillStyle = COLORS.cellText;
+        const fontFamily = cell.font_family ?? '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+        ctx.font = `${fontStyle} ${fontWeight} 13px ${fontFamily}`;
+        ctx.fillStyle = cell.font_color ?? COLORS.cellText;
 
-        // Right-align numbers, left-align strings
+        // Right-align numbers, left-align strings (unless h_align is set)
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
+        const align = cell.h_align ?? (isNumber ? 'right' : 'left');
         const maxTextW = cw - PADDING * 2;
         let displayText = cell.value;
 
-        // Truncate with ellipsis if text overflows cell width
-        const measured = ctx.measureText(displayText);
-        if (measured.width > maxTextW && maxTextW > 0) {
-          const ellipsis = '\u2026';
-          const ellipsisW = ctx.measureText(ellipsis).width;
-          let truncLen = displayText.length;
-          while (truncLen > 0) {
-            truncLen--;
-            if (ctx.measureText(displayText.slice(0, truncLen)).width + ellipsisW <= maxTextW) {
-              break;
+        // Determine text rendering mode
+        const textWrap = cell.text_wrap ?? 'Overflow';
+
+        if (textWrap === 'Wrap') {
+          // Wrap mode: split text into lines that fit cell width
+          ctx.textAlign = align;
+          const words = displayText.split(' ');
+          const lines: string[] = [];
+          let currentLine = '';
+          for (const word of words) {
+            const testLine = currentLine ? `${currentLine} ${word}` : word;
+            if (ctx.measureText(testLine).width > maxTextW && currentLine) {
+              lines.push(currentLine);
+              currentLine = word;
+            } else {
+              currentLine = testLine;
             }
           }
-          displayText = displayText.slice(0, truncLen) + ellipsis;
-        }
+          if (currentLine) lines.push(currentLine);
 
-        if (isNumber) {
-          ctx.textAlign = 'right';
-          ctx.fillText(displayText, x + cw - PADDING, y + rh / 2);
+          const lineHeight = 16;
+          const totalTextH = lines.length * lineHeight;
+          const startY = y + (rh - totalTextH) / 2 + lineHeight / 2;
+          for (let li = 0; li < lines.length; li++) {
+            const lineY = startY + li * lineHeight;
+            if (lineY > y + rh) break; // clip vertically
+            const textX = align === 'right' ? x + cw - PADDING
+              : align === 'center' ? x + cw / 2
+              : x + PADDING;
+            ctx.fillText(lines[li], textX, lineY);
+          }
         } else {
-          ctx.textAlign = 'left';
-          ctx.fillText(displayText, x + PADDING, y + rh / 2);
+          // Overflow or Clip mode
+          const measured = ctx.measureText(displayText);
+          if (measured.width > maxTextW && maxTextW > 0) {
+            if (textWrap === 'Overflow' && align === 'left') {
+              // Check if adjacent cells to the right are empty -- allow overflow
+              let overflowW = cw;
+              let nextCol = col + 1;
+              while (nextCol < col + 10 && nextCol < TOTAL_COLS) {
+                const nextCell = cellCache.get(`${row}:${nextCol}`);
+                if (nextCell && nextCell.value && nextCell.value.trim() !== '') break;
+                overflowW += getColWidth(nextCol);
+                if (overflowW >= measured.width + PADDING * 2) break;
+                nextCol++;
+              }
+              // Clip to overflow width
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(x, y, overflowW, rh);
+              ctx.clip();
+              ctx.textAlign = 'left';
+              ctx.fillText(displayText, x + PADDING, y + rh / 2);
+              ctx.restore();
+            } else {
+              // Clip with ellipsis
+              const ellipsis = '\u2026';
+              const ellipsisW = ctx.measureText(ellipsis).width;
+              let truncLen = displayText.length;
+              while (truncLen > 0) {
+                truncLen--;
+                if (ctx.measureText(displayText.slice(0, truncLen)).width + ellipsisW <= maxTextW) {
+                  break;
+                }
+              }
+              displayText = displayText.slice(0, truncLen) + ellipsis;
+              ctx.textAlign = align;
+              const textX = align === 'right' ? x + cw - PADDING
+                : align === 'center' ? x + cw / 2
+                : x + PADDING;
+              ctx.fillText(displayText, textX, y + rh / 2);
+            }
+          } else {
+            ctx.textAlign = align;
+            const textX = align === 'right' ? x + cw - PADDING
+              : align === 'center' ? x + cw / 2
+              : x + PADDING;
+            ctx.fillText(displayText, textX, y + rh / 2);
+          }
         }
       }
     }
@@ -3205,6 +3285,27 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
+  });
+
+  // Sync find match highlights from props to canvas-accessible state
+  createEffect(() => {
+    const matches = props.findMatches;
+    const activeIdx = props.findActiveIndex ?? -1;
+    if (matches && matches.length > 0) {
+      findMatchSet = new Set(matches.map((m) => `${m.row}:${m.col}`));
+      if (activeIdx >= 0 && activeIdx < matches.length) {
+        findActiveRow = matches[activeIdx].row;
+        findActiveCol = matches[activeIdx].col;
+      } else {
+        findActiveRow = -1;
+        findActiveCol = -1;
+      }
+    } else {
+      findMatchSet = null;
+      findActiveRow = -1;
+      findActiveCol = -1;
+    }
+    scheduleDraw();
   });
 
   // Execute paste special when mode is set from the dialog

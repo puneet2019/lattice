@@ -16,6 +16,8 @@ export interface FindBarProps {
   onStatusChange: (message: string) => void;
   /** Called after a replace writes data (to trigger grid refresh). */
   onDataChanged: () => void;
+  /** Called when match results change (for canvas highlighting). */
+  onMatchesChange?: (matches: { row: number; col: number }[], activeIndex: number) => void;
 }
 
 const FindBar: Component<FindBarProps> = (props) => {
@@ -54,6 +56,7 @@ const FindBar: Component<FindBarProps> = (props) => {
       setResults([]);
       setCurrentIndex(-1);
       props.onStatusChange('');
+      props.onMatchesChange?.([], -1);
       return;
     }
 
@@ -65,9 +68,11 @@ const FindBar: Component<FindBarProps> = (props) => {
         setCurrentIndex(0);
         props.onNavigateToCell(filtered[0].row, filtered[0].col);
         props.onStatusChange(`${filtered.length} match${filtered.length === 1 ? '' : 'es'} found`);
+        props.onMatchesChange?.(filtered.map((r) => ({ row: r.row, col: r.col })), 0);
       } else {
         setCurrentIndex(-1);
         props.onStatusChange('No matches found');
+        props.onMatchesChange?.([], -1);
       }
     } catch {
       // Tauri not available or search error
@@ -84,6 +89,7 @@ const FindBar: Component<FindBarProps> = (props) => {
     setCurrentIndex(next);
     props.onNavigateToCell(r[next].row, r[next].col);
     props.onStatusChange(`Match ${next + 1} of ${r.length}`);
+    props.onMatchesChange?.(r.map((m) => ({ row: m.row, col: m.col })), next);
   }
 
   function goToPrevious() {
@@ -93,6 +99,7 @@ const FindBar: Component<FindBarProps> = (props) => {
     setCurrentIndex(prev);
     props.onNavigateToCell(r[prev].row, r[prev].col);
     props.onStatusChange(`Match ${prev + 1} of ${r.length}`);
+    props.onMatchesChange?.(r.map((m) => ({ row: m.row, col: m.col })), prev);
   }
 
   async function handleReplace() {

@@ -58,6 +58,7 @@ const App: Component = () => {
   const [boldActive, setBoldActive] = createSignal(false);
   const [italicActive, setItalicActive] = createSignal(false);
   const [underlineActive, setUnderlineActive] = createSignal(false);
+  const [currentFontFamily, setCurrentFontFamily] = createSignal('Arial');
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
   const [frozenRows, setFrozenRows] = createSignal(0);
   const [frozenCols, setFrozenCols] = createSignal(0);
@@ -345,6 +346,12 @@ const App: Component = () => {
     setStatusMessage(underlineActive() ? 'Underline on' : 'Underline off');
   };
 
+  const handleFontFamily = (family: string) => {
+    setCurrentFontFamily(family);
+    applyFormat({ font_family: family });
+    setStatusMessage(`Font family: ${family}`);
+  };
+
   const handleFontSize = (size: number) => {
     applyFormat({ font_size: size });
     setStatusMessage(`Font size: ${size}`);
@@ -439,6 +446,8 @@ const App: Component = () => {
   // Find bar state
   const [showFindBar, setShowFindBar] = createSignal(false);
   const [findBarReplace, setFindBarReplace] = createSignal(false);
+  const [findMatches, setFindMatches] = createSignal<{ row: number; col: number }[]>([]);
+  const [findActiveIndex, setFindActiveIndex] = createSignal(-1);
 
   const handleFindOpen = () => {
     setFindBarReplace(false);
@@ -452,6 +461,8 @@ const App: Component = () => {
 
   const handleFindClose = () => {
     setShowFindBar(false);
+    setFindMatches([]);
+    setFindActiveIndex(-1);
   };
 
   // -------------------------------------------------------------------
@@ -566,6 +577,7 @@ const App: Component = () => {
         onItalic={handleItalic}
         onUnderline={handleUnderline}
         onFontSize={handleFontSize}
+        onFontFamily={handleFontFamily}
         onFontColor={handleFontColor}
         onBgColor={handleBgColor}
         onAlign={handleAlign}
@@ -580,6 +592,7 @@ const App: Component = () => {
         underlineActive={underlineActive()}
         freezeActive={frozenRows() > 0 || frozenCols() > 0}
         splitActive={splitRow() > 0 || splitCol() > 0}
+        currentFontFamily={currentFontFamily()}
       />
       <FormulaBar
         cellRef={cellRefStr(selectedCell()[0], selectedCell()[1])}
@@ -600,6 +613,10 @@ const App: Component = () => {
           }}
           onStatusChange={setStatusMessage}
           onDataChanged={() => setRefreshTrigger((n) => n + 1)}
+          onMatchesChange={(matches, activeIndex) => {
+            setFindMatches(matches);
+            setFindActiveIndex(activeIndex);
+          }}
         />
       </Show>
       <div style={{ position: 'relative', flex: '1', overflow: 'hidden', display: 'flex', "flex-direction": 'column' }}>
@@ -628,6 +645,8 @@ const App: Component = () => {
           onPasteSpecialOpen={handlePasteSpecialOpen}
           pasteSpecialMode={pasteSpecialMode()}
           onPasteSpecialDone={handlePasteSpecialDone}
+          findMatches={findMatches()}
+          findActiveIndex={findActiveIndex()}
         />
         <ChartContainer
           charts={chartOverlays()}
