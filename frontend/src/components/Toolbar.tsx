@@ -9,6 +9,7 @@ export interface ToolbarProps {
   onFontColor: (color: string) => void;
   onBgColor: (color: string) => void;
   onAlign: (align: 'left' | 'center' | 'right') => void;
+  onNumberFormat: (format: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   onFreezeToggle: () => void;
@@ -213,6 +214,40 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <line x1="6" y1="8" x2="14" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
         </svg>
+      </button>
+
+      <div class="toolbar-separator" />
+
+      {/* Number Format Buttons */}
+      <button
+        class="toolbar-btn"
+        title="Format as currency"
+        onClick={() => props.onNumberFormat('$#,##0.00')}
+      >
+        $
+      </button>
+      <button
+        class="toolbar-btn"
+        title="Format as percent"
+        onClick={() => props.onNumberFormat('0%')}
+      >
+        %
+      </button>
+      <button
+        class="toolbar-btn toolbar-btn-wide"
+        title="Increase decimal places"
+        onClick={() => props.onNumberFormat('.0+')}
+        style={{ "font-size": "11px" }}
+      >
+        .0&rarr;
+      </button>
+      <button
+        class="toolbar-btn toolbar-btn-wide"
+        title="Decrease decimal places"
+        onClick={() => props.onNumberFormat('.0-')}
+        style={{ "font-size": "11px" }}
+      >
+        &larr;.0
       </button>
 
       <div class="toolbar-separator" />

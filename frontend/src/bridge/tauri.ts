@@ -31,6 +31,7 @@ export interface FormatOptions {
   font_color?: string;
   bg_color?: string;
   h_align?: 'left' | 'center' | 'right';
+  number_format?: string;
 }
 
 // ---------------------------------------------------------------------------

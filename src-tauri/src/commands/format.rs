@@ -17,6 +17,7 @@ pub struct FormatUpdate {
     pub font_color: Option<String>,
     pub bg_color: Option<String>,
     pub h_align: Option<String>,
+    pub number_format: Option<String>,
 }
 
 /// Apply formatting to a range of cells.
@@ -76,6 +77,9 @@ pub async fn format_cells(
                     "right" => HAlign::Right,
                     _ => HAlign::Left,
                 };
+            }
+            if let Some(ref nf) = format.number_format {
+                cell.format.number_format = Some(nf.clone());
             }
 
             let new_format = cell.format.clone();

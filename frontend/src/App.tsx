@@ -365,6 +365,11 @@ const App: Component = () => {
     setStatusMessage(`Align: ${align}`);
   };
 
+  const handleNumberFormat = (fmt: string) => {
+    applyFormat({ number_format: fmt });
+    setStatusMessage(`Number format: ${fmt}`);
+  };
+
   const handleUndo = async () => {
     try {
       await tauriUndo();
@@ -564,6 +569,7 @@ const App: Component = () => {
         onFontColor={handleFontColor}
         onBgColor={handleBgColor}
         onAlign={handleAlign}
+        onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onFreezeToggle={handleFreezeToggle}
