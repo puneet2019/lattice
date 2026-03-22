@@ -87,6 +87,7 @@ const App: Component = () => {
     setActiveSheetLocal(info.active_sheet);
     setRefreshTrigger((n) => n + 1);
     setSelectedCell([0, 0]);
+    setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
   }
 
@@ -341,6 +342,7 @@ const App: Component = () => {
     const parsed = parse_cell_ref(ref);
     if (parsed) {
       setSelectedCell([parsed.row, parsed.col]);
+      setSelRange([parsed.row, parsed.col, parsed.row, parsed.col]);
       setStatusMessage(`Cell ${cellRefStr(parsed.row, parsed.col)}`);
     }
   };
@@ -360,8 +362,8 @@ const App: Component = () => {
       await formatCells(activeSheetName(), minR, minC, maxR, maxC, format);
       // Refresh the grid so the canvas re-fetches and renders the new format.
       setRefreshTrigger((n) => n + 1);
-    } catch {
-      // Ignore in browser dev mode — command may not exist yet.
+    } catch (e) {
+      setStatusMessage(`Format failed: ${e}`);
     }
   };
 
@@ -649,6 +651,7 @@ const App: Component = () => {
           onClose={handleFindClose}
           onNavigateToCell={(row, col) => {
             setSelectedCell([row, col]);
+            setSelRange([row, col, row, col]);
             setStatusMessage(`Cell ${cellRefStr(row, col)}`);
           }}
           onStatusChange={setStatusMessage}

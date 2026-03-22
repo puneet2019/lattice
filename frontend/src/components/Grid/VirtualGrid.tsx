@@ -1780,7 +1780,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (!cell || !cell.value) continue;
       const fontWeight = cell.bold ? 'bold' : 'normal';
       const fontStyle = cell.italic ? 'italic' : 'normal';
-      ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+      const fontSize = cell.font_size || 11;
+      const fontFamily = cell.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
       const tw = ctx.measureText(cell.value).width + PADDING * 2 + 4;
       maxW = Math.max(maxW, tw);
     }
@@ -3367,6 +3369,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleDragMouseUp);
+      }
+      if (resizeDrag) {
+        resizeDrag = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleResizeMouseUp);
+      }
+      if (isFillDragging) {
+        isFillDragging = false;
+        document.removeEventListener('mousemove', handleFillMouseMove);
+        document.removeEventListener('mouseup', handleFillMouseUp);
       }
     });
 
