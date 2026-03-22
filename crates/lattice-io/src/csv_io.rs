@@ -103,7 +103,7 @@ pub fn write_csv(workbook: &Workbook, path: &Path, sheet_name: Option<&str>) -> 
 /// Parse a CSV field into a `CellValue`.
 ///
 /// Tries to parse as: boolean -> number -> text. Empty strings become `Empty`.
-fn parse_csv_value(field: &str) -> CellValue {
+pub(crate) fn parse_csv_value(field: &str) -> CellValue {
     let trimmed = field.trim();
     if trimmed.is_empty() {
         return CellValue::Empty;
@@ -125,7 +125,7 @@ fn parse_csv_value(field: &str) -> CellValue {
 }
 
 /// Convert a `CellValue` to a string suitable for CSV output.
-fn cell_value_to_csv_string(value: &CellValue) -> String {
+pub(crate) fn cell_value_to_csv_string(value: &CellValue) -> String {
     match value {
         CellValue::Empty => String::new(),
         CellValue::Text(s) => s.clone(),

@@ -155,7 +155,7 @@ pub fn read_spreadsheet(path: &Path) -> Result<Workbook> {
         FileFormat::Xls => read_xls(path),
         FileFormat::Ods => read_ods(path),
         FileFormat::Csv => crate::csv_io::read_csv(path),
-        FileFormat::Tsv => crate::csv_io::read_csv(path), // TSV handled as CSV for now
+        FileFormat::Tsv => crate::tsv_io::read_tsv(path),
         FileFormat::Json => Err(IoError::UnsupportedFormat(
             "JSON import is not supported; use CSV or XLSX".to_string(),
         )),
