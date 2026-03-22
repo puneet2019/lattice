@@ -5,6 +5,7 @@
 //! sorting, and filtering logic. It has **no I/O**, **no UI**, and
 //! **no async** dependencies.
 
+pub mod autofill;
 pub mod cell;
 pub mod clipboard;
 pub mod error;
@@ -21,6 +22,7 @@ pub mod validation;
 pub mod workbook;
 
 // Re-export key types at the crate root for ergonomic imports.
+pub use autofill::{FillDirection, FillPattern, detect_pattern, fill_range};
 pub use cell::{Cell, CellError, CellValue};
 pub use clipboard::{ClipboardContent, PasteMode};
 pub use error::{LatticeError, Result};
