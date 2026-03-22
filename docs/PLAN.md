@@ -609,6 +609,53 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 
 ---
 
+## Next Steps (Pending — Require External Setup)
+
+These items are architecturally ready (stubs, traits, and docs exist) but need external credentials or manual setup before they can be completed.
+
+### Google Drive OAuth Integration
+**Status:** Stub in `crates/lattice-io/src/cloud/google_drive.rs`
+**Prereqs (manual):**
+1. Create Google Cloud project at https://console.cloud.google.com/
+2. Enable **Google Drive API**
+3. Create **OAuth 2.0 Client ID** (Desktop app type)
+4. Note the Client ID and Client Secret
+
+**Implementation TODO:**
+- Add `reqwest` to lattice-io dependencies
+- Implement PKCE Authorization Code flow (open browser → callback → exchange code for token)
+- Store tokens in macOS Keychain via `security` CLI or `keychain-services` crate
+- Implement `list_files()` via `GET /drive/v3/files?q=mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'`
+- Implement `download()` via `GET /drive/v3/files/{id}?alt=media`
+- Implement `upload()` via `POST /upload/drive/v3/files` (multipart)
+- Add token refresh logic (access tokens expire after 1 hour)
+
+### Dropbox OAuth Integration
+**Status:** Stub in `crates/lattice-io/src/cloud/dropbox.rs`
+**Prereqs (manual):**
+1. Create Dropbox app at https://www.dropbox.com/developers/apps
+2. Choose **Scoped access** → **Full Dropbox** or **App folder**
+3. Note the **App key**
+4. Enable scopes: `files.content.read`, `files.content.write`, `files.metadata.read`
+
+**Implementation TODO:**
+- Implement PKCE OAuth flow (similar to Google Drive)
+- Store tokens in macOS Keychain
+- Implement `list_files()` via `POST /2/files/list_folder`
+- Implement `download()` via `POST /2/files/download`
+- Implement `upload()` via `POST /2/files/upload`
+
+### Other Future Work
+- **Real-time collaboration (CRDT)** — multi-user editing over WebSocket
+- **Plugin system (WASM)** — user-extensible functions
+- **Database connectivity** — Postgres/SQLite queries as data sources
+- **Macro recording/scripting** — automation layer
+- **Version history** — file versioning with diff
+- **Template gallery** — financial analysis templates
+- **Localization / i18n** — multiple languages
+
+---
+
 ## 8. Key Technical Decisions
 
 ### Decision 1: IronCalc vs Custom Formula Engine
