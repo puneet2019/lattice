@@ -2042,6 +2042,133 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, sheet: &Sheet) -> Result<Ce
             Ok(CellValue::Text(strs.join(",")))
         }
 
+        // ===== DATABASE =====
+        // Database functions operate on a "database" range where row 0 is
+        // headers. "field" is a column name (text) or 1-based index (number).
+        // "criteria" is a range where row 0 is a header matching a database
+        // column, and row 1+ are criteria values.
+        "DSUM" | "DAVERAGE" | "DCOUNT" | "DMAX" | "DMIN" => {
+            if args.len() != 3 {
+                return Err(LatticeError::FormulaError(format!(
+                    "{name} requires exactly 3 arguments"
+                )));
+            }
+            let database = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: first argument must be a range"
+                    )));
+                }
+            };
+            let field = match &args[1] {
+                FuncArg::Value(v) => v.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: second argument must be a field name or index"
+                    )));
+                }
+            };
+            let criteria = match &args[2] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, sheet)?,
+                _ => {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name}: third argument must be a range"
+                    )));
+                }
+            };
+
+            if database.is_empty() {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            let headers = &database[0];
+
+            // Resolve the field to a 0-based column index
+            let field_col = match &field {
+                CellValue::Number(n) => {
+                    let idx = *n as usize;
+                    if idx == 0 || idx > headers.len() {
+                        return Ok(CellValue::Error(CellError::Value));
+                    }
+                    idx - 1
+                }
+                CellValue::Text(s) => {
+                    let field_upper = s.to_ascii_uppercase();
+                    match headers.iter().position(|h| {
+                        coerce_to_string(h).to_ascii_uppercase() == field_upper
+                    }) {
+                        Some(i) => i,
+                        None => return Ok(CellValue::Error(CellError::Value)),
+                    }
+                }
+                _ => return Ok(CellValue::Error(CellError::Value)),
+            };
+
+            // Build criteria matching: criteria row 0 = header names,
+            // criteria rows 1+ = values to match (OR across rows, AND within a row)
+            let matching_values =
+                database_matching_values(&database, field_col, &criteria, headers);
+
+            match name {
+                "DSUM" => {
+                    let sum: f64 = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .sum();
+                    Ok(CellValue::Number(sum))
+                }
+                "DAVERAGE" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Error(CellError::DivZero));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().sum::<f64>() / nums.len() as f64,
+                    ))
+                }
+                "DCOUNT" => {
+                    let count = matching_values
+                        .iter()
+                        .filter(|v| matches!(v, CellValue::Number(_)))
+                        .count();
+                    Ok(CellValue::Number(count as f64))
+                }
+                "DMAX" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Number(0.0));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                    ))
+                }
+                "DMIN" => {
+                    let nums: Vec<f64> = matching_values
+                        .iter()
+                        .filter_map(|v| try_as_number(v).ok())
+                        .collect();
+                    if nums.is_empty() {
+                        return Ok(CellValue::Number(0.0));
+                    }
+                    Ok(CellValue::Number(
+                        nums.iter().cloned().fold(f64::INFINITY, f64::min),
+                    ))
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        // TODO: XIRR(values, dates, [guess]) — IRR for irregular dates.
+        // Skipped due to complexity of date serial number handling.
+        // TODO: XNPV(rate, values, dates) — NPV for irregular dates.
+        // Skipped due to complexity of date serial number handling.
+
         // ===== FINANCIAL =====
         "PMT" => {
             // PMT(rate, nper, pv, [fv], [type])
@@ -2354,6 +2481,71 @@ fn require_min_args_mixed(
         }
     }
     Ok(result)
+}
+
+/// Extract values from a database column that match the given criteria.
+///
+/// The database is a 2D grid where row 0 is headers. The criteria is a 2D
+/// grid where row 0 has header names matching database columns, and rows 1+
+/// contain match values. Multiple criteria rows are OR'd; multiple criteria
+/// columns within a row are AND'd.
+fn database_matching_values(
+    database: &[Vec<CellValue>],
+    field_col: usize,
+    criteria: &[Vec<CellValue>],
+    headers: &[CellValue],
+) -> Vec<CellValue> {
+    if criteria.is_empty() || database.len() < 2 {
+        return Vec::new();
+    }
+
+    let criteria_headers = &criteria[0];
+
+    // Map criteria columns to database column indices
+    let mut criteria_col_mapping: Vec<Option<usize>> = Vec::new();
+    for ch in criteria_headers {
+        let ch_str = coerce_to_string(ch).to_ascii_uppercase();
+        let db_col = headers.iter().position(|h| {
+            coerce_to_string(h).to_ascii_uppercase() == ch_str
+        });
+        criteria_col_mapping.push(db_col);
+    }
+
+    let mut result = Vec::new();
+
+    // For each data row (skip header row 0)
+    for data_row in database.iter().skip(1) {
+        // Check criteria rows (OR logic across rows)
+        let mut matches_any_criteria_row = criteria.len() <= 1; // If no criteria data rows, nothing matches
+        for criteria_row in criteria.iter().skip(1) {
+            // AND logic within a single criteria row
+            let mut matches_all_in_row = true;
+            for (ci, crit_val) in criteria_row.iter().enumerate() {
+                // Skip empty criteria values
+                if matches!(crit_val, CellValue::Empty) {
+                    continue;
+                }
+                if let Some(Some(db_col)) = criteria_col_mapping.get(ci) {
+                    let db_val = data_row.get(*db_col).cloned().unwrap_or(CellValue::Empty);
+                    if !matches_criteria(&db_val, crit_val) {
+                        matches_all_in_row = false;
+                        break;
+                    }
+                }
+            }
+            if matches_all_in_row {
+                matches_any_criteria_row = true;
+                break;
+            }
+        }
+
+        if matches_any_criteria_row {
+            let val = data_row.get(field_col).cloned().unwrap_or(CellValue::Empty);
+            result.push(val);
+        }
+    }
+
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -3423,5 +3615,109 @@ mod tests {
         let eval_engine = SimpleEvaluator;
         let result = eval_engine.evaluate("FLATTEN(A1:B2)", &sheet).unwrap();
         assert_eq!(result, CellValue::Text("1,2,3,4".to_string()));
+    }
+
+    // === DATABASE FUNCTIONS ===
+
+    /// Helper to create a database sheet for testing database functions.
+    /// Layout:
+    ///   A1="Name",  B1="Dept",    C1="Salary"
+    ///   A2="Alice", B2="Eng",     C2=80000
+    ///   A3="Bob",   B3="Sales",   C3=60000
+    ///   A4="Carol", B4="Eng",     C4=90000
+    ///   A5="Dave",  B5="Sales",   C5=70000
+    ///
+    /// Criteria in E1:E2:
+    ///   E1="Dept", E2="Eng"
+    fn make_database_sheet() -> Sheet {
+        let mut sheet = Sheet::new("T");
+        // Headers
+        sheet.set_value(0, 0, CellValue::Text("Name".to_string()));
+        sheet.set_value(0, 1, CellValue::Text("Dept".to_string()));
+        sheet.set_value(0, 2, CellValue::Text("Salary".to_string()));
+        // Data rows
+        sheet.set_value(1, 0, CellValue::Text("Alice".to_string()));
+        sheet.set_value(1, 1, CellValue::Text("Eng".to_string()));
+        sheet.set_value(1, 2, CellValue::Number(80000.0));
+        sheet.set_value(2, 0, CellValue::Text("Bob".to_string()));
+        sheet.set_value(2, 1, CellValue::Text("Sales".to_string()));
+        sheet.set_value(2, 2, CellValue::Number(60000.0));
+        sheet.set_value(3, 0, CellValue::Text("Carol".to_string()));
+        sheet.set_value(3, 1, CellValue::Text("Eng".to_string()));
+        sheet.set_value(3, 2, CellValue::Number(90000.0));
+        sheet.set_value(4, 0, CellValue::Text("Dave".to_string()));
+        sheet.set_value(4, 1, CellValue::Text("Sales".to_string()));
+        sheet.set_value(4, 2, CellValue::Number(70000.0));
+        // Criteria: E1="Dept", E2="Eng"
+        sheet.set_value(0, 4, CellValue::Text("Dept".to_string()));
+        sheet.set_value(1, 4, CellValue::Text("Eng".to_string()));
+        sheet
+    }
+
+    #[test]
+    fn test_dsum() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DSUM(A1:C5, "Salary", E1:E2) should sum Salary where Dept="Eng"
+        // = 80000 + 90000 = 170000
+        let result = eval_engine
+            .evaluate(r#"DSUM(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(170000.0));
+    }
+
+    #[test]
+    fn test_daverage() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DAVERAGE(A1:C5, "Salary", E1:E2) = (80000+90000)/2 = 85000
+        let result = eval_engine
+            .evaluate(r#"DAVERAGE(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(85000.0));
+    }
+
+    #[test]
+    fn test_dcount() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DCOUNT(A1:C5, "Salary", E1:E2) = 2 (two Eng rows with numeric Salary)
+        let result = eval_engine
+            .evaluate(r#"DCOUNT(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(2.0));
+    }
+
+    #[test]
+    fn test_dmax() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DMAX(A1:C5, "Salary", E1:E2) = 90000
+        let result = eval_engine
+            .evaluate(r#"DMAX(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(90000.0));
+    }
+
+    #[test]
+    fn test_dmin() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DMIN(A1:C5, "Salary", E1:E2) = 80000
+        let result = eval_engine
+            .evaluate(r#"DMIN(A1:C5, "Salary", E1:E2)"#, &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(80000.0));
+    }
+
+    #[test]
+    fn test_dsum_with_field_index() {
+        let sheet = make_database_sheet();
+        let eval_engine = SimpleEvaluator;
+        // DSUM(A1:C5, 3, E1:E2) — field 3 = "Salary" column
+        let result = eval_engine
+            .evaluate("DSUM(A1:C5, 3, E1:E2)", &sheet)
+            .unwrap();
+        assert_eq!(result, CellValue::Number(170000.0));
     }
 }
