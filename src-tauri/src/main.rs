@@ -135,6 +135,11 @@ fn main() {
             commands::autosave::get_autosave_config,
             commands::autosave::set_autosave_config,
             commands::autosave::trigger_autosave,
+            // Cloud commands
+            commands::cloud::list_cloud_providers,
+            commands::cloud::list_cloud_files,
+            commands::cloud::open_cloud_file,
+            commands::cloud::save_to_cloud,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");
