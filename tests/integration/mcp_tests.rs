@@ -1803,3 +1803,187 @@ async fn test_cell_format_bg_color_clear() {
     );
 }
 
+// ── 23. Fill pattern core engine tests ───────────────────────────────────────
+// Regression: fill handle drag didn't fill because isFillDragging was cleared
+// before executeFill in the UI.  These tests verify the *core engine* pattern
+// detection and fill logic is correct independent of the UI, so that once the
+// UI bug is fixed the engine is provably sound.
+
+/// Detect a linear numeric pattern from A1:A3 (1, 2, 3) and verify
+/// fill_range extends it correctly to A4:A6 (4, 5, 6).
+#[test]
+fn test_autofill_linear_numeric_down() {
+    let mut sheet = Sheet::new("T");
+    sheet.set_value(0, 0, CellValue::Number(1.0));
+    sheet.set_value(1, 0, CellValue::Number(2.0));
+    sheet.set_value(2, 0, CellValue::Number(3.0));
+
+    let source = Range {
+        start: CellRef { row: 0, col: 0 },
+        end: CellRef { row: 2, col: 0 },
+    };
+    let target = Range {
+        start: CellRef { row: 3, col: 0 },
+        end: CellRef { row: 5, col: 0 },
+    };
+
+    // Verify pattern detection first.
+    let source_vals: Vec<CellValue> = (0..=2)
+        .map(|r| {
+            sheet
+                .get_cell(r, 0)
+                .map(|c| c.value.clone())
+                .unwrap_or(CellValue::Empty)
+        })
+        .collect();
+    let pattern = detect_pattern(&source_vals).expect("must detect a pattern");
+    assert_eq!(
+        pattern,
+        FillPattern::LinearNumber(1.0, 1.0),
+        "1,2,3 must detect as LinearNumber(1.0, 1.0)"
+    );
+
+    // Now fill and verify.
+    fill_range(&mut sheet, &source, &target, FillDirection::Down);
+
+    assert_eq!(
+        sheet.get_cell(3, 0).unwrap().value,
+        CellValue::Number(4.0),
+        "A4 must be 4"
+    );
+    assert_eq!(
+        sheet.get_cell(4, 0).unwrap().value,
+        CellValue::Number(5.0),
+        "A5 must be 5"
+    );
+    assert_eq!(
+        sheet.get_cell(5, 0).unwrap().value,
+        CellValue::Number(6.0),
+        "A6 must be 6"
+    );
+}
+
+/// Detect and fill a text-with-number sequence (Q1, Q2, Q3 → Q4, Q5).
+#[test]
+fn test_autofill_text_with_number_series() {
+    let mut sheet = Sheet::new("T");
+    sheet.set_value(0, 0, CellValue::Text("Q1".into()));
+    sheet.set_value(1, 0, CellValue::Text("Q2".into()));
+    sheet.set_value(2, 0, CellValue::Text("Q3".into()));
+
+    let source_vals: Vec<CellValue> = (0..=2)
+        .map(|r| {
+            sheet
+                .get_cell(r, 0)
+                .map(|c| c.value.clone())
+                .unwrap_or(CellValue::Empty)
+        })
+        .collect();
+    let pattern = detect_pattern(&source_vals).unwrap();
+    assert_eq!(
+        pattern,
+        FillPattern::TextWithNumber("Q".into(), 1, 1),
+        "Q1,Q2,Q3 must detect as TextWithNumber"
+    );
+
+    let source = Range {
+        start: CellRef { row: 0, col: 0 },
+        end: CellRef { row: 2, col: 0 },
+    };
+    let target = Range {
+        start: CellRef { row: 3, col: 0 },
+        end: CellRef { row: 4, col: 0 },
+    };
+    fill_range(&mut sheet, &source, &target, FillDirection::Down);
+
+    assert_eq!(
+        sheet.get_cell(3, 0).unwrap().value,
+        CellValue::Text("Q4".into())
+    );
+    assert_eq!(
+        sheet.get_cell(4, 0).unwrap().value,
+        CellValue::Text("Q5".into())
+    );
+}
+
+/// A single constant value fills the target with the same value (no
+/// numeric progression, no crash on single-element input).
+#[test]
+fn test_autofill_single_value_constant_fill() {
+    let mut sheet = Sheet::new("T");
+    sheet.set_value(0, 0, CellValue::Number(42.0));
+
+    let source_vals = vec![CellValue::Number(42.0)];
+    let pattern = detect_pattern(&source_vals).unwrap();
+    assert_eq!(
+        pattern,
+        FillPattern::Constant(CellValue::Number(42.0)),
+        "single value must be a Constant pattern"
+    );
+
+    let source = Range {
+        start: CellRef { row: 0, col: 0 },
+        end: CellRef { row: 0, col: 0 },
+    };
+    let target = Range {
+        start: CellRef { row: 1, col: 0 },
+        end: CellRef { row: 4, col: 0 },
+    };
+    fill_range(&mut sheet, &source, &target, FillDirection::Down);
+
+    for r in 1..=4 {
+        assert_eq!(
+            sheet.get_cell(r, 0).unwrap().value,
+            CellValue::Number(42.0),
+            "row {} must be 42 after constant fill",
+            r
+        );
+    }
+}
+
+/// Repeating text cycle: A, B, C → A, B, C, A, B (wraps at period length).
+#[test]
+fn test_autofill_repeating_cycle() {
+    let mut sheet = Sheet::new("T");
+    sheet.set_value(0, 0, CellValue::Text("A".into()));
+    sheet.set_value(1, 0, CellValue::Text("B".into()));
+    sheet.set_value(2, 0, CellValue::Text("C".into()));
+
+    let source_vals: Vec<CellValue> = (0..=2)
+        .map(|r| {
+            sheet
+                .get_cell(r, 0)
+                .map(|c| c.value.clone())
+                .unwrap_or(CellValue::Empty)
+        })
+        .collect();
+    let pattern = detect_pattern(&source_vals).unwrap();
+    // A, B, C have no common numeric stem, so it's Repeating.
+    assert!(
+        matches!(pattern, FillPattern::Repeating(_)),
+        "A,B,C must be detected as Repeating"
+    );
+
+    let source = Range {
+        start: CellRef { row: 0, col: 0 },
+        end: CellRef { row: 2, col: 0 },
+    };
+    let target = Range {
+        start: CellRef { row: 3, col: 0 },
+        end: CellRef { row: 7, col: 0 },
+    };
+    fill_range(&mut sheet, &source, &target, FillDirection::Down);
+
+    // Positions 3..7 (0-indexed) → cycle indices 0..4
+    let expected = ["A", "B", "C", "A", "B"];
+    for (i, exp) in expected.iter().enumerate() {
+        assert_eq!(
+            sheet.get_cell(3 + i as u32, 0).unwrap().value,
+            CellValue::Text((*exp).into()),
+            "row {} should be {}",
+            3 + i,
+            exp
+        );
+    }
+}
+
