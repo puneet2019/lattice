@@ -3,17 +3,28 @@ import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
 import { getCell, getRange, setCell, undo, redo } from '../../bridge/tauri';
+import {
+  DEFAULT_COL_WIDTH,
+  DEFAULT_ROW_HEIGHT,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  HEADER_HEIGHT,
+  ROW_NUMBER_WIDTH,
+  TOTAL_COLS,
+  TOTAL_ROWS,
+} from './constants';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_COL_WIDTH = 80;
-export const ROW_HEIGHT = 21;
-export const HEADER_HEIGHT = 24;
-export const ROW_NUMBER_WIDTH = 50;
-export const TOTAL_COLS = 702; // A..ZZ
-export const TOTAL_ROWS = 10_000;
+// Re-export constants for backward compatibility.
+export {
+  DEFAULT_COL_WIDTH,
+  DEFAULT_ROW_HEIGHT,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  HEADER_HEIGHT,
+  ROW_NUMBER_WIDTH,
+  TOTAL_COLS,
+  TOTAL_ROWS,
+} from './constants';
 
 // Colors — kept in sync with grid.css CSS variables (light mode defaults).
 const COLORS = {
@@ -24,6 +35,7 @@ const COLORS = {
   selectionBg: 'rgba(26, 115, 232, 0.08)',
   cornerBg: '#f8f9fa',
   cellText: '#202124',
+  freezeBorder: '#9e9e9e',
 };
 
 // ---------------------------------------------------------------------------
@@ -34,6 +46,10 @@ export interface VirtualGridProps {
   activeSheet: string;
   /** Increment to trigger a data refresh (e.g. after formula bar commit). */
   refreshTrigger?: number;
+  /** Number of rows to freeze at the top (0 = none). */
+  frozenRows?: number;
+  /** Number of columns to freeze at the left (0 = none). */
+  frozenCols?: number;
   onSelectionChange: (row: number, col: number) => void;
   onContentChange: (content: string) => void;
   onCellCommit: (row: number, col: number, value: string) => void;
@@ -72,36 +88,107 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [editValue, setEditValue] = createSignal('');
   let editorRef: HTMLInputElement | undefined;
 
+  // Custom column widths / row heights (col/row index -> px).
+  // Columns/rows not in the map use the default sizes.
+  const colWidths = new Map<number, number>();
+  const rowHeights = new Map<number, number>();
+
+  // -----------------------------------------------------------------------
+  // Variable-width/height helpers
+  // -----------------------------------------------------------------------
+
+  /** Return the width of a specific column. */
+  function getColWidth(col: number): number {
+    return colWidths.get(col) ?? DEFAULT_COL_WIDTH;
+  }
+
+  /** Return the height of a specific row. */
+  function getRowHeight(row: number): number {
+    return rowHeights.get(row) ?? DEFAULT_ROW_HEIGHT;
+  }
+
+  /** Return the x-offset (in content coordinates) of the left edge of `col`. */
+  function getColX(col: number): number {
+    // For efficiency, sum only the columns that have custom widths up to `col`.
+    // All others use the default width.
+    let x = col * DEFAULT_COL_WIDTH;
+    colWidths.forEach((w, c) => {
+      if (c < col) {
+        x += w - DEFAULT_COL_WIDTH;
+      }
+    });
+    return x;
+  }
+
+  /** Return the y-offset (in content coordinates) of the top edge of `row`. */
+  function getRowY(row: number): number {
+    let y = row * DEFAULT_ROW_HEIGHT;
+    rowHeights.forEach((h, r) => {
+      if (r < row) {
+        y += h - DEFAULT_ROW_HEIGHT;
+      }
+    });
+    return y;
+  }
+
   // -----------------------------------------------------------------------
   // Viewport helpers
   // -----------------------------------------------------------------------
 
-  const totalContentWidth = () => ROW_NUMBER_WIDTH + TOTAL_COLS * DEFAULT_COL_WIDTH;
-  const totalContentHeight = () => HEADER_HEIGHT + TOTAL_ROWS * ROW_HEIGHT;
+  const totalContentWidth = () => ROW_NUMBER_WIDTH + getColX(TOTAL_COLS);
+  const totalContentHeight = () => HEADER_HEIGHT + getRowY(TOTAL_ROWS);
 
   // Buffer: render extra rows/cols beyond viewport for smooth scrolling.
   const BUFFER_COLS = 4;
   const BUFFER_ROWS = 8;
 
+  /** Find the first visible column by binary-searching getColX. */
   const firstVisibleCol = () => {
-    const col = Math.floor(scrollX() / DEFAULT_COL_WIDTH);
+    const sx = scrollX();
+    // Quick estimate with default widths, then adjust
+    let col = Math.floor(sx / DEFAULT_COL_WIDTH);
+    // Adjust if custom widths shift things
+    while (col > 0 && getColX(col) > sx) col--;
+    while (col < TOTAL_COLS - 1 && getColX(col + 1) <= sx) col++;
     return Math.max(0, col - BUFFER_COLS);
   };
+
+  /** Find the first visible row by scanning getRowY. */
   const firstVisibleRow = () => {
-    const row = Math.floor(scrollY() / ROW_HEIGHT);
+    const sy = scrollY();
+    let row = Math.floor(sy / DEFAULT_ROW_HEIGHT);
+    while (row > 0 && getRowY(row) > sy) row--;
+    while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= sy) row++;
     return Math.max(0, row - BUFFER_ROWS);
   };
 
   const visibleColCount = () => {
-    const viewportCols = Math.ceil((canvasWidth() - ROW_NUMBER_WIDTH) / DEFAULT_COL_WIDTH);
-    const total = viewportCols + BUFFER_COLS * 2;
-    return Math.min(total, TOTAL_COLS - firstVisibleCol());
+    const sx = scrollX();
+    const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
+    const start = firstVisibleCol();
+    let count = 0;
+    let x = getColX(start) - sx;
+    while (start + count < TOTAL_COLS && x < viewW + sx) {
+      x += getColWidth(start + count);
+      count++;
+      // Include buffer beyond viewport
+      if (x >= viewW && count > BUFFER_COLS * 2) break;
+    }
+    return Math.min(count + BUFFER_COLS, TOTAL_COLS - start);
   };
 
   const visibleRowCount = () => {
-    const viewportRows = Math.ceil((canvasHeight() - HEADER_HEIGHT) / ROW_HEIGHT);
-    const total = viewportRows + BUFFER_ROWS * 2;
-    return Math.min(total, TOTAL_ROWS - firstVisibleRow());
+    const sy = scrollY();
+    const viewH = canvasHeight() - HEADER_HEIGHT;
+    const start = firstVisibleRow();
+    let count = 0;
+    let y = getRowY(start) - sy;
+    while (start + count < TOTAL_ROWS && y < viewH + sy) {
+      y += getRowHeight(start + count);
+      count++;
+      if (y >= viewH && count > BUFFER_ROWS * 2) break;
+    }
+    return Math.min(count + BUFFER_ROWS, TOTAL_ROWS - start);
   };
 
   // -----------------------------------------------------------------------
@@ -245,14 +332,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   /** Calculate editor position in CSS pixels relative to the container. */
   function editorStyle() {
-    const x = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - scrollX();
-    const y = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - scrollY();
+    const col = selectedCol();
+    const row = selectedRow();
+    const fc = props.frozenCols ?? 0;
+    const fr = props.frozenRows ?? 0;
+    const sx = col < fc ? 0 : scrollX();
+    const sy = row < fr ? 0 : scrollY();
+    const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+    const y = HEADER_HEIGHT + getRowY(row) - sy;
     return {
       position: 'absolute' as const,
       left: `${x}px`,
       top: `${y}px`,
-      width: `${DEFAULT_COL_WIDTH}px`,
-      height: `${ROW_HEIGHT}px`,
+      width: `${getColWidth(col)}px`,
+      height: `${getRowHeight(row)}px`,
       'z-index': '10',
     };
   }
@@ -260,6 +353,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
   // Drawing
   // -----------------------------------------------------------------------
+
+  /** Width of the frozen columns region in pixels. */
+  function frozenColsPx(): number {
+    const fc = props.frozenCols ?? 0;
+    if (fc <= 0) return 0;
+    return getColX(fc);
+  }
+
+  /** Height of the frozen rows region in pixels. */
+  function frozenRowsPx(): number {
+    const fr = props.frozenRows ?? 0;
+    if (fr <= 0) return 0;
+    return getRowY(fr);
+  }
 
   function draw() {
     const canvas = canvasRef;
@@ -278,17 +385,121 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     const sx = scrollX();
     const sy = scrollY();
-    const startCol = firstVisibleCol();
-    const startRow = firstVisibleRow();
-    const colCount = visibleColCount();
-    const rowCount = visibleRowCount();
+    const fc = props.frozenCols ?? 0;
+    const fr = props.frozenRows ?? 0;
+    const fpx = frozenColsPx();
+    const fpy = frozenRowsPx();
 
-    drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
-    drawSelection(ctx, sx, sy);
-    drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
-    drawColumnHeaders(ctx, sx, startCol, colCount, w);
-    drawRowNumbers(ctx, sy, startRow, rowCount, h);
-    drawCorner(ctx);
+    if (fc <= 0 && fr <= 0) {
+      // No freeze panes: simple single-pass render.
+      const startCol = firstVisibleCol();
+      const startRow = firstVisibleRow();
+      const colCount = visibleColCount();
+      const rowCount = visibleRowCount();
+
+      drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
+      drawSelection(ctx, sx, sy);
+      drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
+      drawColumnHeaders(ctx, sx, startCol, colCount, w);
+      drawRowNumbers(ctx, sy, startRow, rowCount, h);
+      drawCorner(ctx);
+    } else {
+      // Freeze panes: render 4 quadrants with clipping.
+      const startCol = firstVisibleCol();
+      const startRow = firstVisibleRow();
+      const colCount = visibleColCount();
+      const rowCount = visibleRowCount();
+
+      // Q4: Bottom-right (scrollable rows + scrollable cols) — main area
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT + fpy, w - ROW_NUMBER_WIDTH - fpx, h - HEADER_HEIGHT - fpy);
+      ctx.clip();
+      drawGridLines(ctx, sx, sy, startCol, startRow, colCount, rowCount, w, h);
+      drawSelection(ctx, sx, sy);
+      drawCellData(ctx, sx, sy, startCol, startRow, colCount, rowCount);
+      ctx.restore();
+
+      // Q2: Top-right (frozen rows, scrollable cols) — scrolls horizontally
+      if (fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT, w - ROW_NUMBER_WIDTH - fpx, fpy);
+        ctx.clip();
+        drawGridLines(ctx, sx, 0, startCol, 0, colCount, fr, w, HEADER_HEIGHT + fpy);
+        drawSelection(ctx, sx, 0);
+        drawCellData(ctx, sx, 0, startCol, 0, colCount, fr);
+        ctx.restore();
+      }
+
+      // Q3: Bottom-left (scrollable rows, frozen cols) — scrolls vertically
+      if (fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, HEADER_HEIGHT + fpy, fpx, h - HEADER_HEIGHT - fpy);
+        ctx.clip();
+        drawGridLines(ctx, 0, sy, 0, startRow, fc, rowCount, ROW_NUMBER_WIDTH + fpx, h);
+        drawSelection(ctx, 0, sy);
+        drawCellData(ctx, 0, sy, 0, startRow, fc, rowCount);
+        ctx.restore();
+      }
+
+      // Q1: Top-left (frozen rows + frozen cols) — always visible
+      if (fc > 0 && fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, HEADER_HEIGHT, fpx, fpy);
+        ctx.clip();
+        drawGridLines(ctx, 0, 0, 0, 0, fc, fr, ROW_NUMBER_WIDTH + fpx, HEADER_HEIGHT + fpy);
+        drawSelection(ctx, 0, 0);
+        drawCellData(ctx, 0, 0, 0, 0, fc, fr);
+        ctx.restore();
+      }
+
+      // Headers (drawn on top of quadrants)
+      drawColumnHeaders(ctx, sx, startCol, colCount, w);
+      // Frozen column headers (no scroll)
+      if (fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ROW_NUMBER_WIDTH, 0, fpx, HEADER_HEIGHT);
+        ctx.clip();
+        drawColumnHeaders(ctx, 0, 0, fc, ROW_NUMBER_WIDTH + fpx);
+        ctx.restore();
+      }
+
+      drawRowNumbers(ctx, sy, startRow, rowCount, h);
+      // Frozen row numbers (no scroll)
+      if (fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, HEADER_HEIGHT, ROW_NUMBER_WIDTH, fpy);
+        ctx.clip();
+        drawRowNumbers(ctx, 0, 0, fr, HEADER_HEIGHT + fpy);
+        ctx.restore();
+      }
+
+      drawCorner(ctx);
+
+      // Draw freeze border lines.
+      ctx.strokeStyle = COLORS.freezeBorder;
+      ctx.lineWidth = 2;
+      if (fc > 0) {
+        const fx = ROW_NUMBER_WIDTH + fpx;
+        ctx.beginPath();
+        ctx.moveTo(fx, 0);
+        ctx.lineTo(fx, h);
+        ctx.stroke();
+      }
+      if (fr > 0) {
+        const fy = HEADER_HEIGHT + fpy;
+        ctx.beginPath();
+        ctx.moveTo(0, fy);
+        ctx.lineTo(w, fy);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -329,20 +540,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Draw range fill if multi-cell selection
     if (range.minRow !== range.maxRow || range.minCol !== range.maxCol) {
-      const rx = ROW_NUMBER_WIDTH + range.minCol * DEFAULT_COL_WIDTH - sx;
-      const ry = HEADER_HEIGHT + range.minRow * ROW_HEIGHT - sy;
-      const rw = (range.maxCol - range.minCol + 1) * DEFAULT_COL_WIDTH;
-      const rh = (range.maxRow - range.minRow + 1) * ROW_HEIGHT;
+      const rx = ROW_NUMBER_WIDTH + getColX(range.minCol) - sx;
+      const ry = HEADER_HEIGHT + getRowY(range.minRow) - sy;
+      const rw = getColX(range.maxCol + 1) - getColX(range.minCol);
+      const rh = getRowY(range.maxRow + 1) - getRowY(range.minRow);
       ctx.fillStyle = COLORS.selectionBg;
       ctx.fillRect(rx, ry, rw, rh);
     }
 
     // Draw active cell border (2px blue)
-    const cx = ROW_NUMBER_WIDTH + selectedCol() * DEFAULT_COL_WIDTH - sx;
-    const cy = HEADER_HEIGHT + selectedRow() * ROW_HEIGHT - sy;
+    const cx = ROW_NUMBER_WIDTH + getColX(selectedCol()) - sx;
+    const cy = HEADER_HEIGHT + getRowY(selectedRow()) - sy;
     ctx.strokeStyle = COLORS.selectionBorder;
     ctx.lineWidth = 2;
-    ctx.strokeRect(cx, cy, DEFAULT_COL_WIDTH, ROW_HEIGHT);
+    ctx.strokeRect(cx, cy, getColWidth(selectedCol()), getRowHeight(selectedRow()));
     ctx.lineWidth = 1;
   }
 
@@ -360,13 +571,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
+      const rh = getRowHeight(row);
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
         const cell = cellCache.get(`${row}:${col}`);
         if (!cell || !cell.value) continue;
 
-        const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
+        const cw = getColWidth(col);
+        const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
         // Determine font style
         const fontWeight = cell.bold ? 'bold' : 'normal';
@@ -378,10 +591,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
         if (isNumber) {
           ctx.textAlign = 'right';
-          ctx.fillText(cell.value, x + DEFAULT_COL_WIDTH - PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+          ctx.fillText(cell.value, x + cw - PADDING, y + rh / 2, cw - PADDING * 2);
         } else {
           ctx.textAlign = 'left';
-          ctx.fillText(cell.value, x + PADDING, y + ROW_HEIGHT / 2, DEFAULT_COL_WIDTH - PADDING * 2);
+          ctx.fillText(cell.value, x + PADDING, y + rh / 2, cw - PADDING * 2);
         }
       }
     }
@@ -401,9 +614,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.strokeStyle = COLORS.gridBorder;
     ctx.lineWidth = 1;
 
+    // Vertical grid lines (column borders)
     for (let c = 0; c <= colCount; c++) {
       const col = startCol + c;
-      const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
+      const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
       if (x < ROW_NUMBER_WIDTH || x > w) continue;
       ctx.beginPath();
       ctx.moveTo(Math.round(x) + 0.5, HEADER_HEIGHT);
@@ -411,9 +625,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.stroke();
     }
 
+    // Horizontal grid lines (row borders)
     for (let r = 0; r <= rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
       if (y < HEADER_HEIGHT || y > h) continue;
       ctx.beginPath();
       ctx.moveTo(ROW_NUMBER_WIDTH, Math.round(y) + 0.5);
@@ -444,8 +659,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let c = 0; c < colCount; c++) {
       const col = startCol + c;
-      const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH - sx;
-      const cellRight = x + DEFAULT_COL_WIDTH;
+      const cw = getColWidth(col);
+      const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+      const cellRight = x + cw;
       if (cellRight < ROW_NUMBER_WIDTH || x > w) continue;
 
       ctx.strokeStyle = COLORS.gridBorder;
@@ -457,12 +673,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Highlight selected column header
       if (isColInSelection(col)) {
         ctx.fillStyle = COLORS.selectionBg;
-        ctx.fillRect(x, 0, DEFAULT_COL_WIDTH, HEADER_HEIGHT);
+        ctx.fillRect(x, 0, cw, HEADER_HEIGHT);
         ctx.fillStyle = COLORS.selectionBorder;
       } else {
         ctx.fillStyle = COLORS.headerText;
       }
-      ctx.fillText(col_to_letter(col), x + DEFAULT_COL_WIDTH / 2, HEADER_HEIGHT / 2);
+      ctx.fillText(col_to_letter(col), x + cw / 2, HEADER_HEIGHT / 2);
     }
   }
 
@@ -488,8 +704,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
-      const y = HEADER_HEIGHT + row * ROW_HEIGHT - sy;
-      const cellBottom = y + ROW_HEIGHT;
+      const rh = getRowHeight(row);
+      const y = HEADER_HEIGHT + getRowY(row) - sy;
+      const cellBottom = y + rh;
       if (cellBottom < HEADER_HEIGHT || y > h) continue;
 
       ctx.strokeStyle = COLORS.gridBorder;
@@ -501,12 +718,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Highlight selected row number
       if (isRowInSelection(row)) {
         ctx.fillStyle = COLORS.selectionBg;
-        ctx.fillRect(0, y, ROW_NUMBER_WIDTH, ROW_HEIGHT);
+        ctx.fillRect(0, y, ROW_NUMBER_WIDTH, rh);
         ctx.fillStyle = COLORS.selectionBorder;
       } else {
         ctx.fillStyle = COLORS.headerText;
       }
-      ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + ROW_HEIGHT / 2);
+      ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + rh / 2);
     }
   }
 
@@ -518,8 +735,205 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   }
 
   // -----------------------------------------------------------------------
+  // Resize state
+  // -----------------------------------------------------------------------
+
+  // Pixel tolerance for detecting header border hover.
+  const RESIZE_HANDLE_PX = 5;
+
+  // Active resize drag state (null when not resizing).
+  let resizeDrag: {
+    kind: 'col' | 'row';
+    index: number;
+    startMouse: number; // clientX for col, clientY for row
+    startSize: number;  // original width/height
+  } | null = null;
+
+  // Double-click tracking for auto-fit.
+  let lastResizeBorderClickTime = 0;
+  let lastResizeBorderCol = -1;
+  let lastResizeBorderRow = -1;
+
+  /**
+   * Check if the mouse is over a column header border (right edge).
+   * Returns the column index whose right edge is near the mouse, or -1.
+   */
+  /** Get the effective scroll-X for a given screen local-X, accounting for freeze. */
+  function effectiveScrollX(localX: number): number {
+    const fc = props.frozenCols ?? 0;
+    if (fc > 0 && localX < ROW_NUMBER_WIDTH + frozenColsPx()) return 0;
+    return scrollX();
+  }
+
+  /** Get the effective scroll-Y for a given screen local-Y, accounting for freeze. */
+  function effectiveScrollY(localY: number): number {
+    const fr = props.frozenRows ?? 0;
+    if (fr > 0 && localY < HEADER_HEIGHT + frozenRowsPx()) return 0;
+    return scrollY();
+  }
+
+  function hitColHeaderBorder(localX: number, localY: number): number {
+    if (localY >= HEADER_HEIGHT || localY < 0) return -1;
+    if (localX < ROW_NUMBER_WIDTH) return -1;
+    const effSx = effectiveScrollX(localX);
+    const contentX = localX - ROW_NUMBER_WIDTH + effSx;
+    // Check nearby columns
+    const approxCol = Math.floor(contentX / DEFAULT_COL_WIDTH);
+    const start = Math.max(0, approxCol - 2);
+    const end = Math.min(TOTAL_COLS, approxCol + 3);
+    for (let c = start; c < end; c++) {
+      const rightEdge = getColX(c + 1);
+      const screenRight = ROW_NUMBER_WIDTH + rightEdge - effSx;
+      if (Math.abs(localX - screenRight) <= RESIZE_HANDLE_PX) {
+        return c;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Check if the mouse is over a row header border (bottom edge).
+   * Returns the row index whose bottom edge is near the mouse, or -1.
+   */
+  function hitRowHeaderBorder(localX: number, localY: number): number {
+    if (localX >= ROW_NUMBER_WIDTH || localX < 0) return -1;
+    if (localY < HEADER_HEIGHT) return -1;
+    const effSy = effectiveScrollY(localY);
+    const contentY = localY - HEADER_HEIGHT + effSy;
+    const approxRow = Math.floor(contentY / DEFAULT_ROW_HEIGHT);
+    const start = Math.max(0, approxRow - 2);
+    const end = Math.min(TOTAL_ROWS, approxRow + 3);
+    for (let r = start; r < end; r++) {
+      const bottomEdge = getRowY(r + 1);
+      const screenBottom = HEADER_HEIGHT + bottomEdge - effSy;
+      if (Math.abs(localY - screenBottom) <= RESIZE_HANDLE_PX) {
+        return r;
+      }
+    }
+    return -1;
+  }
+
+  /** Auto-fit a column width based on measuring visible cell text widths. */
+  function autoFitColumn(col: number) {
+    const canvas = canvasRef;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const PADDING = 4;
+    let maxW = MIN_COL_WIDTH;
+
+    // Measure header text
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+    const headerW = ctx.measureText(col_to_letter(col)).width + PADDING * 2;
+    maxW = Math.max(maxW, headerW);
+
+    // Measure visible cell text
+    const startRow = firstVisibleRow();
+    const rowCount = visibleRowCount();
+    for (let r = 0; r < rowCount; r++) {
+      const row = startRow + r;
+      const cell = cellCache.get(`${row}:${col}`);
+      if (!cell || !cell.value) continue;
+      const fontWeight = cell.bold ? 'bold' : 'normal';
+      const fontStyle = cell.italic ? 'italic' : 'normal';
+      ctx.font = `${fontStyle} ${fontWeight} 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif`;
+      const tw = ctx.measureText(cell.value).width + PADDING * 2 + 4;
+      maxW = Math.max(maxW, tw);
+    }
+
+    maxW = Math.ceil(maxW);
+    if (maxW === DEFAULT_COL_WIDTH) {
+      colWidths.delete(col);
+    } else {
+      colWidths.set(col, maxW);
+    }
+    draw();
+  }
+
+  /** Auto-fit a row height based on the default (reset to default). */
+  function autoFitRow(row: number) {
+    rowHeights.delete(row);
+    draw();
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    if (!containerRef) return;
+    const rect = containerRef.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    // If actively resizing, update size.
+    if (resizeDrag) {
+      if (resizeDrag.kind === 'col') {
+        const delta = e.clientX - resizeDrag.startMouse;
+        const newW = Math.max(MIN_COL_WIDTH, resizeDrag.startSize + delta);
+        colWidths.set(resizeDrag.index, newW);
+      } else {
+        const delta = e.clientY - resizeDrag.startMouse;
+        const newH = Math.max(MIN_ROW_HEIGHT, resizeDrag.startSize + delta);
+        rowHeights.set(resizeDrag.index, newH);
+      }
+      scheduleDraw();
+      return;
+    }
+
+    // Update cursor based on hover position.
+    if (hitColHeaderBorder(localX, localY) >= 0) {
+      containerRef.style.cursor = 'col-resize';
+    } else if (hitRowHeaderBorder(localX, localY) >= 0) {
+      containerRef.style.cursor = 'row-resize';
+    } else {
+      containerRef.style.cursor = '';
+    }
+  }
+
+  function handleResizeMouseUp() {
+    if (!resizeDrag) return;
+    // If the width/height matches the default, remove the override.
+    if (resizeDrag.kind === 'col') {
+      const w = colWidths.get(resizeDrag.index);
+      if (w !== undefined && w === DEFAULT_COL_WIDTH) {
+        colWidths.delete(resizeDrag.index);
+      }
+    } else {
+      const h = rowHeights.get(resizeDrag.index);
+      if (h !== undefined && h === DEFAULT_ROW_HEIGHT) {
+        rowHeights.delete(resizeDrag.index);
+      }
+    }
+    resizeDrag = null;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleResizeMouseUp);
+    if (containerRef) {
+      containerRef.style.cursor = '';
+    }
+    draw();
+  }
+
+  // -----------------------------------------------------------------------
   // Hit testing & event handlers
   // -----------------------------------------------------------------------
+
+  /** Find which column a content-x coordinate falls in. */
+  function colAtX(contentX: number): number {
+    // Quick estimate, then adjust
+    let col = Math.floor(contentX / DEFAULT_COL_WIDTH);
+    col = Math.max(0, Math.min(col, TOTAL_COLS - 1));
+    // Adjust forward/backward
+    while (col > 0 && getColX(col) > contentX) col--;
+    while (col < TOTAL_COLS - 1 && getColX(col + 1) <= contentX) col++;
+    return col;
+  }
+
+  /** Find which row a content-y coordinate falls in. */
+  function rowAtY(contentY: number): number {
+    let row = Math.floor(contentY / DEFAULT_ROW_HEIGHT);
+    row = Math.max(0, Math.min(row, TOTAL_ROWS - 1));
+    while (row > 0 && getRowY(row) > contentY) row--;
+    while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= contentY) row++;
+    return row;
+  }
 
   function hitTest(
     clientX: number,
@@ -530,8 +944,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     if (x < ROW_NUMBER_WIDTH || y < HEADER_HEIGHT) return null;
-    const col = Math.floor((x - ROW_NUMBER_WIDTH + scrollX()) / DEFAULT_COL_WIDTH);
-    const row = Math.floor((y - HEADER_HEIGHT + scrollY()) / ROW_HEIGHT);
+    const contentX = x - ROW_NUMBER_WIDTH + effectiveScrollX(x);
+    const contentY = y - HEADER_HEIGHT + effectiveScrollY(y);
+    const col = colAtX(contentX);
+    const row = rowAtY(contentY);
     if (col < 0 || col >= TOTAL_COLS || row < 0 || row >= TOTAL_ROWS) return null;
     return { row, col };
   }
@@ -542,6 +958,71 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function handleMouseDown(e: MouseEvent) {
     if (editing()) return; // let the editor handle clicks
+    if (!containerRef) return;
+
+    const rect = containerRef.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    // Check for column header border resize drag.
+    const resizeCol = hitColHeaderBorder(localX, localY);
+    if (resizeCol >= 0) {
+      const now = Date.now();
+      if (
+        now - lastResizeBorderClickTime < 400 &&
+        resizeCol === lastResizeBorderCol
+      ) {
+        // Double-click: auto-fit column width.
+        autoFitColumn(resizeCol);
+        lastResizeBorderClickTime = 0;
+        lastResizeBorderCol = -1;
+        return;
+      }
+      lastResizeBorderClickTime = now;
+      lastResizeBorderCol = resizeCol;
+
+      resizeDrag = {
+        kind: 'col',
+        index: resizeCol,
+        startMouse: e.clientX,
+        startSize: getColWidth(resizeCol),
+      };
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleResizeMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // Check for row header border resize drag.
+    const resizeRow = hitRowHeaderBorder(localX, localY);
+    if (resizeRow >= 0) {
+      const now = Date.now();
+      if (
+        now - lastResizeBorderClickTime < 400 &&
+        resizeRow === lastResizeBorderRow
+      ) {
+        // Double-click: auto-fit row height.
+        autoFitRow(resizeRow);
+        lastResizeBorderClickTime = 0;
+        lastResizeBorderRow = -1;
+        return;
+      }
+      lastResizeBorderClickTime = now;
+      lastResizeBorderRow = resizeRow;
+
+      resizeDrag = {
+        kind: 'row',
+        index: resizeRow,
+        startMouse: e.clientY,
+        startSize: getRowHeight(resizeRow),
+      };
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleResizeMouseUp);
+      e.preventDefault();
+      return;
+    }
+
+    // Normal cell click handling.
     const hit = hitTest(e.clientX, e.clientY);
     if (!hit) return;
 
@@ -580,16 +1061,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
     const viewH = canvasHeight() - HEADER_HEIGHT;
 
-    const cellLeft = col * DEFAULT_COL_WIDTH;
-    const cellRight = cellLeft + DEFAULT_COL_WIDTH;
+    const cellLeft = getColX(col);
+    const cellRight = cellLeft + getColWidth(col);
     if (cellLeft < sx) {
       setScrollX(cellLeft);
     } else if (cellRight > sx + viewW) {
       setScrollX(cellRight - viewW);
     }
 
-    const cellTop = row * ROW_HEIGHT;
-    const cellBottom = cellTop + ROW_HEIGHT;
+    const cellTop = getRowY(row);
+    const cellBottom = cellTop + getRowHeight(row);
     if (cellTop < sy) {
       setScrollY(cellTop);
     } else if (cellBottom > sy + viewH) {
@@ -907,6 +1388,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       class="virtual-grid-container"
       tabIndex={0}
       onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
       onKeyDown={handleKeyDown}
       onWheel={handleWheel}
       style={{ outline: 'none' }}
