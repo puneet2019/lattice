@@ -2,6 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData } from '../../bridge/tauri';
+import type { PasteMode } from '../PasteSpecialDialog';
 import { getCell, getRange, setCell, undo, redo, formatCells } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import {
@@ -114,6 +115,13 @@ export interface VirtualGridProps {
   onZoomReset?: () => void;
   /** Called when the user triggers Cmd+Shift+P to open the paste special dialog. */
   onPasteSpecialOpen?: () => void;
+  /**
+   * When set to a non-null PasteMode, VirtualGrid executes the corresponding
+   * paste operation and then calls onPasteSpecialDone to reset.
+   */
+  pasteSpecialMode?: PasteMode | null;
+  /** Called after a paste special operation completes so App can reset the signal. */
+  onPasteSpecialDone?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -2239,6 +2247,33 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
+  });
+
+  // Execute paste special when mode is set from the dialog
+  createEffect(() => {
+    const mode = props.pasteSpecialMode;
+    if (!mode) return;
+    const run = async () => {
+      switch (mode) {
+        case 'All':
+          await handlePaste();
+          break;
+        case 'ValuesOnly':
+          await handlePasteValuesOnly();
+          break;
+        case 'FormulasOnly':
+          await handlePasteFormulasOnly();
+          break;
+        case 'FormattingOnly':
+          await handlePasteFormattingOnly();
+          break;
+        case 'Transposed':
+          await handlePasteTransposed();
+          break;
+      }
+      props.onPasteSpecialDone?.();
+    };
+    void run();
   });
 
   return (

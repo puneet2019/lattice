@@ -11,6 +11,8 @@ import StatusBar from './components/StatusBar';
 import ChartContainer from './components/Charts/ChartContainer';
 import type { ChartOverlay } from './components/Charts/ChartContainer';
 import ChartDialog from './components/Charts/ChartDialog';
+import PasteSpecialDialog from './components/PasteSpecialDialog';
+import type { PasteMode } from './components/PasteSpecialDialog';
 import {
   listSheets,
   addSheet,
@@ -497,6 +499,30 @@ const App: Component = () => {
     setShowChartDialog(false);
   };
 
+  // -------------------------------------------------------------------
+  // Paste special state
+  // -------------------------------------------------------------------
+
+  const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
+  const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
+
+  const handlePasteSpecialOpen = () => {
+    setShowPasteSpecial(true);
+  };
+
+  const handlePasteSpecialClose = () => {
+    setShowPasteSpecial(false);
+  };
+
+  const handlePasteSpecialPaste = (mode: PasteMode) => {
+    setShowPasteSpecial(false);
+    setPasteSpecialMode(mode);
+  };
+
+  const handlePasteSpecialDone = () => {
+    setPasteSpecialMode(null);
+  };
+
   // Load existing charts on mount.
   onMount(async () => {
     try {
@@ -578,6 +604,9 @@ const App: Component = () => {
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onZoomReset={handleZoomReset}
+          onPasteSpecialOpen={handlePasteSpecialOpen}
+          pasteSpecialMode={pasteSpecialMode()}
+          onPasteSpecialDone={handlePasteSpecialDone}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -591,6 +620,12 @@ const App: Component = () => {
           activeSheet={activeSheetName()}
           onInsert={handleChartInserted}
           onClose={handleChartDialogClose}
+        />
+      </Show>
+      <Show when={showPasteSpecial()}>
+        <PasteSpecialDialog
+          onPaste={handlePasteSpecialPaste}
+          onClose={handlePasteSpecialClose}
         />
       </Show>
       <SheetTabs
