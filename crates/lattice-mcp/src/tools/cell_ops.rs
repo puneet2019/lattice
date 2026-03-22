@@ -254,7 +254,18 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
 fn json_to_cell_value(v: &Value) -> CellValue {
     match v {
         Value::Null => CellValue::Empty,
-        Value::String(s) => CellValue::Text(s.clone()),
+        Value::String(s) => {
+            // Try parsing as number first (MCP clients often send numbers as strings).
+            if let Ok(n) = s.parse::<f64>() {
+                CellValue::Number(n)
+            } else if s.eq_ignore_ascii_case("true") {
+                CellValue::Boolean(true)
+            } else if s.eq_ignore_ascii_case("false") {
+                CellValue::Boolean(false)
+            } else {
+                CellValue::Text(s.clone())
+            }
+        }
         Value::Number(n) => CellValue::Number(n.as_f64().unwrap_or(0.0)),
         Value::Bool(b) => CellValue::Boolean(*b),
         _ => CellValue::Text(v.to_string()),
