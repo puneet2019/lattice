@@ -388,6 +388,34 @@ export async function exportHtml(sheet: string): Promise<string> {
   return invoke('export_html', { sheet });
 }
 
+/** Print settings passed to the export_html command for print preview. */
+export interface PrintSettingsParams {
+  paperSize?: string;
+  orientation?: string;
+  showGridlines?: boolean;
+  showHeaders?: boolean;
+  scale?: number;
+  margins?: string;
+  customMargins?: [number, number, number, number];
+}
+
+/** Export print-ready HTML with optional print settings. */
+export async function exportPrintHtml(
+  sheet: string,
+  settings?: PrintSettingsParams,
+): Promise<string> {
+  return invoke('export_html', {
+    sheet,
+    paperSize: settings?.paperSize,
+    orientation: settings?.orientation,
+    showGridlines: settings?.showGridlines,
+    showHeaders: settings?.showHeaders,
+    scale: settings?.scale,
+    margins: settings?.margins,
+    customMargins: settings?.customMargins,
+  });
+}
+
 export async function newWorkbook(): Promise<WorkbookInfo> {
   return invoke('new_workbook');
 }
@@ -447,12 +475,7 @@ export type ChartTypeStr =
   | 'area'
   | 'combo'
   | 'histogram'
-  | 'candlestick'
-  | 'treemap'
-  | 'waterfall'
-  | 'radar'
-  | 'bubble'
-  | 'gauge';
+  | 'candlestick';
 
 export async function createChart(
   sheet: string,
@@ -701,6 +724,38 @@ export async function getRowGroups(
 }
 
 // ---------------------------------------------------------------------------
+// Column group commands
+// ---------------------------------------------------------------------------
+
+export async function addColGroup(
+  sheet: string,
+  start: number,
+  end: number,
+): Promise<void> {
+  return invoke('add_col_group', { sheet, start, end });
+}
+
+export async function removeColGroup(
+  sheet: string,
+  index: number,
+): Promise<void> {
+  return invoke('remove_col_group', { sheet, index });
+}
+
+export async function toggleColGroup(
+  sheet: string,
+  index: number,
+): Promise<boolean> {
+  return invoke('toggle_col_group', { sheet, index });
+}
+
+export async function getColGroups(
+  sheet: string,
+): Promise<RowGroupData[]> {
+  return invoke('get_col_groups', { sheet });
+}
+
+// ---------------------------------------------------------------------------
 // Named range commands
 // ---------------------------------------------------------------------------
 
@@ -823,4 +878,30 @@ export async function removeConditionalFormat(
     endCol,
     ruleIndex,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Version history commands
+// ---------------------------------------------------------------------------
+
+/** Version info returned from the backend. */
+export interface VersionInfo {
+  index: number;
+  timestamp: number;
+  description: string;
+  size: number;
+}
+
+export async function saveVersion(description: string): Promise<void> {
+  return invoke('save_version', { description });
+}
+
+export async function listVersions(): Promise<VersionInfo[]> {
+  return invoke('list_versions');
+}
+
+export async function restoreVersion(
+  index: number,
+): Promise<{ sheets: string[]; active_sheet: string }> {
+  return invoke('restore_version', { index });
 }

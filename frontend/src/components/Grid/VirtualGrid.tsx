@@ -31,6 +31,10 @@ import {
   addRowGroup,
   removeRowGroup,
   toggleRowGroup,
+  getColGroups,
+  addColGroup,
+  removeColGroup,
+  toggleColGroup,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -144,6 +148,8 @@ export interface VirtualGridProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
+  /** Called on trackpad pinch-to-zoom gestures with the new zoom level. */
+  onZoomChange?: (zoom: number) => void;
   /** Called when the user triggers Cmd+Shift+P to open the paste special dialog. */
   onPasteSpecialOpen?: () => void;
   /**
@@ -274,6 +280,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   // Row groups for the current sheet (collapsible sections).
   let rowGroups: RowGroupData[] = [];
+  // Column groups for the current sheet (collapsible sections).
+  let colGroups: RowGroupData[] = [];
 
   // Hidden rows set for the current sheet (from auto-filter and manual hide).
   const hiddenRows = new Set<number>();
@@ -602,6 +610,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       rowGroups = await getRowGroups(props.activeSheet);
     } catch {
       rowGroups = [];
+    }
+  }
+
+  /** Load column groups for the active sheet. */
+  async function fetchColGroups() {
+    try {
+      colGroups = await getColGroups(props.activeSheet);
+    } catch {
+      colGroups = [];
     }
   }
 
@@ -2304,6 +2321,70 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.stroke();
         ctx.lineWidth = 1;
       }
+
+      // Draw column group +/- indicator in top header gutter
+      for (let gi = 0; gi < colGroups.length; gi++) {
+        const g = colGroups[gi];
+        if (g.collapsed) {
+          // Show + button on the column just before the collapsed group
+          const indicatorCol = g.start > 0 ? g.start - 1 : g.start;
+          if (col === indicatorCol) {
+            const btnSize = 9;
+            const btnX = x + cw / 2 - btnSize / 2;
+            const btnY = 2;
+            ctx.strokeStyle = COLORS.headerText;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btnX, btnY, btnSize, btnSize);
+            ctx.beginPath();
+            ctx.moveTo(btnX + 2, btnY + btnSize / 2);
+            ctx.lineTo(btnX + btnSize - 2, btnY + btnSize / 2);
+            ctx.moveTo(btnX + btnSize / 2, btnY + 2);
+            ctx.lineTo(btnX + btnSize / 2, btnY + btnSize - 2);
+            ctx.stroke();
+          }
+        } else {
+          // Show - button on the first column of the expanded group
+          if (col === g.start) {
+            const btnSize = 9;
+            const btnX = x + cw / 2 - btnSize / 2;
+            const btnY = 2;
+            ctx.strokeStyle = COLORS.headerText;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btnX, btnY, btnSize, btnSize);
+            ctx.beginPath();
+            ctx.moveTo(btnX + 2, btnY + btnSize / 2);
+            ctx.lineTo(btnX + btnSize - 2, btnY + btnSize / 2);
+            ctx.stroke();
+          }
+          // Draw a bracket line along the header for grouped columns
+          if (col >= g.start && col <= g.end) {
+            const lineY = 6;
+            if (col === g.start) {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(x + cw / 2 + 6, lineY);
+              ctx.lineTo(x + cw, lineY);
+              ctx.stroke();
+            } else if (col === g.end) {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(x, lineY);
+              ctx.lineTo(x + cw / 2, lineY);
+              ctx.lineTo(x + cw / 2, lineY + 4);
+              ctx.stroke();
+            } else {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(x, lineY);
+              ctx.lineTo(x + cw, lineY);
+              ctx.stroke();
+            }
+          }
+        }
+      }
     }
   }
 
@@ -3051,6 +3132,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             fetchVisibleData();
             draw();
           }).catch(() => props.onStatusChange('Toggle row group failed'));
+          return;
+        }
+      }
+    }
+
+    // Check if click is on a column group +/- button in the header
+    if (localY < 14 && localX >= ROW_NUMBER_WIDTH && colGroups.length > 0) {
+      const contentX = localX - ROW_NUMBER_WIDTH + effectiveScrollX(localX);
+      const clickCol = colAtX(contentX);
+      for (let gi = 0; gi < colGroups.length; gi++) {
+        const g = colGroups[gi];
+        const indicatorCol = g.collapsed
+          ? (g.start > 0 ? g.start - 1 : g.start)
+          : g.start;
+        if (clickCol === indicatorCol) {
+          e.preventDefault();
+          void toggleColGroup(props.activeSheet, gi).then(() => {
+            fetchColGroups();
+            fetchHiddenCols();
+            lastFetchKey = '';
+            fetchVisibleData();
+            draw();
+          }).catch(() => props.onStatusChange('Toggle column group failed'));
           return;
         }
       }
@@ -3840,6 +3944,59 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
+  async function ctxGroupCols() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    try {
+      await addColGroup(props.activeSheet, range.minCol, range.maxCol);
+      await fetchColGroups();
+      draw();
+      props.onStatusChange(`Grouped columns ${col_to_letter(range.minCol)}-${col_to_letter(range.maxCol)}`);
+    } catch (err) {
+      props.onStatusChange(`Group columns failed: ${err}`);
+    }
+  }
+
+  async function ctxUngroupCols() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    const gi = colGroups.findIndex(
+      (g) => g.start === range.minCol && g.end === range.maxCol,
+    );
+    if (gi >= 0) {
+      try {
+        await removeColGroup(props.activeSheet, gi);
+        await fetchColGroups();
+        await fetchHiddenCols();
+        lastFetchKey = '';
+        fetchVisibleData();
+        draw();
+        props.onStatusChange(`Ungrouped columns ${col_to_letter(range.minCol)}-${col_to_letter(range.maxCol)}`);
+      } catch (err) {
+        props.onStatusChange(`Ungroup columns failed: ${err}`);
+      }
+    } else {
+      const overlapIdx = colGroups.findIndex(
+        (g) => range.minCol <= g.end && range.maxCol >= g.start,
+      );
+      if (overlapIdx >= 0) {
+        try {
+          await removeColGroup(props.activeSheet, overlapIdx);
+          await fetchColGroups();
+          await fetchHiddenCols();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange('Ungrouped columns');
+        } catch (err) {
+          props.onStatusChange(`Ungroup columns failed: ${err}`);
+        }
+      } else {
+        props.onStatusChange('No column group found for selection');
+      }
+    }
+  }
+
   async function ctxHideCol() {
     dismissContextMenu();
     const range = getSelectionRange();
@@ -4049,6 +4206,63 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         lastFetchKey = '';
         fetchVisibleData();
         props.onStatusChange(statusMsg);
+        return;
+      }
+
+      // Option+Shift+Right: group selected rows or columns
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        const r = range;
+        // If multiple columns are selected (more than 1), group columns; otherwise group rows
+        if (r.maxCol > r.minCol) {
+          void addColGroup(props.activeSheet, r.minCol, r.maxCol).then(() => {
+            fetchColGroups();
+            draw();
+            props.onStatusChange(`Grouped columns ${col_to_letter(r.minCol)}-${col_to_letter(r.maxCol)}`);
+          }).catch((err: unknown) => props.onStatusChange(`Group failed: ${err}`));
+        } else {
+          void addRowGroup(props.activeSheet, r.minRow, r.maxRow).then(() => {
+            fetchRowGroups();
+            draw();
+            props.onStatusChange(`Grouped rows ${r.minRow + 1}-${r.maxRow + 1}`);
+          }).catch((err: unknown) => props.onStatusChange(`Group failed: ${err}`));
+        }
+        return;
+      }
+
+      // Option+Shift+Left: ungroup selected rows or columns
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const r = range;
+        if (r.maxCol > r.minCol) {
+          const gi = colGroups.findIndex((g) => r.minCol <= g.end && r.maxCol >= g.start);
+          if (gi >= 0) {
+            void removeColGroup(props.activeSheet, gi).then(() => {
+              fetchColGroups();
+              fetchHiddenCols();
+              lastFetchKey = '';
+              fetchVisibleData();
+              draw();
+              props.onStatusChange('Ungrouped columns');
+            }).catch((err: unknown) => props.onStatusChange(`Ungroup failed: ${err}`));
+          } else {
+            props.onStatusChange('No column group found for selection');
+          }
+        } else {
+          const gi = rowGroups.findIndex((g) => r.minRow <= g.end && r.maxRow >= g.start);
+          if (gi >= 0) {
+            void removeRowGroup(props.activeSheet, gi).then(() => {
+              fetchRowGroups();
+              fetchHiddenRows();
+              lastFetchKey = '';
+              fetchVisibleData();
+              draw();
+              props.onStatusChange('Ungrouped rows');
+            }).catch((err: unknown) => props.onStatusChange(`Ungroup failed: ${err}`));
+          } else {
+            props.onStatusChange('No row group found for selection');
+          }
+        }
         return;
       }
     }
@@ -4798,6 +5012,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
+
+    // Trackpad pinch-to-zoom generates wheel events with ctrlKey set.
+    if (e.ctrlKey && props.onZoomChange) {
+      const currentZoom = props.zoom ?? 1.0;
+      const delta = e.deltaY * -0.01;
+      const newZoom = Math.max(0.25, Math.min(2.0, currentZoom + delta));
+      props.onZoomChange(newZoom);
+      return;
+    }
+
     const maxX = Math.max(0, totalContentWidth() - canvasWidth());
     const maxY = Math.max(0, totalContentHeight() - canvasHeight());
 
@@ -4890,12 +5114,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
-    // Load validation rules, hidden rows, hidden cols, conditional formats, and row groups
+    // Load validation rules, hidden rows, hidden cols, conditional formats, and row/col groups
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
+    fetchColGroups();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -4918,6 +5143,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
+    fetchColGroups();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -5187,6 +5413,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             </div>
             <div class="context-menu-item" onClick={ctxUnhideCol}>
               Unhide column
+            </div>
+            <div class="context-menu-separator" />
+            <div class="context-menu-item" onClick={ctxGroupCols}>
+              Group columns
+            </div>
+            <div class="context-menu-item" onClick={ctxUngroupCols}>
+              Ungroup columns
             </div>
             <div class="context-menu-separator" />
           </Show>

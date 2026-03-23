@@ -407,6 +407,10 @@ fn main() {
             commands::data::remove_row_group,
             commands::data::toggle_row_group,
             commands::data::get_row_groups,
+            commands::data::add_col_group,
+            commands::data::remove_col_group,
+            commands::data::toggle_col_group,
+            commands::data::get_col_groups,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,
@@ -441,6 +445,10 @@ fn main() {
             commands::export::open_tsv,
             commands::export::get_recent_files,
             commands::export::add_recent_file,
+            // Version history commands
+            commands::version::save_version,
+            commands::version::list_versions,
+            commands::version::restore_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");

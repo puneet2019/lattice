@@ -127,6 +127,10 @@ pub struct Sheet {
     pub sparklines: SparklineStore,
     /// Row groups (collapsible / outlining sections).
     pub row_groups: Vec<RowGroup>,
+    /// Column groups (collapsible / outlining sections). Reuses the `RowGroup`
+    /// struct where `start`/`end` refer to column indices.
+    #[serde(default)]
+    pub col_groups: Vec<RowGroup>,
 }
 
 impl Sheet {
@@ -146,6 +150,7 @@ impl Sheet {
             banded_rows: None,
             sparklines: SparklineStore::new(),
             row_groups: Vec::new(),
+            col_groups: Vec::new(),
         }
     }
 
@@ -1122,6 +1127,85 @@ impl Sheet {
     /// Return a reference to all row groups.
     pub fn row_groups(&self) -> &[RowGroup] {
         &self.row_groups
+    }
+
+    // ----- Column grouping -----
+
+    /// Add a column group spanning `start..=end` (0-based, inclusive).
+    ///
+    /// Returns an error if the range overlaps an existing column group.
+    pub fn add_col_group(&mut self, start: u32, end: u32) -> Result<()> {
+        if start > end {
+            return Err(LatticeError::InvalidRange(
+                "Column group start must be <= end".into(),
+            ));
+        }
+        for g in &self.col_groups {
+            if start <= g.end && end >= g.start {
+                return Err(LatticeError::InvalidRange(
+                    format!(
+                        "Column group {}..={} overlaps existing group {}..={}",
+                        start, end, g.start, g.end
+                    ),
+                ));
+            }
+        }
+        self.col_groups.push(RowGroup {
+            start,
+            end,
+            collapsed: false,
+        });
+        Ok(())
+    }
+
+    /// Remove the column group at the given index.
+    ///
+    /// If the group was collapsed, the hidden columns are restored.
+    pub fn remove_col_group(&mut self, index: usize) -> Result<()> {
+        if index >= self.col_groups.len() {
+            return Err(LatticeError::InvalidRange(
+                "Column group index out of bounds".into(),
+            ));
+        }
+        let group = self.col_groups.remove(index);
+        if group.collapsed {
+            for c in group.start..=group.end {
+                self.hidden_cols.remove(&c);
+            }
+        }
+        Ok(())
+    }
+
+    /// Toggle a column group between collapsed and expanded.
+    ///
+    /// When collapsed, the columns in the group are added to `hidden_cols`.
+    /// When expanded, they are removed from `hidden_cols`.
+    pub fn toggle_col_group(&mut self, index: usize) -> Result<bool> {
+        if index >= self.col_groups.len() {
+            return Err(LatticeError::InvalidRange(
+                "Column group index out of bounds".into(),
+            ));
+        }
+        let group = &mut self.col_groups[index];
+        group.collapsed = !group.collapsed;
+        let collapsed = group.collapsed;
+        let start = group.start;
+        let end = group.end;
+        if collapsed {
+            for c in start..=end {
+                self.hidden_cols.insert(c);
+            }
+        } else {
+            for c in start..=end {
+                self.hidden_cols.remove(&c);
+            }
+        }
+        Ok(collapsed)
+    }
+
+    /// Return a reference to all column groups.
+    pub fn col_groups(&self) -> &[RowGroup] {
+        &self.col_groups
     }
 }
 
@@ -2394,5 +2478,92 @@ mod tests {
     fn test_remove_row_group_invalid_index() {
         let mut sheet = Sheet::new("S1");
         assert!(sheet.remove_row_group(0).is_err());
+    }
+
+    // ── Column group tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_add_col_group() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.add_col_group(1, 3).is_ok());
+        assert_eq!(sheet.col_groups().len(), 1);
+        assert_eq!(sheet.col_groups()[0].start, 1);
+        assert_eq!(sheet.col_groups()[0].end, 3);
+        assert!(!sheet.col_groups()[0].collapsed);
+    }
+
+    #[test]
+    fn test_add_col_group_invalid_range() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.add_col_group(5, 2).is_err());
+    }
+
+    #[test]
+    fn test_add_col_group_overlap_rejected() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(2, 5).unwrap();
+        assert!(sheet.add_col_group(4, 8).is_err());
+        assert!(sheet.add_col_group(0, 2).is_err());
+    }
+
+    #[test]
+    fn test_add_col_group_no_overlap() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(2, 5).unwrap();
+        assert!(sheet.add_col_group(6, 10).is_ok());
+        assert_eq!(sheet.col_groups().len(), 2);
+    }
+
+    #[test]
+    fn test_toggle_col_group_collapse() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(1, 3).unwrap();
+        let collapsed = sheet.toggle_col_group(0).unwrap();
+        assert!(collapsed);
+        assert!(sheet.hidden_cols.contains(&1));
+        assert!(sheet.hidden_cols.contains(&2));
+        assert!(sheet.hidden_cols.contains(&3));
+    }
+
+    #[test]
+    fn test_toggle_col_group_expand() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(1, 3).unwrap();
+        sheet.toggle_col_group(0).unwrap(); // collapse
+        let collapsed = sheet.toggle_col_group(0).unwrap(); // expand
+        assert!(!collapsed);
+        assert!(!sheet.hidden_cols.contains(&1));
+        assert!(!sheet.hidden_cols.contains(&2));
+        assert!(!sheet.hidden_cols.contains(&3));
+    }
+
+    #[test]
+    fn test_toggle_col_group_invalid_index() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.toggle_col_group(0).is_err());
+    }
+
+    #[test]
+    fn test_remove_col_group() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(1, 3).unwrap();
+        assert!(sheet.remove_col_group(0).is_ok());
+        assert!(sheet.col_groups().is_empty());
+    }
+
+    #[test]
+    fn test_remove_collapsed_col_group_unhides_cols() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_col_group(1, 3).unwrap();
+        sheet.toggle_col_group(0).unwrap(); // collapse
+        assert!(sheet.hidden_cols.contains(&2));
+        sheet.remove_col_group(0).unwrap();
+        assert!(!sheet.hidden_cols.contains(&2)); // cols restored
+    }
+
+    #[test]
+    fn test_remove_col_group_invalid_index() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.remove_col_group(0).is_err());
     }
 }

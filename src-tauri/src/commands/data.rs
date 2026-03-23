@@ -474,6 +474,65 @@ pub async fn get_row_groups(
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Column group commands
+// ---------------------------------------------------------------------------
+
+/// Add a column group (collapsible section).
+#[tauri::command]
+pub async fn add_col_group(
+    state: State<'_, AppState>,
+    sheet: String,
+    start: u32,
+    end: u32,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.add_col_group(start, end).map_err(|e| e.to_string())
+}
+
+/// Remove a column group by index.
+#[tauri::command]
+pub async fn remove_col_group(
+    state: State<'_, AppState>,
+    sheet: String,
+    index: usize,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.remove_col_group(index).map_err(|e| e.to_string())
+}
+
+/// Toggle a column group between collapsed and expanded.
+#[tauri::command]
+pub async fn toggle_col_group(
+    state: State<'_, AppState>,
+    sheet: String,
+    index: usize,
+) -> Result<bool, String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.toggle_col_group(index).map_err(|e| e.to_string())
+}
+
+/// Get all column groups for a sheet.
+#[tauri::command]
+pub async fn get_col_groups(
+    state: State<'_, AppState>,
+    sheet: String,
+) -> Result<Vec<RowGroupOutput>, String> {
+    let wb = state.workbook.read().await;
+    let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    Ok(s.col_groups()
+        .iter()
+        .map(|g| RowGroupOutput {
+            start: g.start,
+            end: g.end,
+            collapsed: g.collapsed,
+        })
+        .collect())
+}
+
 /// Format a Range as "A1:B2" string.
 fn format_range(range: &lattice_core::Range) -> String {
     let start = format_cell_ref(&range.start);
