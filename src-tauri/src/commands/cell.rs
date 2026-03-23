@@ -59,6 +59,8 @@ pub struct CellData {
     pub text_rotation: i16,
     /// Number of indent levels (0 = none).
     pub indent: u8,
+    /// Optional comment / note text.
+    pub comment: Option<String>,
 }
 
 /// Get a single cell's data.
@@ -273,6 +275,7 @@ fn cell_to_data(c: &lattice_core::Cell) -> CellData {
         borders,
         text_rotation: c.format.text_rotation,
         indent: c.format.indent,
+        comment: c.comment.clone(),
     }
 }
 
@@ -286,6 +289,104 @@ fn format_cell_display(value: &CellValue, number_format: &Option<String>) -> Str
         None => NumberFormat::General,
     };
     format_value(value, &fmt)
+}
+
+// ---------------------------------------------------------------------------
+// Comment commands
+// ---------------------------------------------------------------------------
+
+/// Set a comment/note on a cell.
+#[tauri::command]
+pub async fn set_comment(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+    col: u32,
+    text: String,
+) -> Result<(), String> {
+    let mut workbook = state.workbook.write().await;
+    let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.set_comment(row, col, text);
+    Ok(())
+}
+
+/// Get the comment/note on a cell, if any.
+#[tauri::command]
+pub async fn get_comment(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+    col: u32,
+) -> Result<Option<String>, String> {
+    let workbook = state.workbook.read().await;
+    let s = workbook.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    Ok(s.get_comment(row, col).map(|s| s.to_string()))
+}
+
+/// Remove the comment/note from a cell.
+#[tauri::command]
+pub async fn remove_comment(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+    col: u32,
+) -> Result<(), String> {
+    let mut workbook = state.workbook.write().await;
+    let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.remove_comment(row, col);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Protection commands
+// ---------------------------------------------------------------------------
+
+/// Serializable sheet protection info returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SheetProtectionData {
+    pub is_protected: bool,
+    pub allow_select: bool,
+    pub allow_sort: bool,
+    pub allow_filter: bool,
+}
+
+/// Check whether a specific cell is protected (falls within a protected range).
+#[tauri::command]
+pub async fn is_cell_protected(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+    col: u32,
+) -> Result<bool, String> {
+    let workbook = state.workbook.read().await;
+    let s = workbook.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    // A cell is "protected" when the sheet is protected AND the cell is in a protected range
+    // (or when the sheet is protected and there are no explicit ranges — all cells are protected).
+    if !s.is_protected() {
+        return Ok(false);
+    }
+    let ranges = s.protected_ranges();
+    if ranges.is_empty() {
+        // Sheet protection with no explicit ranges = all cells are protected.
+        return Ok(true);
+    }
+    Ok(s.is_cell_protected(row, col))
+}
+
+/// Get the sheet-level protection settings.
+#[tauri::command]
+pub async fn get_sheet_protection(
+    state: State<'_, AppState>,
+    sheet: String,
+) -> Result<Option<SheetProtectionData>, String> {
+    let workbook = state.workbook.read().await;
+    let s = workbook.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    Ok(s.protection.as_ref().map(|p| SheetProtectionData {
+        is_protected: p.is_protected,
+        allow_select: p.allow_select,
+        allow_sort: p.allow_sort,
+        allow_filter: p.allow_filter,
+    }))
 }
 
 /// Parse a string into a `CellValue`, inferring the type.

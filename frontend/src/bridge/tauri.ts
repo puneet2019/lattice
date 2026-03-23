@@ -31,6 +31,7 @@ export interface CellData {
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
+  comment?: string | null;
 }
 
 /** Sheet summary information. */
@@ -818,4 +819,59 @@ export async function removeConditionalFormat(
     endCol,
     ruleIndex,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Comment commands
+// ---------------------------------------------------------------------------
+
+export async function setComment(
+  sheet: string,
+  row: number,
+  col: number,
+  text: string,
+): Promise<void> {
+  return invoke('set_comment', { sheet, row, col, text });
+}
+
+export async function getComment(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<string | null> {
+  return invoke('get_comment', { sheet, row, col });
+}
+
+export async function removeComment(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<void> {
+  return invoke('remove_comment', { sheet, row, col });
+}
+
+// ---------------------------------------------------------------------------
+// Protection commands
+// ---------------------------------------------------------------------------
+
+/** Sheet protection info from the backend. */
+export interface SheetProtectionData {
+  is_protected: boolean;
+  allow_select: boolean;
+  allow_sort: boolean;
+  allow_filter: boolean;
+}
+
+export async function isCellProtected(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<boolean> {
+  return invoke('is_cell_protected', { sheet, row, col });
+}
+
+export async function getSheetProtection(
+  sheet: string,
+): Promise<SheetProtectionData | null> {
+  return invoke('get_sheet_protection', { sheet });
 }

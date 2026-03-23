@@ -31,6 +31,10 @@ import {
   addRowGroup,
   removeRowGroup,
   toggleRowGroup,
+  setComment,
+  removeComment as tauriRemoveComment,
+  getSheetProtection,
+  isCellProtected,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -272,6 +276,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Hidden cols set for the current sheet (from manual hide).
   const hiddenCols = new Set<number>();
 
+  // Sheet protection state
+  const [sheetProtected, setSheetProtected] = createSignal(false);
+
   // Editing state
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
@@ -306,6 +313,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [validationDropdownY, setValidationDropdownY] = createSignal(0);
   const [validationDropdownRow, setValidationDropdownRow] = createSignal(0);
   const [validationDropdownCol, setValidationDropdownCol] = createSignal(0);
+
+  // Comment tooltip state
+  const [commentTooltipVisible, setCommentTooltipVisible] = createSignal(false);
+  const [commentTooltipText, setCommentTooltipText] = createSignal('');
+  const [commentTooltipX, setCommentTooltipX] = createSignal(0);
+  const [commentTooltipY, setCommentTooltipY] = createSignal(0);
+  let commentHoverTimer: ReturnType<typeof setTimeout> | null = null;
+  let commentHoverCell: string | null = null;
+
+  // Comment editor state
+  const [commentEditorVisible, setCommentEditorVisible] = createSignal(false);
+  const [commentEditorText, setCommentEditorText] = createSignal('');
+  const [commentEditorRow, setCommentEditorRow] = createSignal(0);
+  const [commentEditorCol, setCommentEditorCol] = createSignal(0);
+  const [commentEditorX, setCommentEditorX] = createSignal(0);
+  const [commentEditorY, setCommentEditorY] = createSignal(0);
+  let commentEditorRef: HTMLTextAreaElement | undefined;
 
   // Formula click-to-reference state.
   // When editing a formula (value starts with '='), clicking a cell inserts a
@@ -597,6 +621,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
+  /** Load sheet protection status from the backend. */
+  async function fetchSheetProtection() {
+    try {
+      const prot = await getSheetProtection(props.activeSheet);
+      setSheetProtected(prot?.is_protected ?? false);
+    } catch {
+      setSheetProtected(false);
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Selection change with formula bar sync
   // -----------------------------------------------------------------------
@@ -627,6 +661,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function startEditing(clearContent: boolean) {
+    // Block editing in protected sheets
+    if (sheetProtected()) {
+      props.onStatusChange('This cell is protected and cannot be edited.');
+      return;
+    }
+
     // Clear marching ants when editing starts
     stopMarchingAnts();
     // Reset formula ref tracking
@@ -1868,6 +1908,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
         }
 
+        // Draw subtle protection tint when sheet is protected
+        if (sheetProtected()) {
+          ctx.fillStyle = 'rgba(128, 128, 128, 0.06)';
+          ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
+        }
+
         // Draw cell borders if set.
         if (cell?.borders) {
           const b = cell.borders;
@@ -1936,6 +1982,17 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             ctx.closePath();
             ctx.fill();
           }
+        }
+
+        // Draw comment/note indicator: small orange triangle in top-right corner
+        if (cell?.comment) {
+          ctx.fillStyle = '#F9AB00'; // Google-style orange/amber
+          ctx.beginPath();
+          ctx.moveTo(x + cw - 8, y + 1);
+          ctx.lineTo(x + cw - 1, y + 1);
+          ctx.lineTo(x + cw - 1, y + 8);
+          ctx.closePath();
+          ctx.fill();
         }
 
         // Skip text rendering for cells with no value
@@ -2564,6 +2621,31 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       containerRef.style.cursor = 'row-resize';
     } else {
       containerRef.style.cursor = '';
+    }
+
+    // Comment tooltip: show on hover after 500ms delay
+    const hit = hitTest(e.clientX, e.clientY);
+    const cellKey = hit ? `${hit.row}:${hit.col}` : null;
+    if (cellKey !== commentHoverCell) {
+      // Cancel previous tooltip timer
+      if (commentHoverTimer) {
+        clearTimeout(commentHoverTimer);
+        commentHoverTimer = null;
+      }
+      setCommentTooltipVisible(false);
+      commentHoverCell = cellKey;
+      if (cellKey && hit) {
+        const cell = cellCache.get(cellKey);
+        if (cell?.comment) {
+          const tooltipText = cell.comment;
+          commentHoverTimer = setTimeout(() => {
+            setCommentTooltipText(tooltipText);
+            setCommentTooltipX(localX + 12);
+            setCommentTooltipY(localY - 8);
+            setCommentTooltipVisible(true);
+          }, 500);
+        }
+      }
     }
   }
 
@@ -3483,6 +3565,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   /** Clear all cells in the current selection. */
   async function clearSelectedCells() {
+    if (sheetProtected()) {
+      props.onStatusChange('This cell is protected and cannot be edited.');
+      return;
+    }
     const range = getSelectionRange();
     const promises: Promise<void>[] = [];
     for (let r = range.minRow; r <= range.maxRow; r++) {
@@ -3577,6 +3663,74 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       props.onStatusChange(`Set ${value}`);
     } catch {
       props.onStatusChange('Failed to set value');
+    }
+  }
+
+  /** Open the comment editor for a specific cell. */
+  function openCommentEditor(row: number, col: number) {
+    const fc = props.frozenCols ?? 0;
+    const fr = props.frozenRows ?? 0;
+    const sx = col < fc ? 0 : scrollX();
+    const sy = row < fr ? 0 : scrollY();
+    const cellX = ROW_NUMBER_WIDTH + getColX(col) - sx + getColWidth(col);
+    const cellY = HEADER_HEIGHT + getRowY(row) - sy;
+    setCommentEditorRow(row);
+    setCommentEditorCol(col);
+    setCommentEditorX(cellX);
+    setCommentEditorY(cellY);
+    const cell = cellCache.get(`${row}:${col}`);
+    setCommentEditorText(cell?.comment ?? '');
+    setCommentEditorVisible(true);
+    // Focus the textarea after it renders
+    requestAnimationFrame(() => commentEditorRef?.focus());
+  }
+
+  /** Save the current comment editor contents to the backend. */
+  async function saveComment() {
+    const row = commentEditorRow();
+    const col = commentEditorCol();
+    const text = commentEditorText().trim();
+    setCommentEditorVisible(false);
+    containerRef?.focus();
+    if (!text) {
+      // Empty text = remove comment
+      try {
+        await tauriRemoveComment(props.activeSheet, row, col);
+        const cell = cellCache.get(`${row}:${col}`);
+        if (cell) cell.comment = undefined;
+        draw();
+        props.onStatusChange('Note removed');
+      } catch { /* ignore */ }
+      return;
+    }
+    try {
+      await setComment(props.activeSheet, row, col, text);
+      // Update cache
+      const cell = cellCache.get(`${row}:${col}`);
+      if (cell) {
+        cell.comment = text;
+      }
+      draw();
+      props.onStatusChange(`Note: ${text.substring(0, 40)}${text.length > 40 ? '...' : ''}`);
+    } catch {
+      props.onStatusChange('Failed to save note');
+    }
+  }
+
+  /** Delete the comment on the cell currently being edited. */
+  async function deleteComment() {
+    const row = commentEditorRow();
+    const col = commentEditorCol();
+    setCommentEditorVisible(false);
+    containerRef?.focus();
+    try {
+      await tauriRemoveComment(props.activeSheet, row, col);
+      const cell = cellCache.get(`${row}:${col}`);
+      if (cell) cell.comment = undefined;
+      draw();
+      props.onStatusChange('Note deleted');
+    } catch {
+      props.onStatusChange('Failed to delete note');
     }
   }
 
@@ -3861,6 +4015,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         draw();
         return;
       }
+    }
+
+    // Shift+F2: open note editor for the current cell
+    if (e.key === 'F2' && e.shiftKey) {
+      e.preventDefault();
+      openCommentEditor(selectedRow(), selectedCol());
+      return;
     }
 
     // F2 enters edit mode without clearing
@@ -4771,9 +4932,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     darkModeQuery.addEventListener('change', handleColorSchemeChange);
     onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
 
-    // Clean up drag listeners and marching ants on unmount
+    // Clean up drag listeners, marching ants, and comment tooltip on unmount
     onCleanup(() => {
       stopMarchingAnts();
+      if (commentHoverTimer) {
+        clearTimeout(commentHoverTimer);
+        commentHoverTimer = null;
+      }
       if (isDragging) {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);
@@ -4803,12 +4968,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
-    // Load validation rules, hidden rows, hidden cols, conditional formats, and row groups
+    // Load validation rules, hidden rows, hidden cols, conditional formats, row groups, and protection
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
+    fetchSheetProtection();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -4823,7 +4989,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
-    // Reload persisted sizes and validations for new sheet
+    // Reload persisted sizes, validations, and protection for new sheet
     loadPersistedSizes();
     validationsFetched = false;
     fetchValidations();
@@ -4831,6 +4997,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
+    fetchSheetProtection();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -5037,25 +5204,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => {
               dismissContextMenu();
-              const note = window.prompt('Enter note:');
-              if (note !== null) {
-                const row = selectedRow();
-                const col = selectedCol();
-                const cell = cellCache.get(`${row}:${col}`);
-                const currentVal = cell?.value ?? '';
-                // Store note as a cell comment (append to value if needed, or just set)
-                // For now, set the note text as the cell value if cell is empty, otherwise just status
-                if (!currentVal) {
-                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
-                  lastFetchKey = '';
-                  fetchVisibleData();
-                  props.onContentChange(note);
-                }
-                props.onStatusChange(`Note: ${note}`);
-              }
+              openCommentEditor(selectedRow(), selectedCol());
             }}
           >
-            Insert note
+            {cellCache.get(`${selectedRow()}:${selectedCol()}`)?.comment ? 'Edit note' : 'Insert note'}
           </div>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxInsertRowAbove}>
@@ -5145,6 +5297,120 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               {item}
             </div>
           ))}
+        </div>
+      </Show>
+      <Show when={commentTooltipVisible()}>
+        <div
+          class="comment-tooltip"
+          style={{
+            position: 'absolute',
+            left: `${commentTooltipX()}px`,
+            top: `${commentTooltipY()}px`,
+            background: '#FFF9C4',
+            color: '#333',
+            padding: '6px 10px',
+            'border-radius': '4px',
+            'font-size': '12px',
+            'max-width': '250px',
+            'white-space': 'pre-wrap',
+            'word-break': 'break-word',
+            'box-shadow': '0 2px 8px rgba(0,0,0,0.18)',
+            'pointer-events': 'none',
+            'z-index': '1000',
+            border: '1px solid #F0E68C',
+          }}
+        >
+          {commentTooltipText()}
+        </div>
+      </Show>
+      <Show when={commentEditorVisible()}>
+        <div
+          class="comment-editor"
+          style={{
+            position: 'absolute',
+            left: `${commentEditorX()}px`,
+            top: `${commentEditorY()}px`,
+            background: '#FFF9C4',
+            border: '1px solid #F0E68C',
+            'border-radius': '4px',
+            'box-shadow': '0 2px 8px rgba(0,0,0,0.18)',
+            'z-index': '1001',
+            padding: '8px',
+            display: 'flex',
+            'flex-direction': 'column',
+            gap: '6px',
+            'min-width': '200px',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <textarea
+            ref={commentEditorRef}
+            style={{
+              width: '200px',
+              height: '60px',
+              resize: 'vertical',
+              border: '1px solid #ccc',
+              'border-radius': '3px',
+              padding: '4px',
+              'font-size': '12px',
+              'font-family': 'inherit',
+            }}
+            value={commentEditorText()}
+            onInput={(e) => setCommentEditorText(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setCommentEditorVisible(false);
+                containerRef?.focus();
+              } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                saveComment();
+              }
+              e.stopPropagation();
+            }}
+          />
+          <div style={{ display: 'flex', gap: '4px', 'justify-content': 'flex-end' }}>
+            <button
+              style={{
+                padding: '3px 10px',
+                'font-size': '11px',
+                border: '1px solid #ccc',
+                'border-radius': '3px',
+                background: '#fff',
+                cursor: 'pointer',
+              }}
+              onClick={() => { deleteComment(); }}
+            >
+              Delete
+            </button>
+            <button
+              style={{
+                padding: '3px 10px',
+                'font-size': '11px',
+                border: '1px solid #ccc',
+                'border-radius': '3px',
+                background: '#fff',
+                cursor: 'pointer',
+              }}
+              onClick={() => { setCommentEditorVisible(false); containerRef?.focus(); }}
+            >
+              Cancel
+            </button>
+            <button
+              style={{
+                padding: '3px 10px',
+                'font-size': '11px',
+                border: 'none',
+                'border-radius': '3px',
+                background: '#1a73e8',
+                color: '#fff',
+                cursor: 'pointer',
+              }}
+              onClick={() => { saveComment(); }}
+            >
+              Save
+            </button>
+          </div>
         </div>
       </Show>
     </div>

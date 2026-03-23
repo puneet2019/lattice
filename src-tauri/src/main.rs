@@ -355,6 +355,13 @@ fn main() {
             commands::cell::get_cell,
             commands::cell::set_cell,
             commands::cell::get_range,
+            // Comment commands
+            commands::cell::set_comment,
+            commands::cell::get_comment,
+            commands::cell::remove_comment,
+            // Protection commands
+            commands::cell::is_cell_protected,
+            commands::cell::get_sheet_protection,
             // Sheet commands
             commands::sheet::list_sheets,
             commands::sheet::add_sheet,
