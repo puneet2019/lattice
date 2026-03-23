@@ -40,6 +40,9 @@ import {
   setAutoFilter,
   clearFilter,
   listNamedRanges,
+  insertRows,
+  insertCols,
+  sortRange,
 } from './bridge/tauri';
 import type { FilterInfo, NamedRangeInfo } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
@@ -172,10 +175,13 @@ const App: Component = () => {
   // -------------------------------------------------------------------
 
   const menuActions: Record<string, () => void> = {
+    // -- File ---------------------------------------------------------------
     file_new: handleFileNew,
     file_open: handleFileOpen,
     file_save: handleFileSave,
     file_save_as: handleFileSaveAs,
+
+    // -- Edit ---------------------------------------------------------------
     edit_undo: () => {
       void tauriUndo()
         .then(() => {
@@ -192,6 +198,118 @@ const App: Component = () => {
         })
         .catch(() => setStatusMessage('Nothing to redo'));
     },
+
+    // -- View > Freeze ------------------------------------------------------
+    view_freeze_1row: () => { setFrozenRows(1); setFrozenCols(0); setStatusMessage('Frozen: 1 row'); },
+    view_freeze_2rows: () => { setFrozenRows(2); setFrozenCols(0); setStatusMessage('Frozen: 2 rows'); },
+    view_freeze_1col: () => { setFrozenRows(0); setFrozenCols(1); setStatusMessage('Frozen: 1 column'); },
+    view_freeze_2cols: () => { setFrozenRows(0); setFrozenCols(2); setStatusMessage('Frozen: 2 columns'); },
+    view_freeze_none: () => { setFrozenRows(0); setFrozenCols(0); setStatusMessage('Freeze panes removed'); },
+
+    // -- View > Show / Zoom -------------------------------------------------
+    view_show_formulas: () => { setStatusMessage('Show formulas toggled (not yet implemented)'); },
+    view_toggle_gridlines: () => { setStatusMessage('Gridlines toggled (not yet implemented)'); },
+    view_zoom_in: handleZoomIn,
+    view_zoom_out: handleZoomOut,
+    view_zoom_reset: handleZoomReset,
+
+    // -- Insert -------------------------------------------------------------
+    insert_row_above: () => {
+      const [row] = selectedCell();
+      void insertRows(activeSheetName(), row, 1)
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Row inserted above'); })
+        .catch((e) => setStatusMessage(`Insert row failed: ${e}`));
+    },
+    insert_row_below: () => {
+      const [row] = selectedCell();
+      void insertRows(activeSheetName(), row + 1, 1)
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Row inserted below'); })
+        .catch((e) => setStatusMessage(`Insert row failed: ${e}`));
+    },
+    insert_col_left: () => {
+      const [, col] = selectedCell();
+      void insertCols(activeSheetName(), col, 1)
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Column inserted left'); })
+        .catch((e) => setStatusMessage(`Insert column failed: ${e}`));
+    },
+    insert_col_right: () => {
+      const [, col] = selectedCell();
+      void insertCols(activeSheetName(), col + 1, 1)
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Column inserted right'); })
+        .catch((e) => setStatusMessage(`Insert column failed: ${e}`));
+    },
+    insert_chart: handleInsertChart,
+    insert_note: () => { setStatusMessage('Insert note (not yet implemented)'); },
+    insert_checkbox: () => { setStatusMessage('Insert checkbox (not yet implemented)'); },
+    insert_named_range: () => { setShowNamedRanges(true); },
+
+    // -- Format > Number ----------------------------------------------------
+    format_num_general: () => { handleNumberFormat('General'); },
+    format_num_number: () => { handleNumberFormat('#,##0.00'); },
+    format_num_currency: () => { handleNumberFormat('$#,##0.00'); },
+    format_num_percentage: () => { handleNumberFormat('0.00%'); },
+    format_num_date: () => { handleNumberFormat('yyyy-mm-dd'); },
+    format_num_time: () => { handleNumberFormat('hh:mm:ss'); },
+    format_num_scientific: () => { handleNumberFormat('0.00E+00'); },
+
+    // -- Format > Text styling ----------------------------------------------
+    format_bold: handleBold,
+    format_italic: handleItalic,
+    format_underline: handleUnderline,
+    format_strikethrough: () => {
+      void applyFormat({ strikethrough: true });
+      setStatusMessage('Strikethrough applied');
+    },
+
+    // -- Format > Font size -------------------------------------------------
+    format_size_increase: () => { handleFontSize(14); },
+    format_size_decrease: () => { handleFontSize(10); },
+
+    // -- Format > Colors & alignment ----------------------------------------
+    format_text_color: () => { setStatusMessage('Text color (use toolbar color picker)'); },
+    format_fill_color: () => { setStatusMessage('Fill color (use toolbar color picker)'); },
+    format_align_left: () => { handleAlign('left'); },
+    format_align_center: () => { handleAlign('center'); },
+    format_align_right: () => { handleAlign('right'); },
+
+    // -- Format > Merge, conditional, clear ---------------------------------
+    format_merge: () => { setStatusMessage('Merge cells (not yet implemented)'); },
+    format_conditional: () => { setShowConditionalFormat(true); },
+    format_alternating: () => { setStatusMessage('Alternating colors (not yet implemented)'); },
+    format_clear: () => {
+      void applyFormat({
+        bold: false, italic: false, underline: false, strikethrough: false,
+        font_color: '', bg_color: '', number_format: 'General',
+        h_align: 'left', font_size: 11, font_family: 'Arial',
+      });
+      setBoldActive(false);
+      setItalicActive(false);
+      setUnderlineActive(false);
+      setStatusMessage('Formatting cleared');
+    },
+
+    // -- Data > Sort --------------------------------------------------------
+    data_sort_az: () => {
+      const [, col] = selectedCell();
+      void sortRange(activeSheetName(), null, [{ col, direction: 'asc' }])
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Sorted A \u2192 Z'); })
+        .catch((e) => setStatusMessage(`Sort failed: ${e}`));
+    },
+    data_sort_za: () => {
+      const [, col] = selectedCell();
+      void sortRange(activeSheetName(), null, [{ col, direction: 'desc' }])
+        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Sorted Z \u2192 A'); })
+        .catch((e) => setStatusMessage(`Sort failed: ${e}`));
+    },
+    data_sort_custom: () => { setShowSortDialog(true); },
+
+    // -- Data > Filter, validation, etc. ------------------------------------
+    data_create_filter: handleFilterToggle,
+    data_named_ranges: () => { setShowNamedRanges(true); },
+    data_validation: () => { setShowDataValidation(true); },
+    data_remove_duplicates: () => { setStatusMessage('Remove duplicates (not yet implemented)'); },
+    data_text_to_columns: () => { setStatusMessage('Text to columns (not yet implemented)'); },
+    data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
   };
 
   // Load sheets on mount and subscribe to menu events.
