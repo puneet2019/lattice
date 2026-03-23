@@ -4326,25 +4326,68 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => { dismissContextMenu(); handleCut(); }}
           >
-            Cut
+            <span>Cut</span><span class="context-menu-shortcut">{'\u2318'}X</span>
           </div>
           <div
             class="context-menu-item"
             onClick={() => { dismissContextMenu(); handleCopy(); }}
           >
-            Copy
+            <span>Copy</span><span class="context-menu-shortcut">{'\u2318'}C</span>
           </div>
           <div
             class="context-menu-item"
             onClick={() => { dismissContextMenu(); handlePaste(); }}
           >
-            Paste
+            <span>Paste</span><span class="context-menu-shortcut">{'\u2318'}V</span>
           </div>
           <div
             class="context-menu-item"
             onClick={() => { dismissContextMenu(); props.onPasteSpecialOpen?.(); }}
           >
             Paste special...
+          </div>
+          <div class="context-menu-separator" />
+          <div
+            class="context-menu-item"
+            onClick={() => {
+              dismissContextMenu();
+              const url = window.prompt('Enter URL:');
+              if (url) {
+                const row = selectedRow();
+                const col = selectedCol();
+                setCell(props.activeSheet, row, col, url, undefined).catch(() => {});
+                lastFetchKey = '';
+                fetchVisibleData();
+                props.onContentChange(url);
+                props.onStatusChange(`Link: ${url}`);
+              }
+            }}
+          >
+            <span>Insert link</span><span class="context-menu-shortcut">{'\u2318'}K</span>
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => {
+              dismissContextMenu();
+              const note = window.prompt('Enter note:');
+              if (note !== null) {
+                const row = selectedRow();
+                const col = selectedCol();
+                const cell = cellCache.get(`${row}:${col}`);
+                const currentVal = cell?.value ?? '';
+                // Store note as a cell comment (append to value if needed, or just set)
+                // For now, set the note text as the cell value if cell is empty, otherwise just status
+                if (!currentVal) {
+                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
+                  lastFetchKey = '';
+                  fetchVisibleData();
+                  props.onContentChange(note);
+                }
+                props.onStatusChange(`Note: ${note}`);
+              }
+            }}
+          >
+            Insert note
           </div>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxInsertRowAbove}>

@@ -678,6 +678,10 @@ body,
 }
 
 .context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
   padding: 6px 16px;
   font-size: 12px;
   cursor: pointer;
@@ -686,6 +690,13 @@ body,
 
 .context-menu-item:hover {
   background: var(--context-menu-hover);
+}
+
+.context-menu-shortcut {
+  font-size: 11px;
+  color: var(--header-text);
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .context-menu-item.destructive {
