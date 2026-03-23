@@ -367,3 +367,87 @@ export async function listCharts(
 export async function deleteChart(chartId: string): Promise<void> {
   return invoke('delete_chart', { chartId });
 }
+
+// ---------------------------------------------------------------------------
+// Conditional format commands
+// ---------------------------------------------------------------------------
+
+/** Rule type input for adding conditional format rules. */
+export interface RuleTypeInput {
+  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error'
+  operator?: string; // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between'
+  value1?: number;
+  value2?: number;
+  text?: string;
+}
+
+/** Style to apply when a conditional format rule matches. */
+export interface ConditionalStyleInput {
+  bold?: boolean;
+  italic?: boolean;
+  font_color?: string;
+  bg_color?: string;
+}
+
+/** A single rule in a conditional format range (from list). */
+export interface RuleOutput {
+  kind: string;
+  description: string;
+  bold?: boolean | null;
+  italic?: boolean | null;
+  font_color?: string | null;
+  bg_color?: string | null;
+}
+
+/** A conditional format range (from list). */
+export interface ConditionalFormatOutput {
+  start_row: number;
+  start_col: number;
+  end_row: number;
+  end_col: number;
+  rules: RuleOutput[];
+}
+
+export async function addConditionalFormat(
+  sheet: string,
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+  ruleType: RuleTypeInput,
+  style: ConditionalStyleInput,
+): Promise<void> {
+  return invoke('add_conditional_format', {
+    sheet,
+    startRow,
+    startCol,
+    endRow,
+    endCol,
+    ruleType,
+    style,
+  });
+}
+
+export async function listConditionalFormats(
+  sheet: string,
+): Promise<ConditionalFormatOutput[]> {
+  return invoke('list_conditional_formats', { sheet });
+}
+
+export async function removeConditionalFormat(
+  sheet: string,
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+  ruleIndex: number,
+): Promise<void> {
+  return invoke('remove_conditional_format', {
+    sheet,
+    startRow,
+    startCol,
+    endRow,
+    endCol,
+    ruleIndex,
+  });
+}

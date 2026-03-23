@@ -2,6 +2,7 @@ pub mod autosave;
 pub mod cell;
 pub mod chart;
 pub mod cloud;
+pub mod conditional_format;
 pub mod data;
 pub mod edit;
 pub mod file;

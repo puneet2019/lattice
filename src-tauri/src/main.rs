@@ -124,6 +124,10 @@ fn main() {
             commands::edit::redo,
             // Format commands
             commands::format::format_cells,
+            // Conditional format commands
+            commands::conditional_format::add_conditional_format,
+            commands::conditional_format::list_conditional_formats,
+            commands::conditional_format::remove_conditional_format,
             // Data commands
             commands::data::find_in_sheet,
             commands::data::duplicate_sheet,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use lattice_core::{AutoSaveConfig, UndoStack, Workbook};
+use lattice_core::{AutoSaveConfig, ConditionalFormatStore, UndoStack, Workbook};
 use tokio::sync::RwLock;
 
 use crate::commands::chart::ChartStore;
@@ -17,6 +17,8 @@ pub struct AppState {
     pub autosave_config: Arc<RwLock<AutoSaveConfig>>,
     /// Path to the currently open file (None for unsaved workbooks).
     pub file_path: Arc<RwLock<Option<String>>>,
+    /// Conditional formatting rules.
+    pub conditional_formats: Arc<RwLock<ConditionalFormatStore>>,
 }
 
 impl AppState {
@@ -28,6 +30,7 @@ impl AppState {
             chart_store: ChartStore::new(),
             autosave_config: Arc::new(RwLock::new(AutoSaveConfig::default())),
             file_path: Arc::new(RwLock::new(None)),
+            conditional_formats: Arc::new(RwLock::new(ConditionalFormatStore::new())),
         }
     }
 
