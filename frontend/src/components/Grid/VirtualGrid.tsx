@@ -654,7 +654,93 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return filterFormulaFunctions(token);
   }
 
+  /**
+   * F4: Toggle the cell reference nearest to the cursor through
+   * absolute/relative modes: A1 -> $A$1 -> A$1 -> $A1 -> A1
+   */
+  function handleF4Toggle() {
+    if (!editorRef) return;
+    const text = editValue();
+    const cursorPos = editorRef.selectionStart ?? 0;
+
+    // Regex to match cell references (with optional $ before col and/or row)
+    const refPattern = /\$?[A-Za-z]{1,3}\$?\d+/g;
+    let match: RegExpExecArray | null;
+    let bestMatch: RegExpExecArray | null = null;
+    let bestDist = Infinity;
+
+    // Find the reference closest to the cursor
+    while ((match = refPattern.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      // Check if cursor is inside or adjacent to this reference
+      if (cursorPos >= start && cursorPos <= end) {
+        bestMatch = match;
+        bestDist = 0;
+        break;
+      }
+      // Otherwise find the closest one
+      const dist = Math.min(Math.abs(cursorPos - start), Math.abs(cursorPos - end));
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestMatch = match;
+      }
+    }
+
+    // Only toggle if cursor is inside or immediately adjacent (dist <= 1)
+    if (!bestMatch || bestDist > 1) return;
+
+    const ref = bestMatch[0];
+    const refStart = bestMatch.index;
+    const refEnd = refStart + ref.length;
+
+    // Parse the reference into components
+    const refParts = /^(\$?)([A-Za-z]{1,3})(\$?)(\d+)$/.exec(ref);
+    if (!refParts) return;
+
+    const colDollar = refParts[1] === '$';
+    const colLetters = refParts[2];
+    const rowDollar = refParts[3] === '$';
+    const rowNum = refParts[4];
+
+    // Cycle: A1 -> $A$1 -> A$1 -> $A1 -> A1
+    let newRef: string;
+    if (!colDollar && !rowDollar) {
+      // A1 -> $A$1
+      newRef = `$${colLetters}$${rowNum}`;
+    } else if (colDollar && rowDollar) {
+      // $A$1 -> A$1
+      newRef = `${colLetters}$${rowNum}`;
+    } else if (!colDollar && rowDollar) {
+      // A$1 -> $A1
+      newRef = `$${colLetters}${rowNum}`;
+    } else {
+      // $A1 -> A1
+      newRef = `${colLetters}${rowNum}`;
+    }
+
+    const newText = text.slice(0, refStart) + newRef + text.slice(refEnd);
+    setEditValue(newText);
+    props.onContentChange(newText);
+
+    // Position cursor at the end of the new reference
+    const newCursorPos = refStart + newRef.length;
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.setSelectionRange(newCursorPos, newCursorPos);
+        setEditorCursorPos(newCursorPos);
+      }
+    });
+  }
+
   function handleEditorKeyDown(e: KeyboardEvent) {
+    // F4: Toggle absolute/relative reference
+    if (e.key === 'F4') {
+      e.preventDefault();
+      handleF4Toggle();
+      return;
+    }
+
     // When formula auto-complete is visible, handle navigation keys
     if (formulaAcVisible()) {
       const list = formulaAcFiltered();
