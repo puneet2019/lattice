@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData, MergedRegionData, BandedRowsData, FormatOptions, ConditionalFormatOutput, RowGroupData } from '../../bridge/tauri';
-import type { PasteMode } from '../PasteSpecialDialog';
+import type { PasteMode, PasteOperation } from '../PasteSpecialDialog';
 import {
   getCell,
   getRange,
@@ -31,10 +31,6 @@ import {
   addRowGroup,
   removeRowGroup,
   toggleRowGroup,
-  setComment,
-  removeComment as tauriRemoveComment,
-  getSheetProtection,
-  isCellProtected,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -155,6 +151,8 @@ export interface VirtualGridProps {
    * paste operation and then calls onPasteSpecialDone to reset.
    */
   pasteSpecialMode?: PasteMode | null;
+  /** Arithmetic operation for paste special (None, Add, Subtract, Multiply, Divide). */
+  pasteSpecialOperation?: PasteOperation;
   /** Called after a paste special operation completes so App can reset the signal. */
   onPasteSpecialDone?: () => void;
   /** Called when selection summary (Sum/Average/Count) changes for the status bar. */
@@ -225,6 +223,15 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
 
+  // Formula audit arrows (trace precedents/dependents)
+  interface AuditArrow {
+    fromRow: number;
+    fromCol: number;
+    toRow: number;
+    toCol: number;
+  }
+  const [auditArrows, setAuditArrows] = createSignal<AuditArrow[]>([]);
+
   // Marching ants (copy indicator) state
   let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
   let marchingAntOffset = 0;
@@ -276,9 +283,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Hidden cols set for the current sheet (from manual hide).
   const hiddenCols = new Set<number>();
 
-  // Sheet protection state
-  const [sheetProtected, setSheetProtected] = createSignal(false);
-
   // Editing state
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
@@ -313,23 +317,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [validationDropdownY, setValidationDropdownY] = createSignal(0);
   const [validationDropdownRow, setValidationDropdownRow] = createSignal(0);
   const [validationDropdownCol, setValidationDropdownCol] = createSignal(0);
-
-  // Comment tooltip state
-  const [commentTooltipVisible, setCommentTooltipVisible] = createSignal(false);
-  const [commentTooltipText, setCommentTooltipText] = createSignal('');
-  const [commentTooltipX, setCommentTooltipX] = createSignal(0);
-  const [commentTooltipY, setCommentTooltipY] = createSignal(0);
-  let commentHoverTimer: ReturnType<typeof setTimeout> | null = null;
-  let commentHoverCell: string | null = null;
-
-  // Comment editor state
-  const [commentEditorVisible, setCommentEditorVisible] = createSignal(false);
-  const [commentEditorText, setCommentEditorText] = createSignal('');
-  const [commentEditorRow, setCommentEditorRow] = createSignal(0);
-  const [commentEditorCol, setCommentEditorCol] = createSignal(0);
-  const [commentEditorX, setCommentEditorX] = createSignal(0);
-  const [commentEditorY, setCommentEditorY] = createSignal(0);
-  let commentEditorRef: HTMLTextAreaElement | undefined;
 
   // Formula click-to-reference state.
   // When editing a formula (value starts with '='), clicking a cell inserts a
@@ -397,6 +384,99 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       col = col * 26 + (letters.charCodeAt(i) - 64);
     }
     return { row: rowNum - 1, col: col - 1 };
+  }
+
+  /** Extract cell reference coordinates from a formula string. */
+  function extractPrecedents(formula: string): { row: number; col: number }[] {
+    if (!formula) return [];
+    const src = formula.startsWith('=') ? formula : `=${formula}`;
+    const refs = parseFormulaRefs(src);
+    const result: { row: number; col: number }[] = [];
+    for (const ref of refs) {
+      // For ranges, add just the top-left corner as representative
+      result.push({ row: ref.minRow, col: ref.minCol });
+      // If it's a range (not single cell), also add bottom-right
+      if (ref.minRow !== ref.maxRow || ref.minCol !== ref.maxCol) {
+        result.push({ row: ref.maxRow, col: ref.maxCol });
+      }
+    }
+    return result;
+  }
+
+  /** Find all cells in the visible area that reference a given cell. */
+  function findDependents(row: number, col: number): { row: number; col: number }[] {
+    const letter = col_to_letter(col);
+    const cellRef = `${letter}${row + 1}`;
+    const dependents: { row: number; col: number }[] = [];
+    // Search through cached cells for formulas referencing this cell
+    cellCache.forEach((cell, key) => {
+      if (!cell.formula) return;
+      // Check if the formula references this cell
+      const formula = cell.formula;
+      // Simple check: look for the cell reference pattern
+      const pattern = new RegExp(`\\b\\$?${letter}\\$?${row + 1}\\b`, 'i');
+      if (pattern.test(formula)) {
+        const [r, c] = key.split(':').map(Number);
+        dependents.push({ row: r, col: c });
+      }
+    });
+    return dependents;
+  }
+
+  /** Trace precedents: show arrows from referenced cells to the formula cell. */
+  function tracePrecedents() {
+    const row = selectedRow();
+    const col = selectedCol();
+    const cell = cellCache.get(`${row}:${col}`);
+    if (!cell?.formula) {
+      props.onStatusChange('No formula in selected cell');
+      setAuditArrows([]);
+      return;
+    }
+    const prec = extractPrecedents(cell.formula);
+    if (prec.length === 0) {
+      props.onStatusChange('No cell references found in formula');
+      setAuditArrows([]);
+      return;
+    }
+    const arrows: AuditArrow[] = prec.map((p) => ({
+      fromRow: p.row,
+      fromCol: p.col,
+      toRow: row,
+      toCol: col,
+    }));
+    setAuditArrows(arrows);
+    scheduleDraw();
+    props.onStatusChange(`Tracing ${prec.length} precedent${prec.length !== 1 ? 's' : ''}`);
+  }
+
+  /** Trace dependents: show arrows from this cell to all formulas that reference it. */
+  function traceDependents() {
+    const row = selectedRow();
+    const col = selectedCol();
+    const deps = findDependents(row, col);
+    if (deps.length === 0) {
+      props.onStatusChange('No dependents found for this cell');
+      setAuditArrows([]);
+      return;
+    }
+    const arrows: AuditArrow[] = deps.map((d) => ({
+      fromRow: row,
+      fromCol: col,
+      toRow: d.row,
+      toCol: d.col,
+    }));
+    setAuditArrows(arrows);
+    scheduleDraw();
+    props.onStatusChange(`Tracing ${deps.length} dependent${deps.length !== 1 ? 's' : ''}`);
+  }
+
+  /** Clear audit arrows. */
+  function clearAuditArrows() {
+    if (auditArrows().length > 0) {
+      setAuditArrows([]);
+      scheduleDraw();
+    }
   }
 
   // Custom column widths / row heights (col/row index -> px).
@@ -621,16 +701,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
-  /** Load sheet protection status from the backend. */
-  async function fetchSheetProtection() {
-    try {
-      const prot = await getSheetProtection(props.activeSheet);
-      setSheetProtected(prot?.is_protected ?? false);
-    } catch {
-      setSheetProtected(false);
-    }
-  }
-
   // -----------------------------------------------------------------------
   // Selection change with formula bar sync
   // -----------------------------------------------------------------------
@@ -661,12 +731,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // -----------------------------------------------------------------------
 
   function startEditing(clearContent: boolean) {
-    // Block editing in protected sheets
-    if (sheetProtected()) {
-      props.onStatusChange('This cell is protected and cannot be edited.');
-      return;
-    }
-
     // Clear marching ants when editing starts
     stopMarchingAnts();
     // Reset formula ref tracking
@@ -1717,6 +1781,53 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.lineWidth = 1;
       }
     }
+
+    // Draw formula audit arrows (trace precedents/dependents)
+    const arrows = auditArrows();
+    if (arrows.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = '#1a73e8';
+      ctx.fillStyle = '#1a73e8';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+
+      for (const arrow of arrows) {
+        // Compute center of source and target cells
+        const fromX = ROW_NUMBER_WIDTH + getColX(arrow.fromCol) + getColWidth(arrow.fromCol) / 2 - sx;
+        const fromY = HEADER_HEIGHT + getRowY(arrow.fromRow) + getRowHeight(arrow.fromRow) / 2 - sy;
+        const toX = ROW_NUMBER_WIDTH + getColX(arrow.toCol) + getColWidth(arrow.toCol) / 2 - sx;
+        const toY = HEADER_HEIGHT + getRowY(arrow.toRow) + getRowHeight(arrow.toRow) / 2 - sy;
+
+        // Draw line
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+
+        // Draw arrowhead at target
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        const headLen = 10;
+        ctx.beginPath();
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(
+          toX - headLen * Math.cos(angle - Math.PI / 6),
+          toY - headLen * Math.sin(angle - Math.PI / 6),
+        );
+        ctx.lineTo(
+          toX - headLen * Math.cos(angle + Math.PI / 6),
+          toY - headLen * Math.sin(angle + Math.PI / 6),
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw small circle at source
+        ctx.beginPath();
+        ctx.arc(fromX, fromY, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
   }
 
   /**
@@ -1908,12 +2019,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
         }
 
-        // Draw subtle protection tint when sheet is protected
-        if (sheetProtected()) {
-          ctx.fillStyle = 'rgba(128, 128, 128, 0.06)';
-          ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
-        }
-
         // Draw cell borders if set.
         if (cell?.borders) {
           const b = cell.borders;
@@ -1982,17 +2087,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             ctx.closePath();
             ctx.fill();
           }
-        }
-
-        // Draw comment/note indicator: small orange triangle in top-right corner
-        if (cell?.comment) {
-          ctx.fillStyle = '#F9AB00'; // Google-style orange/amber
-          ctx.beginPath();
-          ctx.moveTo(x + cw - 8, y + 1);
-          ctx.lineTo(x + cw - 1, y + 1);
-          ctx.lineTo(x + cw - 1, y + 8);
-          ctx.closePath();
-          ctx.fill();
         }
 
         // Skip text rendering for cells with no value
@@ -2622,31 +2716,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } else {
       containerRef.style.cursor = '';
     }
-
-    // Comment tooltip: show on hover after 500ms delay
-    const hit = hitTest(e.clientX, e.clientY);
-    const cellKey = hit ? `${hit.row}:${hit.col}` : null;
-    if (cellKey !== commentHoverCell) {
-      // Cancel previous tooltip timer
-      if (commentHoverTimer) {
-        clearTimeout(commentHoverTimer);
-        commentHoverTimer = null;
-      }
-      setCommentTooltipVisible(false);
-      commentHoverCell = cellKey;
-      if (cellKey && hit) {
-        const cell = cellCache.get(cellKey);
-        if (cell?.comment) {
-          const tooltipText = cell.comment;
-          commentHoverTimer = setTimeout(() => {
-            setCommentTooltipText(tooltipText);
-            setCommentTooltipX(localX + 12);
-            setCommentTooltipY(localY - 8);
-            setCommentTooltipVisible(true);
-          }, 500);
-        }
-      }
-    }
   }
 
   function handleDragMouseUp() {
@@ -3003,6 +3072,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (validationDropdownVisible()) {
       setValidationDropdownVisible(false);
     }
+    // Clear audit arrows on any click
+    clearAuditArrows();
 
     if (editing() && !isFormulaSelectionMode()) return; // let the editor handle clicks
     if (!containerRef) return;
@@ -3563,12 +3634,113 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Pasted formatting only');
   }
 
-  /** Clear all cells in the current selection. */
-  async function clearSelectedCells() {
-    if (sheetProtected()) {
-      props.onStatusChange('This cell is protected and cannot be edited.');
+  /** Paste with arithmetic operation: read clipboard + existing, compute result. */
+  async function handlePasteWithOperation(operation: PasteOperation) {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
       return;
     }
+    if (!text) return;
+
+    const rows = text.split('\n');
+    const startRow = selectedRow();
+    const startCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r].split('\t');
+      for (let c = 0; c < cols.length; c++) {
+        const cellRow = startRow + r;
+        const cellCol = startCol + c;
+        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+
+        const pastedVal = parseFloat(cols[c]);
+        if (isNaN(pastedVal)) continue; // Skip non-numeric pasted values
+
+        // Read existing cell value
+        const existing = cellCache.get(`${cellRow}:${cellCol}`);
+        const existingVal = parseFloat(existing?.value ?? '0');
+        const existingNum = isNaN(existingVal) ? 0 : existingVal;
+
+        let result: number;
+        switch (operation) {
+          case 'Add':
+            result = existingNum + pastedVal;
+            break;
+          case 'Subtract':
+            result = existingNum - pastedVal;
+            break;
+          case 'Multiply':
+            result = existingNum * pastedVal;
+            break;
+          case 'Divide':
+            result = pastedVal !== 0 ? existingNum / pastedVal : existingNum;
+            break;
+          default:
+            result = pastedVal;
+        }
+
+        promises.push(
+          setCell(props.activeSheet, cellRow, cellCol, String(result), undefined).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange(`Pasted with operation: ${operation}`);
+  }
+
+  /** Paste column widths only: apply source column widths to target columns. */
+  async function handlePasteColumnWidthsOnly() {
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      props.onStatusChange('Paste failed — clipboard access denied');
+      return;
+    }
+    if (!text) return;
+
+    // Determine the number of columns from the first row
+    const firstRow = text.split('\n')[0] ?? '';
+    const numCols = firstRow.split('\t').length;
+
+    // Use the copied range to get source column widths.
+    // If copiedRange is available, use the source column widths.
+    // Otherwise, use the current column widths from the clipboard data dimensions.
+    const targetStartCol = selectedCol();
+    const promises: Promise<void>[] = [];
+
+    for (let c = 0; c < numCols; c++) {
+      const targetCol = targetStartCol + c;
+      if (targetCol >= TOTAL_COLS) break;
+
+      // Get source column width from copiedRange if available
+      let srcWidth = DEFAULT_COL_WIDTH;
+      if (copiedRange) {
+        const srcCol = copiedRange.minCol + c;
+        srcWidth = getColWidth(srcCol);
+      }
+
+      // Apply width to target column
+      colWidths.set(targetCol, srcWidth);
+      promises.push(
+        tauriSetColWidth(props.activeSheet, targetCol, srcWidth).catch(() => {}),
+      );
+    }
+
+    await Promise.all(promises);
+    scheduleDraw();
+    props.onStatusChange('Pasted column widths');
+  }
+
+  /** Clear all cells in the current selection. */
+  async function clearSelectedCells() {
     const range = getSelectionRange();
     const promises: Promise<void>[] = [];
     for (let r = range.minRow; r <= range.maxRow; r++) {
@@ -3579,6 +3751,57 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     await Promise.all(promises);
     lastFetchKey = '';
     fetchVisibleData();
+  }
+
+  /** Transpose the selected range in place. */
+  async function transposeSelection() {
+    const range = getSelectionRange();
+    const numRows = range.maxRow - range.minRow + 1;
+    const numCols = range.maxCol - range.minCol + 1;
+
+    // Read the source data
+    let data: (import('../../bridge/tauri').CellData | null)[][];
+    try {
+      data = await getRange(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol);
+    } catch {
+      props.onStatusChange('Transpose failed: could not read range');
+      return;
+    }
+
+    const promises: Promise<void>[] = [];
+
+    // Clear the original area first (in case transposed is smaller/larger)
+    const clearRows = Math.max(numRows, numCols);
+    const clearCols = Math.max(numRows, numCols);
+    for (let r = 0; r < clearRows; r++) {
+      for (let c = 0; c < clearCols; c++) {
+        const row = range.minRow + r;
+        const col = range.minCol + c;
+        if (row >= TOTAL_ROWS || col >= TOTAL_COLS) continue;
+        promises.push(setCell(props.activeSheet, row, col, '', undefined).catch(() => {}));
+      }
+    }
+
+    // Write transposed data: source (r,c) -> target (c,r)
+    for (let r = 0; r < numRows; r++) {
+      for (let c = 0; c < numCols; c++) {
+        const targetRow = range.minRow + c;
+        const targetCol = range.minCol + r;
+        if (targetRow >= TOTAL_ROWS || targetCol >= TOTAL_COLS) continue;
+        const cell = data[r]?.[c];
+        if (!cell) continue;
+        const value = cell.formula ? `=${cell.formula}` : cell.value;
+        const formula = cell.formula ?? undefined;
+        promises.push(
+          setCell(props.activeSheet, targetRow, targetCol, value, formula).catch(() => {}),
+        );
+      }
+    }
+
+    await Promise.all(promises);
+    lastFetchKey = '';
+    fetchVisibleData();
+    props.onStatusChange(`Transposed ${numRows}x${numCols} to ${numCols}x${numRows}`);
   }
 
   // -----------------------------------------------------------------------
@@ -3663,74 +3886,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       props.onStatusChange(`Set ${value}`);
     } catch {
       props.onStatusChange('Failed to set value');
-    }
-  }
-
-  /** Open the comment editor for a specific cell. */
-  function openCommentEditor(row: number, col: number) {
-    const fc = props.frozenCols ?? 0;
-    const fr = props.frozenRows ?? 0;
-    const sx = col < fc ? 0 : scrollX();
-    const sy = row < fr ? 0 : scrollY();
-    const cellX = ROW_NUMBER_WIDTH + getColX(col) - sx + getColWidth(col);
-    const cellY = HEADER_HEIGHT + getRowY(row) - sy;
-    setCommentEditorRow(row);
-    setCommentEditorCol(col);
-    setCommentEditorX(cellX);
-    setCommentEditorY(cellY);
-    const cell = cellCache.get(`${row}:${col}`);
-    setCommentEditorText(cell?.comment ?? '');
-    setCommentEditorVisible(true);
-    // Focus the textarea after it renders
-    requestAnimationFrame(() => commentEditorRef?.focus());
-  }
-
-  /** Save the current comment editor contents to the backend. */
-  async function saveComment() {
-    const row = commentEditorRow();
-    const col = commentEditorCol();
-    const text = commentEditorText().trim();
-    setCommentEditorVisible(false);
-    containerRef?.focus();
-    if (!text) {
-      // Empty text = remove comment
-      try {
-        await tauriRemoveComment(props.activeSheet, row, col);
-        const cell = cellCache.get(`${row}:${col}`);
-        if (cell) cell.comment = undefined;
-        draw();
-        props.onStatusChange('Note removed');
-      } catch { /* ignore */ }
-      return;
-    }
-    try {
-      await setComment(props.activeSheet, row, col, text);
-      // Update cache
-      const cell = cellCache.get(`${row}:${col}`);
-      if (cell) {
-        cell.comment = text;
-      }
-      draw();
-      props.onStatusChange(`Note: ${text.substring(0, 40)}${text.length > 40 ? '...' : ''}`);
-    } catch {
-      props.onStatusChange('Failed to save note');
-    }
-  }
-
-  /** Delete the comment on the cell currently being edited. */
-  async function deleteComment() {
-    const row = commentEditorRow();
-    const col = commentEditorCol();
-    setCommentEditorVisible(false);
-    containerRef?.focus();
-    try {
-      await tauriRemoveComment(props.activeSheet, row, col);
-      const cell = cellCache.get(`${row}:${col}`);
-      if (cell) cell.comment = undefined;
-      draw();
-      props.onStatusChange('Note deleted');
-    } catch {
-      props.onStatusChange('Failed to delete note');
     }
   }
 
@@ -4007,21 +4162,19 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     if (editing()) return; // editor handles its own keys
 
-    // Escape: clear marching ants (copy indicator)
+    // Escape: clear audit arrows, then clear marching ants (copy indicator)
     if (e.key === 'Escape') {
+      if (auditArrows().length > 0) {
+        e.preventDefault();
+        clearAuditArrows();
+        return;
+      }
       if (copiedRange) {
         e.preventDefault();
         stopMarchingAnts();
         draw();
         return;
       }
-    }
-
-    // Shift+F2: open note editor for the current cell
-    if (e.key === 'F2' && e.shiftKey) {
-      e.preventDefault();
-      openCommentEditor(selectedRow(), selectedCol());
-      return;
     }
 
     // F2 enters edit mode without clearing
@@ -4461,6 +4614,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             props.onStatusChange('Copied formula from above');
           }
         }
+        return;
+      }
+      // Cmd+[: trace precedents
+      if (e.key === '[') {
+        e.preventDefault();
+        tracePrecedents();
+        return;
+      }
+      // Cmd+]: trace dependents
+      if (e.key === ']') {
+        e.preventDefault();
+        traceDependents();
         return;
       }
       // Cmd+Shift+E: center align
@@ -4932,13 +5097,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     darkModeQuery.addEventListener('change', handleColorSchemeChange);
     onCleanup(() => darkModeQuery.removeEventListener('change', handleColorSchemeChange));
 
-    // Clean up drag listeners, marching ants, and comment tooltip on unmount
+    // Clean up drag listeners and marching ants on unmount
     onCleanup(() => {
       stopMarchingAnts();
-      if (commentHoverTimer) {
-        clearTimeout(commentHoverTimer);
-        commentHoverTimer = null;
-      }
       if (isDragging) {
         isDragging = false;
         document.removeEventListener('mousemove', handleMouseMove);
@@ -4968,13 +5129,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
-    // Load validation rules, hidden rows, hidden cols, conditional formats, row groups, and protection
+    // Load validation rules, hidden rows, hidden cols, conditional formats, and row groups
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
-    fetchSheetProtection();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -4989,7 +5149,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
-    // Reload persisted sizes, validations, and protection for new sheet
+    // Reload persisted sizes and validations for new sheet
     loadPersistedSizes();
     validationsFetched = false;
     fetchValidations();
@@ -4997,7 +5157,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
-    fetchSheetProtection();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -5025,23 +5184,32 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   createEffect(() => {
     const mode = props.pasteSpecialMode;
     if (!mode) return;
+    const operation = props.pasteSpecialOperation ?? 'None';
     const run = async () => {
-      switch (mode) {
-        case 'All':
-          await handlePaste();
-          break;
-        case 'ValuesOnly':
-          await handlePasteValuesOnly();
-          break;
-        case 'FormulasOnly':
-          await handlePasteFormulasOnly();
-          break;
-        case 'FormattingOnly':
-          await handlePasteFormattingOnly();
-          break;
-        case 'Transposed':
-          await handlePasteTransposed();
-          break;
+      // If an arithmetic operation is selected, use the operation handler
+      if (operation !== 'None' && (mode === 'All' || mode === 'ValuesOnly')) {
+        await handlePasteWithOperation(operation);
+      } else {
+        switch (mode) {
+          case 'All':
+            await handlePaste();
+            break;
+          case 'ValuesOnly':
+            await handlePasteValuesOnly();
+            break;
+          case 'FormulasOnly':
+            await handlePasteFormulasOnly();
+            break;
+          case 'FormattingOnly':
+            await handlePasteFormattingOnly();
+            break;
+          case 'Transposed':
+            await handlePasteTransposed();
+            break;
+          case 'ColumnWidthsOnly':
+            await handlePasteColumnWidthsOnly();
+            break;
+        }
       }
       props.onPasteSpecialDone?.();
     };
@@ -5204,10 +5372,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => {
               dismissContextMenu();
-              openCommentEditor(selectedRow(), selectedCol());
+              const note = window.prompt('Enter note:');
+              if (note !== null) {
+                const row = selectedRow();
+                const col = selectedCol();
+                const cell = cellCache.get(`${row}:${col}`);
+                const currentVal = cell?.value ?? '';
+                // Store note as a cell comment (append to value if needed, or just set)
+                // For now, set the note text as the cell value if cell is empty, otherwise just status
+                if (!currentVal) {
+                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
+                  lastFetchKey = '';
+                  fetchVisibleData();
+                  props.onContentChange(note);
+                }
+                props.onStatusChange(`Note: ${note}`);
+              }
             }}
           >
-            {cellCache.get(`${selectedRow()}:${selectedCol()}`)?.comment ? 'Edit note' : 'Insert note'}
+            Insert note
           </div>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxInsertRowAbove}>
@@ -5270,6 +5453,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           <div class="context-menu-item" onClick={ctxClearContents}>
             Clear contents
           </div>
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); void transposeSelection(); }}>
+            Transpose
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); tracePrecedents(); }}>
+            <span>Trace precedents</span><span class="context-menu-shortcut">{'\u2318'}[</span>
+          </div>
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); traceDependents(); }}>
+            <span>Trace dependents</span><span class="context-menu-shortcut">{'\u2318'}]</span>
+          </div>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>
             Format cells...
@@ -5297,120 +5490,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               {item}
             </div>
           ))}
-        </div>
-      </Show>
-      <Show when={commentTooltipVisible()}>
-        <div
-          class="comment-tooltip"
-          style={{
-            position: 'absolute',
-            left: `${commentTooltipX()}px`,
-            top: `${commentTooltipY()}px`,
-            background: '#FFF9C4',
-            color: '#333',
-            padding: '6px 10px',
-            'border-radius': '4px',
-            'font-size': '12px',
-            'max-width': '250px',
-            'white-space': 'pre-wrap',
-            'word-break': 'break-word',
-            'box-shadow': '0 2px 8px rgba(0,0,0,0.18)',
-            'pointer-events': 'none',
-            'z-index': '1000',
-            border: '1px solid #F0E68C',
-          }}
-        >
-          {commentTooltipText()}
-        </div>
-      </Show>
-      <Show when={commentEditorVisible()}>
-        <div
-          class="comment-editor"
-          style={{
-            position: 'absolute',
-            left: `${commentEditorX()}px`,
-            top: `${commentEditorY()}px`,
-            background: '#FFF9C4',
-            border: '1px solid #F0E68C',
-            'border-radius': '4px',
-            'box-shadow': '0 2px 8px rgba(0,0,0,0.18)',
-            'z-index': '1001',
-            padding: '8px',
-            display: 'flex',
-            'flex-direction': 'column',
-            gap: '6px',
-            'min-width': '200px',
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <textarea
-            ref={commentEditorRef}
-            style={{
-              width: '200px',
-              height: '60px',
-              resize: 'vertical',
-              border: '1px solid #ccc',
-              'border-radius': '3px',
-              padding: '4px',
-              'font-size': '12px',
-              'font-family': 'inherit',
-            }}
-            value={commentEditorText()}
-            onInput={(e) => setCommentEditorText(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                setCommentEditorVisible(false);
-                containerRef?.focus();
-              } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                saveComment();
-              }
-              e.stopPropagation();
-            }}
-          />
-          <div style={{ display: 'flex', gap: '4px', 'justify-content': 'flex-end' }}>
-            <button
-              style={{
-                padding: '3px 10px',
-                'font-size': '11px',
-                border: '1px solid #ccc',
-                'border-radius': '3px',
-                background: '#fff',
-                cursor: 'pointer',
-              }}
-              onClick={() => { deleteComment(); }}
-            >
-              Delete
-            </button>
-            <button
-              style={{
-                padding: '3px 10px',
-                'font-size': '11px',
-                border: '1px solid #ccc',
-                'border-radius': '3px',
-                background: '#fff',
-                cursor: 'pointer',
-              }}
-              onClick={() => { setCommentEditorVisible(false); containerRef?.focus(); }}
-            >
-              Cancel
-            </button>
-            <button
-              style={{
-                padding: '3px 10px',
-                'font-size': '11px',
-                border: 'none',
-                'border-radius': '3px',
-                background: '#1a73e8',
-                color: '#fff',
-                cursor: 'pointer',
-              }}
-              onClick={() => { saveComment(); }}
-            >
-              Save
-            </button>
-          </div>
         </div>
       </Show>
     </div>

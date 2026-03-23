@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, For } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 
 /** Paste mode matching the Rust PasteMode enum. */
 export type PasteMode =
@@ -7,7 +7,16 @@ export type PasteMode =
   | 'ValuesOnly'
   | 'FormulasOnly'
   | 'FormattingOnly'
-  | 'Transposed';
+  | 'Transposed'
+  | 'ColumnWidthsOnly';
+
+/** Arithmetic operation to apply during paste. */
+export type PasteOperation =
+  | 'None'
+  | 'Add'
+  | 'Subtract'
+  | 'Multiply'
+  | 'Divide';
 
 /** Radio option metadata. */
 interface PasteModeOption {
@@ -16,26 +25,42 @@ interface PasteModeOption {
   description: string;
 }
 
+/** Operation option metadata. */
+interface PasteOperationOption {
+  value: PasteOperation;
+  label: string;
+}
+
 const PASTE_MODES: PasteModeOption[] = [
   { value: 'All', label: 'All', description: 'Values, formulas, and formatting' },
   { value: 'ValuesOnly', label: 'Values only', description: 'Paste values without formulas' },
   { value: 'FormulasOnly', label: 'Formulas only', description: 'Paste formulas without formatting' },
   { value: 'FormattingOnly', label: 'Formatting only', description: 'Apply formatting without changing values' },
   { value: 'Transposed', label: 'Transposed', description: 'Swap rows and columns' },
+  { value: 'ColumnWidthsOnly', label: 'Column widths only', description: 'Copy column widths to target columns' },
+];
+
+const PASTE_OPERATIONS: PasteOperationOption[] = [
+  { value: 'None', label: 'None' },
+  { value: 'Add', label: 'Add' },
+  { value: 'Subtract', label: 'Subtract' },
+  { value: 'Multiply', label: 'Multiply' },
+  { value: 'Divide', label: 'Divide' },
 ];
 
 export interface PasteSpecialDialogProps {
-  /** Called when the user confirms the paste with the selected mode. */
-  onPaste: (mode: PasteMode) => void;
+  /** Called when the user confirms the paste with the selected mode and operation. */
+  onPaste: (mode: PasteMode, operation: PasteOperation) => void;
   /** Called when the dialog is cancelled/closed. */
   onClose: () => void;
 }
 
 const PasteSpecialDialog: Component<PasteSpecialDialogProps> = (props) => {
   const [selectedMode, setSelectedMode] = createSignal<PasteMode>('All');
+  const [selectedOperation, setSelectedOperation] = createSignal<PasteOperation>('None');
 
   const handlePaste = () => {
-    props.onPaste(selectedMode());
+    props.onPaste(selectedMode(), selectedOperation());
   };
 
   const handleBackdropClick = (e: MouseEvent) => {
@@ -53,6 +78,12 @@ const PasteSpecialDialog: Component<PasteSpecialDialogProps> = (props) => {
       e.preventDefault();
       handlePaste();
     }
+  };
+
+  /** Operations only apply to value-based paste modes. */
+  const showOperations = () => {
+    const mode = selectedMode();
+    return mode === 'All' || mode === 'ValuesOnly';
   };
 
   return (
@@ -97,7 +128,13 @@ const PasteSpecialDialog: Component<PasteSpecialDialogProps> = (props) => {
                       name="paste-mode"
                       value={option.value}
                       checked={selectedMode() === option.value}
-                      onChange={() => setSelectedMode(option.value)}
+                      onChange={() => {
+                        setSelectedMode(option.value);
+                        // Reset operation when switching to non-value mode
+                        if (option.value !== 'All' && option.value !== 'ValuesOnly') {
+                          setSelectedOperation('None');
+                        }
+                      }}
                     />
                     <div class="paste-special-option-content">
                       <span class="paste-special-option-label">{option.label}</span>
@@ -108,6 +145,30 @@ const PasteSpecialDialog: Component<PasteSpecialDialogProps> = (props) => {
               </For>
             </div>
           </div>
+
+          <Show when={showOperations()}>
+            <div class="paste-special-field" style={{ "margin-top": "12px" }}>
+              <label class="paste-special-label">Operation</label>
+              <div class="paste-special-operations">
+                <For each={PASTE_OPERATIONS}>
+                  {(option) => (
+                    <label
+                      class={`paste-special-operation ${selectedOperation() === option.value ? 'selected' : ''}`}
+                    >
+                      <input
+                        type="radio"
+                        name="paste-operation"
+                        value={option.value}
+                        checked={selectedOperation() === option.value}
+                        onChange={() => setSelectedOperation(option.value)}
+                      />
+                      <span class="paste-special-operation-label">{option.label}</span>
+                    </label>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
         </div>
 
         <div class="paste-special-footer">
