@@ -49,6 +49,8 @@ pub struct CellData {
     pub font_family: String,
     /// Horizontal alignment: "left", "center", or "right".
     pub h_align: String,
+    /// Vertical alignment: "top", "middle", or "bottom".
+    pub v_align: String,
     /// Font size in points.
     pub font_size: f64,
     /// Text wrapping mode: "Overflow", "Wrap", or "Clip".
@@ -265,6 +267,11 @@ fn cell_to_data(c: &lattice_core::Cell) -> CellData {
             lattice_core::HAlign::Left => "left".to_string(),
             lattice_core::HAlign::Center => "center".to_string(),
             lattice_core::HAlign::Right => "right".to_string(),
+        },
+        v_align: match c.format.v_align {
+            lattice_core::VAlign::Top => "top".to_string(),
+            lattice_core::VAlign::Middle => "middle".to_string(),
+            lattice_core::VAlign::Bottom => "bottom".to_string(),
         },
         font_size: c.format.font_size,
         text_wrap: match c.format.text_wrap {

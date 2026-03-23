@@ -28,6 +28,7 @@ export interface CellData {
   bg_color: string | null;
   font_family: string;
   h_align: string;
+  v_align: string;
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
@@ -388,34 +389,6 @@ export async function exportHtml(sheet: string): Promise<string> {
   return invoke('export_html', { sheet });
 }
 
-/** Print settings passed to the export_html command for print preview. */
-export interface PrintSettingsParams {
-  paperSize?: string;
-  orientation?: string;
-  showGridlines?: boolean;
-  showHeaders?: boolean;
-  scale?: number;
-  margins?: string;
-  customMargins?: [number, number, number, number];
-}
-
-/** Export print-ready HTML with optional print settings. */
-export async function exportPrintHtml(
-  sheet: string,
-  settings?: PrintSettingsParams,
-): Promise<string> {
-  return invoke('export_html', {
-    sheet,
-    paperSize: settings?.paperSize,
-    orientation: settings?.orientation,
-    showGridlines: settings?.showGridlines,
-    showHeaders: settings?.showHeaders,
-    scale: settings?.scale,
-    margins: settings?.margins,
-    customMargins: settings?.customMargins,
-  });
-}
-
 export async function newWorkbook(): Promise<WorkbookInfo> {
   return invoke('new_workbook');
 }
@@ -475,7 +448,12 @@ export type ChartTypeStr =
   | 'area'
   | 'combo'
   | 'histogram'
-  | 'candlestick';
+  | 'candlestick'
+  | 'treemap'
+  | 'waterfall'
+  | 'radar'
+  | 'bubble'
+  | 'gauge';
 
 export async function createChart(
   sheet: string,
@@ -724,38 +702,6 @@ export async function getRowGroups(
 }
 
 // ---------------------------------------------------------------------------
-// Column group commands
-// ---------------------------------------------------------------------------
-
-export async function addColGroup(
-  sheet: string,
-  start: number,
-  end: number,
-): Promise<void> {
-  return invoke('add_col_group', { sheet, start, end });
-}
-
-export async function removeColGroup(
-  sheet: string,
-  index: number,
-): Promise<void> {
-  return invoke('remove_col_group', { sheet, index });
-}
-
-export async function toggleColGroup(
-  sheet: string,
-  index: number,
-): Promise<boolean> {
-  return invoke('toggle_col_group', { sheet, index });
-}
-
-export async function getColGroups(
-  sheet: string,
-): Promise<RowGroupData[]> {
-  return invoke('get_col_groups', { sheet });
-}
-
-// ---------------------------------------------------------------------------
 // Named range commands
 // ---------------------------------------------------------------------------
 
@@ -794,11 +740,17 @@ export async function resolveNamedRange(
 
 /** Rule type input for adding conditional format rules. */
 export interface RuleTypeInput {
-  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error'
+  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error' | 'color_scale' | 'data_bar' | 'icon_set'
   operator?: string; // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between'
   value1?: number;
   value2?: number;
   text?: string;
+  min_color?: string;
+  max_color?: string;
+  mid_color?: string;
+  bar_color?: string;
+  icons?: string[];
+  thresholds?: number[];
 }
 
 /** Style to apply when a conditional format rule matches. */
@@ -825,6 +777,18 @@ export interface RuleOutput {
   value2?: number | null;
   /** Text needle for text_contains rules. */
   text?: string | null;
+  /** Minimum color for color_scale rules. */
+  min_color?: string | null;
+  /** Maximum color for color_scale rules. */
+  max_color?: string | null;
+  /** Optional midpoint color for color_scale rules. */
+  mid_color?: string | null;
+  /** Bar color for data_bar rules. */
+  bar_color?: string | null;
+  /** Icons for icon_set rules. */
+  icons?: string[] | null;
+  /** Thresholds for icon_set rules. */
+  thresholds?: number[] | null;
 }
 
 /** A conditional format range (from list). */
@@ -878,30 +842,4 @@ export async function removeConditionalFormat(
     endCol,
     ruleIndex,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Version history commands
-// ---------------------------------------------------------------------------
-
-/** Version info returned from the backend. */
-export interface VersionInfo {
-  index: number;
-  timestamp: number;
-  description: string;
-  size: number;
-}
-
-export async function saveVersion(description: string): Promise<void> {
-  return invoke('save_version', { description });
-}
-
-export async function listVersions(): Promise<VersionInfo[]> {
-  return invoke('list_versions');
-}
-
-export async function restoreVersion(
-  index: number,
-): Promise<{ sheets: string[]; active_sheet: string }> {
-  return invoke('restore_version', { index });
 }

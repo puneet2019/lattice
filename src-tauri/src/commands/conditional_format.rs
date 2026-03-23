@@ -10,7 +10,8 @@ use crate::state::AppState;
 /// Frontend-facing rule type description.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RuleTypeInput {
-    /// "cell_value", "text_contains", "is_blank", "is_not_blank", "is_error"
+    /// "cell_value", "text_contains", "is_blank", "is_not_blank", "is_error",
+    /// "color_scale", "data_bar", "icon_set"
     pub kind: String,
     /// Comparison operator for cell_value rules: ">", "<", ">=", "<=", "=", "!=", "between"
     pub operator: Option<String>,
@@ -20,6 +21,18 @@ pub struct RuleTypeInput {
     pub value2: Option<f64>,
     /// Text needle for text_contains rules
     pub text: Option<String>,
+    /// Minimum color for color_scale rules (CSS hex string)
+    pub min_color: Option<String>,
+    /// Maximum color for color_scale rules (CSS hex string)
+    pub max_color: Option<String>,
+    /// Optional midpoint color for color_scale rules (CSS hex string)
+    pub mid_color: Option<String>,
+    /// Bar color for data_bar rules (CSS hex string)
+    pub bar_color: Option<String>,
+    /// Icons for icon_set rules (e.g. ["↑", "→", "↓"])
+    pub icons: Option<Vec<String>>,
+    /// Thresholds for icon_set rules
+    pub thresholds: Option<Vec<f64>>,
 }
 
 /// Frontend-facing style to apply when a rule matches.
@@ -48,6 +61,18 @@ pub struct RuleOutput {
     pub value2: Option<f64>,
     /// Text needle for text_contains rules.
     pub text: Option<String>,
+    /// Minimum color for color_scale rules.
+    pub min_color: Option<String>,
+    /// Maximum color for color_scale rules.
+    pub max_color: Option<String>,
+    /// Optional midpoint color for color_scale rules.
+    pub mid_color: Option<String>,
+    /// Bar color for data_bar rules.
+    pub bar_color: Option<String>,
+    /// Icons for icon_set rules.
+    pub icons: Option<Vec<String>>,
+    /// Thresholds for icon_set rules.
+    pub thresholds: Option<Vec<f64>>,
 }
 
 /// Serialized conditional format range for listing.
@@ -148,6 +173,23 @@ fn parse_rule(input: RuleTypeInput, style_input: StyleInput) -> Result<Condition
         "is_blank" => ConditionalRuleType::IsBlank,
         "is_not_blank" => ConditionalRuleType::IsNotBlank,
         "is_error" => ConditionalRuleType::IsError,
+        "color_scale" => ConditionalRuleType::ColorScale {
+            min_color: input.min_color.unwrap_or_else(|| "#ffffff".to_string()),
+            max_color: input.max_color.unwrap_or_else(|| "#ff0000".to_string()),
+            mid_color: input.mid_color,
+        },
+        "data_bar" => ConditionalRuleType::DataBar {
+            color: input.bar_color.unwrap_or_else(|| "#4285f4".to_string()),
+            max_length_percent: 100,
+        },
+        "icon_set" => ConditionalRuleType::IconSet {
+            icons: input.icons.unwrap_or_else(|| vec![
+                "\u{2191}".to_string(),
+                "\u{2192}".to_string(),
+                "\u{2193}".to_string(),
+            ]),
+            thresholds: input.thresholds.unwrap_or_else(|| vec![67.0, 33.0]),
+        },
         _ => return Err(format!("Unknown rule kind: {}", input.kind)),
     };
 
@@ -192,6 +234,66 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
         ConditionalRuleType::IsBlank => ("is_blank".to_string(), "Cell is blank".to_string(), None, None, None, None),
         ConditionalRuleType::IsNotBlank => ("is_not_blank".to_string(), "Cell is not blank".to_string(), None, None, None, None),
         ConditionalRuleType::IsError => ("is_error".to_string(), "Cell is error".to_string(), None, None, None, None),
+        ConditionalRuleType::ColorScale { min_color, max_color, mid_color } => {
+            return RuleOutput {
+                kind: "color_scale".to_string(),
+                description: format!("Color scale: {} to {}", min_color, max_color),
+                bold: rule.style.bold,
+                italic: rule.style.italic,
+                font_color: rule.style.font_color.clone(),
+                bg_color: rule.style.bg_color.clone(),
+                operator: None,
+                value1: None,
+                value2: None,
+                text: None,
+                min_color: Some(min_color.clone()),
+                max_color: Some(max_color.clone()),
+                mid_color: mid_color.clone(),
+                bar_color: None,
+                icons: None,
+                thresholds: None,
+            };
+        }
+        ConditionalRuleType::DataBar { color, .. } => {
+            return RuleOutput {
+                kind: "data_bar".to_string(),
+                description: format!("Data bar: {}", color),
+                bold: rule.style.bold,
+                italic: rule.style.italic,
+                font_color: rule.style.font_color.clone(),
+                bg_color: rule.style.bg_color.clone(),
+                operator: None,
+                value1: None,
+                value2: None,
+                text: None,
+                min_color: None,
+                max_color: None,
+                mid_color: None,
+                bar_color: Some(color.clone()),
+                icons: None,
+                thresholds: None,
+            };
+        }
+        ConditionalRuleType::IconSet { icons, thresholds } => {
+            return RuleOutput {
+                kind: "icon_set".to_string(),
+                description: format!("Icon set: {}", icons.join(" ")),
+                bold: rule.style.bold,
+                italic: rule.style.italic,
+                font_color: rule.style.font_color.clone(),
+                bg_color: rule.style.bg_color.clone(),
+                operator: None,
+                value1: None,
+                value2: None,
+                text: None,
+                min_color: None,
+                max_color: None,
+                mid_color: None,
+                bar_color: None,
+                icons: Some(icons.clone()),
+                thresholds: Some(thresholds.clone()),
+            };
+        }
         _ => ("other".to_string(), "Custom rule".to_string(), None, None, None, None),
     };
 
@@ -206,5 +308,11 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
         value1,
         value2,
         text,
+        min_color: None,
+        max_color: None,
+        mid_color: None,
+        bar_color: None,
+        icons: None,
+        thresholds: None,
     }
 }

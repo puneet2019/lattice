@@ -22,7 +22,6 @@ import SortDialog from './components/SortDialog';
 import NamedRangesDialog from './components/NamedRangesDialog';
 import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import PrintPreviewDialog from './components/PrintPreviewDialog';
-import VersionHistoryDialog from './components/VersionHistoryDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -307,7 +306,6 @@ const App: Component = () => {
     file_export_tsv: handleExportTsv,
     file_export_pdf: handleExportPdf,
     file_print: () => { setShowPrintPreview(true); },
-    file_version_history: () => { setShowVersionHistory(true); },
 
     // -- Edit ---------------------------------------------------------------
     edit_undo: () => {
@@ -859,6 +857,11 @@ const App: Component = () => {
     setStatusMessage(`Align: ${align}`);
   };
 
+  const handleVAlign = (align: 'top' | 'middle' | 'bottom') => {
+    applyFormat({ v_align: align });
+    setStatusMessage(`Vertical align: ${align}`);
+  };
+
   const handleNumberFormat = (fmt: string) => {
     applyFormat({ number_format: fmt });
     setStatusMessage(`Number format: ${fmt}`);
@@ -1164,7 +1167,6 @@ const App: Component = () => {
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = createSignal(false);
   const [showPrintPreview, setShowPrintPreview] = createSignal(false);
-  const [showVersionHistory, setShowVersionHistory] = createSignal(false);
   const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
@@ -1214,6 +1216,7 @@ const App: Component = () => {
         onBgColor={handleBgColor}
         onBorders={handleBorders}
         onAlign={handleAlign}
+        onVAlign={handleVAlign}
         onTextWrap={handleTextWrap}
         onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}
@@ -1296,7 +1299,6 @@ const App: Component = () => {
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onZoomReset={handleZoomReset}
-          onZoomChange={handleZoomChange}
           onPasteSpecialOpen={handlePasteSpecialOpen}
           pasteSpecialMode={pasteSpecialMode()}
           onPasteSpecialDone={handlePasteSpecialDone}
@@ -1421,19 +1423,6 @@ const App: Component = () => {
       </Show>
       <Show when={showKeyboardShortcuts()}>
         <KeyboardShortcutsDialog onClose={() => setShowKeyboardShortcuts(false)} />
-      </Show>
-      <Show when={showVersionHistory()}>
-        <VersionHistoryDialog
-          onClose={() => setShowVersionHistory(false)}
-          onRestore={(info) => {
-            setSheets(info.sheets);
-            setActiveSheetLocal(info.active_sheet);
-            void setActiveSheet(info.active_sheet);
-            setRefreshTrigger((n) => n + 1);
-            markDirty();
-          }}
-          onStatusChange={setStatusMessage}
-        />
       </Show>
       <Show when={showPrintPreview()}>
         <PrintPreviewDialog

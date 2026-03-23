@@ -13,6 +13,7 @@ export interface ToolbarProps {
   onBgColor: (color: string) => void;
   onBorders: (borders: BordersUpdate) => void;
   onAlign: (align: 'left' | 'center' | 'right') => void;
+  onVAlign: (align: 'top' | 'middle' | 'bottom') => void;
   onTextWrap: (wrap: 'Overflow' | 'Wrap' | 'Clip') => void;
   onNumberFormat: (format: string) => void;
   onUndo: () => void;
@@ -493,6 +494,31 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="6" y1="8" x2="14" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
+        </svg>
+      </button>
+
+      <div class="toolbar-separator" />
+
+      {/* Vertical Alignment */}
+      <button class="toolbar-btn" title="Align top" aria-label="Align top" onClick={() => props.onVAlign('top')}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="2" y1="3" x2="14" y2="3" />
+          <line x1="5" y1="7" x2="11" y2="7" />
+          <line x1="6" y1="10" x2="10" y2="10" />
+        </svg>
+      </button>
+      <button class="toolbar-btn" title="Align middle" aria-label="Align middle" onClick={() => props.onVAlign('middle')}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="6" y1="4" x2="10" y2="4" />
+          <line x1="4" y1="8" x2="12" y2="8" />
+          <line x1="6" y1="12" x2="10" y2="12" />
+        </svg>
+      </button>
+      <button class="toolbar-btn" title="Align bottom" aria-label="Align bottom" onClick={() => props.onVAlign('bottom')}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="6" y1="6" x2="10" y2="6" />
+          <line x1="5" y1="9" x2="11" y2="9" />
+          <line x1="2" y1="13" x2="14" y2="13" />
         </svg>
       </button>
 

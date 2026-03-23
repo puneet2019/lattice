@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{Border, BorderStyle, CellFormat, HAlign, Operation, TextWrap};
+use lattice_core::{Border, BorderStyle, CellFormat, HAlign, Operation, TextWrap, VAlign};
 
 use crate::state::AppState;
 
@@ -33,6 +33,7 @@ pub struct FormatUpdate {
     pub font_color: Option<String>,
     pub bg_color: Option<String>,
     pub h_align: Option<String>,
+    pub v_align: Option<String>,
     pub number_format: Option<String>,
     pub text_wrap: Option<String>,
     pub borders: Option<BordersUpdate>,
@@ -101,6 +102,13 @@ pub async fn format_cells(
                     "center" => HAlign::Center,
                     "right" => HAlign::Right,
                     _ => HAlign::Left,
+                };
+            }
+            if let Some(ref align) = format.v_align {
+                cell.format.v_align = match align.as_str() {
+                    "top" => VAlign::Top,
+                    "middle" => VAlign::Middle,
+                    _ => VAlign::Bottom,
                 };
             }
             if let Some(ref nf) = format.number_format {

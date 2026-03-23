@@ -23,6 +23,9 @@ const RULE_KINDS = [
   { label: 'Is blank', value: 'is_blank' },
   { label: 'Is not blank', value: 'is_not_blank' },
   { label: 'Is error', value: 'is_error' },
+  { label: 'Color scale', value: 'color_scale' },
+  { label: 'Data bar', value: 'data_bar' },
+  { label: 'Icon set', value: 'icon_set' },
 ];
 const OPERATORS = [
   { label: 'Greater than', value: '>' },  { label: 'Less than', value: '<' },
@@ -53,6 +56,17 @@ const ConditionalFormatDialog: Component<ConditionalFormatDialogProps> = (props)
   const [styleItalic, setStyleItalic] = createSignal(false);
   const [styleFontColor, setStyleFontColor] = createSignal('');
   const [styleBgColor, setStyleBgColor] = createSignal('');
+
+  // Color scale state
+  const [csMinColor, setCsMinColor] = createSignal('#ffffff');
+  const [csMidColor, setCsMidColor] = createSignal('');
+  const [csMaxColor, setCsMaxColor] = createSignal('#ff0000');
+
+  // Data bar state
+  const [dbColor, setDbColor] = createSignal('#4285f4');
+
+  // Icon set state
+  const [iconSetPreset, setIconSetPreset] = createSignal('arrows');
 
   const rangeLabel = () => {
     const [r1, c1, r2, c2] = props.selRange;
@@ -86,13 +100,31 @@ const ConditionalFormatDialog: Component<ConditionalFormatDialogProps> = (props)
       }
     } else if (kind === 'text_contains') {
       ruleType.text = textNeedle();
+    } else if (kind === 'color_scale') {
+      ruleType.min_color = csMinColor();
+      ruleType.max_color = csMaxColor();
+      if (csMidColor()) ruleType.mid_color = csMidColor();
+    } else if (kind === 'data_bar') {
+      ruleType.bar_color = dbColor();
+    } else if (kind === 'icon_set') {
+      const presets: Record<string, { icons: string[]; thresholds: number[] }> = {
+        arrows: { icons: ['\u2191', '\u2192', '\u2193'], thresholds: [67, 33] },
+        traffic: { icons: ['\u{1F7E2}', '\u{1F7E1}', '\u{1F534}'], thresholds: [67, 33] },
+        flags: { icons: ['\u{1F7E9}', '\u{1F7E8}', '\u{1F7E5}'], thresholds: [67, 33] },
+      };
+      const preset = presets[iconSetPreset()] ?? presets.arrows;
+      ruleType.icons = preset.icons;
+      ruleType.thresholds = preset.thresholds;
     }
 
     const style: ConditionalStyleInput = {};
-    if (styleBold()) style.bold = true;
-    if (styleItalic()) style.italic = true;
-    if (styleFontColor()) style.font_color = styleFontColor();
-    if (styleBgColor()) style.bg_color = styleBgColor();
+    // Visual rule types don't use style overrides
+    if (kind !== 'color_scale' && kind !== 'data_bar' && kind !== 'icon_set') {
+      if (styleBold()) style.bold = true;
+      if (styleItalic()) style.italic = true;
+      if (styleFontColor()) style.font_color = styleFontColor();
+      if (styleBgColor()) style.bg_color = styleBgColor();
+    }
 
     try {
       await addConditionalFormat(props.activeSheet, r1, c1, r2, c2, ruleType, style);
@@ -276,7 +308,53 @@ const ConditionalFormatDialog: Component<ConditionalFormatDialogProps> = (props)
                 </div>
               </Show>
 
-              {/* Style */}
+              {/* Color scale */}
+              <Show when={ruleKind() === 'color_scale'}>
+                <div class="format-dialog-section">
+                  <label class="format-dialog-label">Min color</label>
+                  <input type="color" value={csMinColor()} onInput={(e) => setCsMinColor(e.currentTarget.value)} style={{ width: '60px', height: '28px' }} />
+                </div>
+                <div class="format-dialog-section">
+                  <label class="format-dialog-label">Mid color (optional)</label>
+                  <div class="format-dialog-row" style={{ gap: '6px', "align-items": "center" }}>
+                    <input type="color" value={csMidColor() || '#ffff00'} onInput={(e) => setCsMidColor(e.currentTarget.value)} style={{ width: '60px', height: '28px' }} />
+                    <Show when={csMidColor()}>
+                      <button class="toolbar-btn" style={{ "font-size": "11px", width: "20px", height: "20px" }} title="Clear mid color" onClick={() => setCsMidColor('')}>X</button>
+                    </Show>
+                  </div>
+                </div>
+                <div class="format-dialog-section">
+                  <label class="format-dialog-label">Max color</label>
+                  <input type="color" value={csMaxColor()} onInput={(e) => setCsMaxColor(e.currentTarget.value)} style={{ width: '60px', height: '28px' }} />
+                </div>
+                {/* Preview gradient */}
+                <div style={{ height: '16px', "border-radius": '4px', margin: '4px 0', background: `linear-gradient(to right, ${csMinColor()}${csMidColor() ? `, ${csMidColor()}` : ''}, ${csMaxColor()})` }} />
+              </Show>
+
+              {/* Data bar */}
+              <Show when={ruleKind() === 'data_bar'}>
+                <div class="format-dialog-section">
+                  <label class="format-dialog-label">Bar color</label>
+                  <input type="color" value={dbColor()} onInput={(e) => setDbColor(e.currentTarget.value)} style={{ width: '60px', height: '28px' }} />
+                </div>
+                {/* Preview bar */}
+                <div style={{ height: '16px', "border-radius": '4px', margin: '4px 0', background: dbColor(), opacity: '0.4', width: '70%' }} />
+              </Show>
+
+              {/* Icon set */}
+              <Show when={ruleKind() === 'icon_set'}>
+                <div class="format-dialog-section">
+                  <label class="format-dialog-label">Icon preset</label>
+                  <select class="format-dialog-select" value={iconSetPreset()} onChange={(e) => setIconSetPreset(e.currentTarget.value)}>
+                    <option value="arrows">{'\u2191 \u2192 \u2193'} Arrows</option>
+                    <option value="traffic">{'\u{1F7E2} \u{1F7E1} \u{1F534}'} Traffic lights</option>
+                    <option value="flags">{'\u{1F7E9} \u{1F7E8} \u{1F7E5}'} Flags</option>
+                  </select>
+                </div>
+              </Show>
+
+              {/* Style (only for non-visual rule types) */}
+              <Show when={ruleKind() !== 'color_scale' && ruleKind() !== 'data_bar' && ruleKind() !== 'icon_set'}>
               <div class="format-dialog-section">
                 <label class="format-dialog-label">Format to apply</label>
                 <div class="format-dialog-row">
@@ -348,6 +426,7 @@ const ConditionalFormatDialog: Component<ConditionalFormatDialogProps> = (props)
                   </For>
                 </div>
               </div>
+              </Show>
 
               <div class="format-dialog-row" style={{ "margin-top": "8px", gap: "8px" }}>
                 <button class="chart-dialog-btn chart-dialog-btn-primary" onClick={handleAddRule}>Add</button>
