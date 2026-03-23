@@ -1380,6 +1380,7 @@ const App: Component = () => {
       </Show>
       <Show when={showFormatCells()}>
         <FormatCellsDialog
+          cellValue={formulaContent().startsWith('=') ? '' : formulaContent()}
           onApply={(format) => {
             const [minR, minC, maxR, maxC] = selRange();
             formatCells(activeSheetName(), minR, minC, maxR, maxC, format)

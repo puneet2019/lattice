@@ -72,6 +72,7 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
   {
     title: 'Formatting',
     shortcuts: [
+      { keys: 'Cmd+1', description: 'Open Format Cells dialog' },
       { keys: 'Cmd+B', description: 'Bold' },
       { keys: 'Cmd+I', description: 'Italic' },
       { keys: 'Cmd+U', description: 'Underline' },

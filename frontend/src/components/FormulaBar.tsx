@@ -3,6 +3,29 @@ import { createEffect, createSignal, Show, For } from 'solid-js';
 import { resolveNamedRange } from '../bridge/tauri';
 import type { NamedRangeInfo } from '../bridge/tauri';
 
+/** Same palette used for canvas reference highlights in VirtualGrid. */
+const FORMULA_REF_COLORS = [
+  '#1a73e8', // blue
+  '#ea4335', // red
+  '#34a853', // green
+  '#9334e6', // purple
+  '#e8710a', // orange
+  '#00897b', // teal
+];
+
+/** Background colors (lighter versions) for reference spans in the formula bar. */
+const FORMULA_REF_BG_COLORS = [
+  'rgba(26, 115, 232, 0.12)',
+  'rgba(234, 67, 53, 0.12)',
+  'rgba(52, 168, 83, 0.12)',
+  'rgba(147, 52, 230, 0.12)',
+  'rgba(232, 113, 10, 0.12)',
+  'rgba(0, 137, 123, 0.12)',
+];
+
+/** Regex pattern for cell references (A1, $B$2, A1:B10, etc.) */
+const REF_PATTERN = /\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?/g;
+
 export interface FormulaBarProps {
   /** The A1-style reference of the active cell, e.g. "A1". */
   cellRef: string;
@@ -20,6 +43,98 @@ export interface FormulaBarProps {
   namedRanges?: NamedRangeInfo[];
 }
 
+/** Extract plain text from a contenteditable div, preserving newlines. */
+function getPlainText(el: HTMLElement): string {
+  // Use innerText which respects <br> as newlines
+  return el.innerText ?? '';
+}
+
+/** Get the cursor offset as a character position within the plain text of the element. */
+function getCursorOffset(el: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return -1;
+
+  const range = sel.getRangeAt(0);
+  const preRange = document.createRange();
+  preRange.selectNodeContents(el);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  return preRange.toString().length;
+}
+
+/** Set the cursor to a specific character offset within the plain text of the element. */
+function setCursorOffset(el: HTMLElement, offset: number): void {
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  // Walk text nodes to find the right position
+  let remaining = offset;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+  let node = walker.nextNode();
+  while (node) {
+    const len = (node.textContent ?? '').length;
+    if (remaining <= len) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+    remaining -= len;
+    node = walker.nextNode();
+  }
+
+  // If offset is beyond the end, place cursor at the end
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/** Build colorized HTML for a formula string. Non-formula text is returned as plain escaped HTML. */
+function colorizeFormula(text: string): string {
+  if (!text.startsWith('=')) {
+    return escapeHtml(text);
+  }
+
+  const parts: string[] = [];
+  let lastIndex = 0;
+  let colorIdx = 0;
+  let match: RegExpExecArray | null;
+
+  // Reset regex state
+  REF_PATTERN.lastIndex = 0;
+  while ((match = REF_PATTERN.exec(text)) !== null) {
+    // Add text before this match
+    if (match.index > lastIndex) {
+      parts.push(escapeHtml(text.slice(lastIndex, match.index)));
+    }
+    // Wrap the reference in a colored span
+    const color = FORMULA_REF_COLORS[colorIdx % FORMULA_REF_COLORS.length];
+    const bg = FORMULA_REF_BG_COLORS[colorIdx % FORMULA_REF_BG_COLORS.length];
+    parts.push(
+      `<span style="color:${color};background:${bg};border-radius:2px;padding:0 1px;" data-ref="true">${escapeHtml(match[0])}</span>`,
+    );
+    colorIdx++;
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(escapeHtml(text.slice(lastIndex)));
+  }
+
+  return parts.join('');
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 const FormulaBar: Component<FormulaBarProps> = (props) => {
   const [editing, setEditing] = createSignal(false);
   const [localValue, setLocalValue] = createSignal('');
@@ -30,32 +145,61 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   const [showNameSuggestions, setShowNameSuggestions] = createSignal(false);
 
   let nameBoxRef: HTMLInputElement | undefined;
-  let textareaRef: HTMLTextAreaElement | undefined;
+  let editorRef: HTMLDivElement | undefined;
+
+  /** Whether we should suppress the next colorization (to avoid loops). */
+  let suppressColorize = false;
 
   // Sync local value when the cell content prop changes (and we're not editing).
   createEffect(() => {
     if (!editing()) {
       setLocalValue(props.content);
+      updateEditorContent(props.content);
     }
   });
 
-  // Auto-resize textarea height based on content
+  /** Update the contenteditable div with colorized or plain HTML. */
+  function updateEditorContent(text: string) {
+    if (!editorRef) return;
+    suppressColorize = true;
+    editorRef.innerHTML = colorizeFormula(text);
+    suppressColorize = false;
+  }
+
+  /** Colorize the editor content while preserving cursor position. */
+  function colorizeEditor() {
+    if (!editorRef || suppressColorize) return;
+    const text = getPlainText(editorRef);
+    const isFormula = text.startsWith('=');
+
+    // Only colorize if it's a formula and contains references
+    if (!isFormula) return;
+
+    const cursorPos = getCursorOffset(editorRef);
+    suppressColorize = true;
+    editorRef.innerHTML = colorizeFormula(text);
+    suppressColorize = false;
+
+    // Restore cursor position
+    if (cursorPos >= 0 && document.activeElement === editorRef) {
+      setCursorOffset(editorRef, cursorPos);
+    }
+  }
+
+  // Auto-resize editor height based on content
   const autoResize = () => {
-    if (!textareaRef) return;
+    if (!editorRef) return;
     if (expanded()) {
-      // In expanded mode, show at least 4 lines
-      textareaRef.style.height = 'auto';
-      const scrollH = textareaRef.scrollHeight;
-      const minH = 76; // ~4 lines at 19px each
-      textareaRef.style.height = `${Math.max(minH, scrollH)}px`;
+      editorRef.style.height = 'auto';
+      const scrollH = editorRef.scrollHeight;
+      const minH = 76;
+      editorRef.style.height = `${Math.max(minH, scrollH)}px`;
     } else {
-      // In collapsed mode, single line (match the 28px min-height)
-      textareaRef.style.height = '20px';
+      editorRef.style.height = '20px';
     }
   };
 
   createEffect(() => {
-    // Re-run auto-resize when expanded state or value changes
     void expanded();
     void localValue();
     autoResize();
@@ -64,12 +208,29 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   const handleFocus = () => {
     setEditing(true);
     setLocalValue(props.content);
+    updateEditorContent(props.content);
+    // Place cursor at the end after focus
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        setCursorOffset(editorRef, props.content.length);
+      }
+    });
   };
 
-  const handleInput = (value: string) => {
-    setLocalValue(value);
-    props.onContentChange?.(value);
+  const handleInput = () => {
+    if (!editorRef) return;
+    const text = getPlainText(editorRef);
+    setLocalValue(text);
+    props.onContentChange?.(text);
     autoResize();
+
+    // Debounce colorization to avoid jank on every keystroke
+    if (text.startsWith('=')) {
+      // Use requestAnimationFrame for a tiny delay before colorizing
+      requestAnimationFrame(() => {
+        colorizeEditor();
+      });
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -80,10 +241,12 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setLocalValue(props.content);
+      updateEditorContent(props.content);
       setEditing(false);
       props.onCancel();
     }
-    // Shift+Enter inserts a newline (default textarea behavior)
+    // Shift+Enter inserts a newline (default contenteditable behavior)
+    // Arrow keys move cursor within text (default contenteditable behavior)
   };
 
   // Name box: click to edit, type a cell ref or named range name, press Enter to navigate.
@@ -218,13 +381,12 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
       <div class="formula-bar-fx">
         <span class="formula-bar-fx-icon">fx</span>
       </div>
-      <textarea
-        ref={textareaRef}
+      <div
+        ref={editorRef}
         class="formula-bar-input"
+        contentEditable={true}
         aria-label="Formula bar"
-        rows={1}
-        value={localValue()}
-        onInput={(e) => handleInput(e.currentTarget.value)}
+        onInput={handleInput}
         onFocus={handleFocus}
         onBlur={() => {
           if (editing()) {
@@ -233,6 +395,7 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
           }
         }}
         onKeyDown={handleKeyDown}
+        spellcheck={false}
       />
       <button
         class="formula-bar-expand-btn"

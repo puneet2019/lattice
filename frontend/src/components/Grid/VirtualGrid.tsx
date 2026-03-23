@@ -4158,6 +4158,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         }).catch(() => props.onStatusChange('Unhide column failed'));
         return;
       }
+      // Cmd+1: open Format Cells dialog
+      if (e.key === '1' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        props.onFormatCellsOpen?.();
+        return;
+      }
       if (e.key === 'b') {
         e.preventDefault();
         props.onBoldToggle();

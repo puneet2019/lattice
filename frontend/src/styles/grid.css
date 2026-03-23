@@ -361,6 +361,10 @@ body,
   resize: none;
   overflow: hidden;
   line-height: 16px;
+  white-space: nowrap;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 .formula-bar-input:focus {
@@ -369,6 +373,12 @@ body,
 
 .formula-bar-expanded .formula-bar-input {
   overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.formula-bar-input [data-ref] {
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .formula-bar-expand-btn {
@@ -1449,6 +1459,19 @@ body,
   background: var(--selection-bg);
   color: var(--selection-border);
   border-color: var(--selection-border);
+}
+
+.format-dialog-preview {
+  padding: 8px 12px;
+  border: 1px solid var(--grid-border);
+  border-radius: 4px;
+  background: var(--cell-bg);
+  font-size: 13px;
+  font-family: var(--font-family);
+  color: var(--cell-text);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
 }
 
 .format-dialog-footer {

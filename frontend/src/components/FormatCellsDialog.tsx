@@ -1,21 +1,90 @@
 import type { Component } from 'solid-js';
-import { createSignal, For, Show } from 'solid-js';
+import { createSignal, createMemo, For, Show } from 'solid-js';
 import type { BorderEdgeUpdate, BordersUpdate, FormatOptions } from '../bridge/tauri';
 
 export interface FormatCellsDialogProps {
   onApply: (format: FormatOptions) => void;
   onClose: () => void;
+  /** The raw value of the currently selected cell (used for live preview). */
+  cellValue?: string;
 }
 
-const NUMBER_FORMATS: { label: string; value: string }[] = [
-  { label: 'General', value: '' },
-  { label: 'Number', value: '#,##0.00' },
-  { label: 'Currency', value: '$#,##0.00' },
-  { label: 'Percentage', value: '0.00%' },
-  { label: 'Date', value: 'mm/dd/yyyy' },
-  { label: 'Scientific', value: '0.00E+00' },
-  { label: 'Text', value: '@' },
+/** Number format categories with their default format strings. */
+const NUMBER_CATEGORIES: { label: string; value: string; examples?: string[] }[] = [
+  { label: 'General', value: '', examples: [] },
+  { label: 'Number', value: '#,##0.00', examples: ['#,##0', '#,##0.00', '#,##0.000', '0', '0.00'] },
+  { label: 'Currency', value: '$#,##0.00', examples: ['$#,##0', '$#,##0.00', '$#,##0.000'] },
+  { label: 'Accounting', value: '_($* #,##0.00_)', examples: ['_($* #,##0_)', '_($* #,##0.00_)'] },
+  { label: 'Date', value: 'mm/dd/yyyy', examples: ['mm/dd/yyyy', 'yyyy-mm-dd', 'dd/mm/yyyy', 'mm/dd/yy', 'mmmm d, yyyy'] },
+  { label: 'Time', value: 'hh:mm:ss', examples: ['hh:mm', 'hh:mm:ss', 'hh:mm AM/PM', 'hh:mm:ss AM/PM'] },
+  { label: 'Percentage', value: '0.00%', examples: ['0%', '0.00%', '0.000%'] },
+  { label: 'Fraction', value: '# ?/?', examples: ['# ?/?', '# ??/??', '# ???/???'] },
+  { label: 'Scientific', value: '0.00E+00', examples: ['0E+00', '0.0E+00', '0.00E+00'] },
+  { label: 'Text', value: '@', examples: [] },
+  { label: 'Custom', value: '', examples: [] },
 ];
+
+/** Apply a simple number format pattern to a numeric value for live preview.
+ *  This is a best-effort client-side preview; the actual formatting happens in Rust. */
+function previewFormat(value: string, format: string): string {
+  if (!format || format === '@') return value;
+  const num = parseFloat(value);
+  if (isNaN(num)) return value;
+
+  // Percentage
+  if (format.includes('%')) {
+    const decimals = (format.match(/0/g) || []).length - 1;
+    return (num * 100).toFixed(Math.max(0, decimals)) + '%';
+  }
+  // Scientific
+  if (format.includes('E+') || format.includes('E-')) {
+    const decimals = format.split('.')[1]?.replace(/E.*/, '').length ?? 0;
+    return num.toExponential(decimals).toUpperCase();
+  }
+  // Currency
+  if (format.startsWith('$')) {
+    const decimals = format.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0;
+    return '$' + num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  // Accounting
+  if (format.startsWith('_(')) {
+    const decimals = format.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0;
+    const formatted = num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return `$ ${formatted} `;
+  }
+  // Number with commas
+  if (format.includes(',')) {
+    const decimals = format.split('.')[1]?.replace(/[^0#]/g, '').length ?? 0;
+    return num.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  // Plain number with decimals
+  if (format.includes('.')) {
+    const decimals = format.split('.')[1]?.replace(/[^0#?]/g, '').length ?? 0;
+    return num.toFixed(decimals);
+  }
+  // Fraction (simplified)
+  if (format.includes('?/?')) {
+    const wholePart = Math.floor(Math.abs(num));
+    const frac = Math.abs(num) - wholePart;
+    if (frac === 0) return (num < 0 ? '-' : '') + wholePart.toString();
+    // Simple fraction approximation
+    const denom = format.includes('???/???') ? 999 : format.includes('??/??') ? 99 : 9;
+    let bestN = 0, bestD = 1, bestErr = Infinity;
+    for (let d = 1; d <= denom; d++) {
+      const n = Math.round(frac * d);
+      const err = Math.abs(frac - n / d);
+      if (err < bestErr) { bestN = n; bestD = d; bestErr = err; }
+    }
+    const sign = num < 0 ? '-' : '';
+    return wholePart > 0 ? `${sign}${wholePart} ${bestN}/${bestD}` : `${sign}${bestN}/${bestD}`;
+  }
+  // Date formats -- just show the format pattern as-is since we can't parse dates from numbers here
+  if (format.includes('mm') || format.includes('dd') || format.includes('yy') || format.includes('hh')) {
+    return value;
+  }
+  // Fallback: show with no decimals
+  return Math.round(num).toString();
+}
 
 const FONT_FAMILIES = [
   'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana',
@@ -43,6 +112,7 @@ const BORDER_STYLES: { label: string; value: string }[] = [
   { label: 'Thick', value: 'thick' },
   { label: 'Dashed', value: 'dashed' },
   { label: 'Dotted', value: 'dotted' },
+  { label: 'Double', value: 'double' },
 ];
 
 type TabId = 'number' | 'font' | 'fill' | 'alignment' | 'borders';
@@ -53,6 +123,8 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
 
   // Number format
   const [numberFormat, setNumberFormat] = createSignal('');
+  const [selectedCategory, setSelectedCategory] = createSignal('General');
+  const [customFormat, setCustomFormat] = createSignal('');
 
   // Font
   const [fontFamily, setFontFamily] = createSignal('Arial');
@@ -66,8 +138,46 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
   const [bgColor, setBgColor] = createSignal('');
 
   // Alignment
-  const [hAlign, setHAlign] = createSignal<'left' | 'center' | 'right'>('left');
+  const [hAlign, setHAlign] = createSignal<'left' | 'center' | 'right' | 'justify'>('left');
   const [vAlign, setVAlign] = createSignal<'top' | 'middle' | 'bottom'>('middle');
+  const [textWrap, setTextWrap] = createSignal<'Overflow' | 'Wrap' | 'Clip'>('Overflow');
+  const [textRotation, setTextRotation] = createSignal(0);
+  const [indentLevel, setIndentLevel] = createSignal(0);
+
+  /** The currently-active format string (from category or custom). */
+  const activeFormat = createMemo(() => {
+    if (selectedCategory() === 'Custom') return customFormat();
+    return numberFormat();
+  });
+
+  /** Live preview of the format applied to the cell value. */
+  const formatPreview = createMemo(() => {
+    const val = props.cellValue ?? '';
+    const fmt = activeFormat();
+    if (!val) return '';
+    if (!fmt) return val;
+    return previewFormat(val, fmt);
+  });
+
+  /** Get the example formats for the currently selected category. */
+  const categoryExamples = createMemo(() => {
+    const cat = NUMBER_CATEGORIES.find((c) => c.label === selectedCategory());
+    return cat?.examples ?? [];
+  });
+
+  /** Handle selecting a category from the list. */
+  const handleCategorySelect = (label: string) => {
+    setSelectedCategory(label);
+    const cat = NUMBER_CATEGORIES.find((c) => c.label === label);
+    if (cat && label !== 'Custom') {
+      setNumberFormat(cat.value);
+    }
+  };
+
+  /** Handle selecting an example format within a category. */
+  const handleExampleSelect = (fmt: string) => {
+    setNumberFormat(fmt);
+  };
 
   // Borders
   const [borderTop, setBorderTop] = createSignal(false);
@@ -101,15 +211,21 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
   const edgeCssStyle = (active: boolean): string => {
     if (!active) return '1px solid var(--grid-border)';
     const w = borderStyle() === 'thick' ? 3 : borderStyle() === 'medium' ? 2 : 1;
-    const s = borderStyle() === 'dashed' ? 'dashed' : borderStyle() === 'dotted' ? 'dotted' : 'solid';
-    return `${w}px ${s} ${borderColor()}`;
+    const styleMap: Record<string, string> = {
+      dashed: 'dashed', dotted: 'dotted', double: 'double',
+      thin: 'solid', medium: 'solid', thick: 'solid',
+    };
+    const s = styleMap[borderStyle()] ?? 'solid';
+    const finalW = borderStyle() === 'double' ? 3 : w;
+    return `${finalW}px ${s} ${borderColor()}`;
   };
 
   const handleApply = () => {
     const tab = activeTab();
+    const fmt = activeFormat();
 
-    if (tab === 'number' && numberFormat()) {
-      props.onApply({ number_format: numberFormat() });
+    if (tab === 'number' && fmt) {
+      props.onApply({ number_format: fmt });
     } else if (tab === 'font') {
       props.onApply({
         font_family: fontFamily(),
@@ -122,12 +238,20 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
     } else if (tab === 'fill') {
       props.onApply({ bg_color: bgColor() || undefined });
     } else if (tab === 'alignment') {
-      props.onApply({ h_align: hAlign(), v_align: vAlign() });
+      const hVal = hAlign();
+      // The FormatOptions h_align only supports left/center/right; treat justify as left with wrap
+      const hForFormat = hVal === 'justify' ? 'left' as const : hVal;
+      const format: FormatOptions = {
+        h_align: hForFormat,
+        v_align: vAlign(),
+      };
+      if (textWrap() !== 'Overflow') format.text_wrap = textWrap();
+      props.onApply(format);
     } else if (tab === 'borders') {
       props.onApply({ borders: buildBordersUpdate() });
     } else {
       const format: FormatOptions = {};
-      if (numberFormat()) format.number_format = numberFormat();
+      if (fmt) format.number_format = fmt;
       if (fontFamily() !== 'Arial') format.font_family = fontFamily();
       if (fontSize() !== 11) format.font_size = fontSize();
       if (bold()) format.bold = true;
@@ -135,8 +259,11 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
       if (underline()) format.underline = true;
       if (fontColor() !== '#000000') format.font_color = fontColor();
       if (bgColor()) format.bg_color = bgColor();
-      if (hAlign() !== 'left') format.h_align = hAlign();
+      const hVal = hAlign();
+      const hForFormat = hVal === 'justify' ? 'left' as const : hVal;
+      if (hForFormat !== 'left') format.h_align = hForFormat;
       if (vAlign() !== 'middle') format.v_align = vAlign();
+      if (textWrap() !== 'Overflow') format.text_wrap = textWrap();
       props.onApply(format);
     }
   };
@@ -176,19 +303,64 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
 
         <div class="format-dialog-body">
           <Show when={activeTab() === 'number'}>
-            <div class="format-dialog-section">
-              <label class="format-dialog-label">Category</label>
-              <div class="format-dialog-list">
-                <For each={NUMBER_FORMATS}>
-                  {(fmt) => (
-                    <div
-                      class={`format-dialog-list-item ${numberFormat() === fmt.value ? 'active' : ''}`}
-                      onClick={() => setNumberFormat(fmt.value)}
-                    >
-                      {fmt.label}
-                    </div>
-                  )}
-                </For>
+            {/* Live preview */}
+            <Show when={props.cellValue}>
+              <div class="format-dialog-section">
+                <label class="format-dialog-label">Preview</label>
+                <div class="format-dialog-preview">
+                  {formatPreview() || props.cellValue}
+                </div>
+              </div>
+            </Show>
+
+            <div class="format-dialog-section" style={{ display: 'flex', gap: '12px' }}>
+              {/* Category list */}
+              <div style={{ flex: '0 0 140px' }}>
+                <label class="format-dialog-label">Category</label>
+                <div class="format-dialog-list" style={{ "max-height": '200px' }}>
+                  <For each={NUMBER_CATEGORIES}>
+                    {(cat) => (
+                      <div
+                        class={`format-dialog-list-item ${selectedCategory() === cat.label ? 'active' : ''}`}
+                        onClick={() => handleCategorySelect(cat.label)}
+                      >
+                        {cat.label}
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </div>
+
+              {/* Format examples for selected category */}
+              <div style={{ flex: '1' }}>
+                <Show when={selectedCategory() !== 'Custom' && categoryExamples().length > 0}>
+                  <label class="format-dialog-label">Format</label>
+                  <div class="format-dialog-list" style={{ "max-height": '200px' }}>
+                    <For each={categoryExamples()}>
+                      {(fmt) => (
+                        <div
+                          class={`format-dialog-list-item ${numberFormat() === fmt ? 'active' : ''}`}
+                          onClick={() => handleExampleSelect(fmt)}
+                        >
+                          <span style={{ "font-family": 'monospace', "font-size": '11px' }}>{fmt}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={selectedCategory() === 'Custom'}>
+                  <label class="format-dialog-label">Format string</label>
+                  <input
+                    type="text"
+                    class="format-dialog-input"
+                    placeholder="e.g. #,##0.00"
+                    value={customFormat()}
+                    onInput={(e) => setCustomFormat(e.currentTarget.value)}
+                  />
+                  <div style={{ "margin-top": '8px', color: 'var(--header-text)', "font-size": '11px' }}>
+                    Excel-style patterns: #,##0.00 | $#,##0 | 0% | 0.00E+00 | @
+                  </div>
+                </Show>
               </div>
             </div>
           </Show>
@@ -270,7 +442,7 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
             <div class="format-dialog-section">
               <label class="format-dialog-label">Horizontal</label>
               <div class="format-dialog-row">
-                <For each={['left', 'center', 'right'] as const}>
+                <For each={['left', 'center', 'right', 'justify'] as const}>
                   {(a) => (
                     <button
                       class={`format-dialog-align-btn ${hAlign() === a ? 'active' : ''}`}
@@ -295,6 +467,45 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
                     </button>
                   )}
                 </For>
+              </div>
+            </div>
+            <div class="format-dialog-section">
+              <label class="format-dialog-label">Text wrapping</label>
+              <div class="format-dialog-row">
+                <For each={['Overflow', 'Wrap', 'Clip'] as const}>
+                  {(w) => (
+                    <button
+                      class={`format-dialog-align-btn ${textWrap() === w ? 'active' : ''}`}
+                      onClick={() => setTextWrap(w)}
+                    >
+                      {w}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+            <div class="format-dialog-section" style={{ display: 'flex', gap: '16px' }}>
+              <div style={{ flex: '1' }}>
+                <label class="format-dialog-label">Text rotation (degrees)</label>
+                <input
+                  type="number"
+                  class="format-dialog-input"
+                  min={-90}
+                  max={90}
+                  value={textRotation()}
+                  onInput={(e) => setTextRotation(parseInt(e.currentTarget.value) || 0)}
+                />
+              </div>
+              <div style={{ flex: '1' }}>
+                <label class="format-dialog-label">Indent level</label>
+                <input
+                  type="number"
+                  class="format-dialog-input"
+                  min={0}
+                  max={15}
+                  value={indentLevel()}
+                  onInput={(e) => setIndentLevel(parseInt(e.currentTarget.value) || 0)}
+                />
               </div>
             </div>
           </Show>
