@@ -2,9 +2,25 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use lattice_core::formula::evaluator::SimpleEvaluator;
-use lattice_core::{CellValue, FormulaEngine, NumberFormat, Operation, format_value};
+use lattice_core::{BorderStyle, CellValue, FormulaEngine, NumberFormat, Operation, format_value};
 
 use crate::state::AppState;
+
+/// A single border edge serialized for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BorderEdgeData {
+    pub style: String,
+    pub color: String,
+}
+
+/// Cell borders serialized for the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CellBordersData {
+    pub top: Option<BorderEdgeData>,
+    pub bottom: Option<BorderEdgeData>,
+    pub left: Option<BorderEdgeData>,
+    pub right: Option<BorderEdgeData>,
+}
 
 /// Serializable cell data returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +53,8 @@ pub struct CellData {
     pub font_size: f64,
     /// Text wrapping mode: "Overflow", "Wrap", or "Clip".
     pub text_wrap: String,
+    /// Cell border configuration.
+    pub borders: Option<CellBordersData>,
 }
 
 /// Get a single cell's data.
@@ -192,8 +210,39 @@ pub async fn get_range(
     Ok(rows)
 }
 
+/// Convert a core `Border` to a frontend-serializable `BorderEdgeData`.
+fn border_to_data(border: &lattice_core::Border) -> BorderEdgeData {
+    BorderEdgeData {
+        style: match border.style {
+            BorderStyle::None => "none".to_string(),
+            BorderStyle::Thin => "thin".to_string(),
+            BorderStyle::Medium => "medium".to_string(),
+            BorderStyle::Thick => "thick".to_string(),
+            BorderStyle::Dashed => "dashed".to_string(),
+            BorderStyle::Dotted => "dotted".to_string(),
+            BorderStyle::Double => "double".to_string(),
+        },
+        color: border.color.clone(),
+    }
+}
+
 /// Convert a core `Cell` into a frontend `CellData` with all format fields.
 fn cell_to_data(c: &lattice_core::Cell) -> CellData {
+    let borders = {
+        let b = &c.format.borders;
+        let has_any = b.top.is_some() || b.bottom.is_some() || b.left.is_some() || b.right.is_some();
+        if has_any {
+            Some(CellBordersData {
+                top: b.top.as_ref().map(border_to_data),
+                bottom: b.bottom.as_ref().map(border_to_data),
+                left: b.left.as_ref().map(border_to_data),
+                right: b.right.as_ref().map(border_to_data),
+            })
+        } else {
+            None
+        }
+    };
+
     CellData {
         value: format_cell_display(&c.value, &c.format.number_format),
         formula: c.formula.clone(),
@@ -217,6 +266,7 @@ fn cell_to_data(c: &lattice_core::Cell) -> CellData {
             lattice_core::TextWrap::Wrap => "Wrap".to_string(),
             lattice_core::TextWrap::Clip => "Clip".to_string(),
         },
+        borders,
     }
 }
 

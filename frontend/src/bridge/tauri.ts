@@ -1,5 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
 
+/** A single border edge from the backend. */
+export interface BorderEdgeData {
+  style: string; // 'thin' | 'medium' | 'thick' | 'dashed' | 'dotted' | 'double' | 'none'
+  color: string;
+}
+
+/** Cell borders from the backend. */
+export interface CellBordersData {
+  top?: BorderEdgeData | null;
+  bottom?: BorderEdgeData | null;
+  left?: BorderEdgeData | null;
+  right?: BorderEdgeData | null;
+}
+
 /** Cell data returned from the Rust backend. */
 export interface CellData {
   value: string;
@@ -16,6 +30,7 @@ export interface CellData {
   h_align: string;
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
+  borders?: CellBordersData | null;
 }
 
 /** Sheet summary information. */
@@ -28,6 +43,20 @@ export interface SheetInfo {
 export interface WorkbookInfo {
   sheets: string[];
   active_sheet: string;
+}
+
+/** A border edge update sent to the backend. */
+export interface BorderEdgeUpdate {
+  style?: string; // 'none' | 'thin' | 'medium' | 'thick' | 'dashed' | 'dotted' | 'double'
+  color?: string;
+}
+
+/** Borders update sent to the backend. */
+export interface BordersUpdate {
+  top?: BorderEdgeUpdate;
+  bottom?: BorderEdgeUpdate;
+  left?: BorderEdgeUpdate;
+  right?: BorderEdgeUpdate;
 }
 
 /** Format options for format_cells command. */
@@ -44,6 +73,7 @@ export interface FormatOptions {
   v_align?: 'top' | 'middle' | 'bottom';
   number_format?: string;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
+  borders?: BordersUpdate;
 }
 
 // ---------------------------------------------------------------------------

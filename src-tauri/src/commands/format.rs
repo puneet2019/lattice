@@ -1,9 +1,25 @@
 use serde::Deserialize;
 use tauri::State;
 
-use lattice_core::{CellFormat, HAlign, Operation, TextWrap};
+use lattice_core::{Border, BorderStyle, CellFormat, HAlign, Operation, TextWrap};
 
 use crate::state::AppState;
+
+/// A single border edge update from the frontend.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BorderEdgeUpdate {
+    pub style: Option<String>,
+    pub color: Option<String>,
+}
+
+/// Borders update from the frontend.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BordersUpdate {
+    pub top: Option<BorderEdgeUpdate>,
+    pub bottom: Option<BorderEdgeUpdate>,
+    pub left: Option<BorderEdgeUpdate>,
+    pub right: Option<BorderEdgeUpdate>,
+}
 
 /// Format properties to apply to cells.
 #[derive(Debug, Clone, Deserialize)]
@@ -19,6 +35,7 @@ pub struct FormatUpdate {
     pub h_align: Option<String>,
     pub number_format: Option<String>,
     pub text_wrap: Option<String>,
+    pub borders: Option<BordersUpdate>,
 }
 
 /// Apply formatting to a range of cells.
@@ -95,6 +112,21 @@ pub async fn format_cells(
                 };
             }
 
+            if let Some(ref borders) = format.borders {
+                if let Some(ref edge) = borders.top {
+                    cell.format.borders.top = parse_border_edge(edge);
+                }
+                if let Some(ref edge) = borders.bottom {
+                    cell.format.borders.bottom = parse_border_edge(edge);
+                }
+                if let Some(ref edge) = borders.left {
+                    cell.format.borders.left = parse_border_edge(edge);
+                }
+                if let Some(ref edge) = borders.right {
+                    cell.format.borders.right = parse_border_edge(edge);
+                }
+            }
+
             let new_format = cell.format.clone();
 
             // Only record if format actually changed.
@@ -116,4 +148,22 @@ pub async fn format_cells(
     }
 
     Ok(())
+}
+
+/// Parse a border edge update into a core `Border`, or `None` if the
+/// style is "none" (meaning remove the border).
+fn parse_border_edge(edge: &BorderEdgeUpdate) -> Option<Border> {
+    let style_str = edge.style.as_deref().unwrap_or("thin");
+    let style = match style_str {
+        "none" => return None,
+        "thin" => BorderStyle::Thin,
+        "medium" => BorderStyle::Medium,
+        "thick" => BorderStyle::Thick,
+        "dashed" => BorderStyle::Dashed,
+        "dotted" => BorderStyle::Dotted,
+        "double" => BorderStyle::Double,
+        _ => BorderStyle::Thin,
+    };
+    let color = edge.color.as_deref().unwrap_or("#000000").to_string();
+    Some(Border { style, color })
 }
