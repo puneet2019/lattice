@@ -878,3 +878,47 @@ export async function removeConditionalFormat(
     ruleIndex,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Pivot table commands
+// ---------------------------------------------------------------------------
+
+/** Value field input for pivot table creation. */
+export interface PivotValueInput {
+  col: number;
+  aggregation: string;
+}
+
+/**
+ * Get the header values (first row) of a sheet as strings.
+ *
+ * Used to populate column dropdowns in the pivot dialog.
+ */
+export async function getSheetHeaders(
+  sheet: string,
+  row: number,
+): Promise<string[]> {
+  return invoke('get_sheet_headers', { sheet, row });
+}
+
+/**
+ * Create a pivot table from source data.
+ *
+ * Groups by `rowFields` columns, aggregates `valueFields`, and writes
+ * the result to `targetSheet` (created if it doesn't exist).
+ */
+export async function createPivotTable(
+  sourceSheet: string,
+  sourceRange: string,
+  rowFields: number[],
+  valueFields: PivotValueInput[],
+  targetSheet: string,
+): Promise<void> {
+  return invoke('create_pivot_table', {
+    sourceSheet,
+    sourceRange,
+    rowFields,
+    valueFields,
+    targetSheet,
+  });
+}

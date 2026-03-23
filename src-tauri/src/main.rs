@@ -409,6 +409,8 @@ fn main() {
             commands::data::get_row_groups,
             commands::data::remove_duplicates,
             commands::data::text_to_columns,
+            commands::data::get_sheet_headers,
+            commands::data::create_pivot_table,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,

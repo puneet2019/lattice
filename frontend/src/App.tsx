@@ -24,6 +24,7 @@ import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import PrintPreviewDialog from './components/PrintPreviewDialog';
 import DataCleanupDialog from './components/DataCleanupDialog';
 import TextToColumnsDialog from './components/TextToColumnsDialog';
+import PivotDialog from './components/PivotDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -130,7 +131,7 @@ const App: Component = () => {
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
-    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'xls', 'ods', 'csv', 'tsv'] },
+    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'csv', 'tsv'] },
     { name: 'All Files', extensions: ['*'] },
   ];
 
@@ -482,7 +483,7 @@ const App: Component = () => {
     data_validation: () => { setShowDataValidation(true); },
     data_remove_duplicates: () => { setShowDataCleanup(true); },
     data_text_to_columns: () => { setShowTextToColumns(true); },
-    data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
+    data_pivot_table: () => { setShowPivotDialog(true); },
   };
 
   // Load sheets on mount and subscribe to menu events.
@@ -1205,6 +1206,7 @@ const App: Component = () => {
   const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
   const [showDataCleanup, setShowDataCleanup] = createSignal(false);
   const [showTextToColumns, setShowTextToColumns] = createSignal(false);
+  const [showPivotDialog, setShowPivotDialog] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1380,6 +1382,7 @@ const App: Component = () => {
       </Show>
       <Show when={showFormatCells()}>
         <FormatCellsDialog
+          cellValue={formulaContent().startsWith('=') ? '' : formulaContent()}
           onApply={(format) => {
             const [minR, minC, maxR, maxC] = selRange();
             formatCells(activeSheetName(), minR, minC, maxR, maxC, format)
@@ -1497,6 +1500,21 @@ const App: Component = () => {
               .catch((e) => setStatusMessage(`Text to columns failed: ${e}`));
           }}
           onClose={() => setShowTextToColumns(false)}
+        />
+      </Show>
+      <Show when={showPivotDialog()}>
+        <PivotDialog
+          activeSheet={activeSheetName()}
+          selectionRange={selRange()}
+          onClose={() => setShowPivotDialog(false)}
+          onCreated={(target) => {
+            setSheets((prev) => prev.includes(target) ? prev : [...prev, target]);
+            setActiveSheetLocal(target);
+            void setActiveSheet(target);
+            setRefreshTrigger((n) => n + 1);
+            markDirty();
+          }}
+          onStatusChange={setStatusMessage}
         />
       </Show>
       <SheetTabs

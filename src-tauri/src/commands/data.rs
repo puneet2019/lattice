@@ -515,6 +515,141 @@ pub async fn text_to_columns(
     Ok(s.text_to_columns(col, &delimiter, start_row, end_row))
 }
 
+// ---------------------------------------------------------------------------
+// Sheet headers (for pivot dialog column detection)
+// ---------------------------------------------------------------------------
+
+/// Return the values in a given row of a sheet as strings.
+///
+/// Used by the pivot dialog to populate column header dropdowns.
+/// If a cell is empty or does not exist, its entry will be an empty string.
+#[tauri::command]
+pub async fn get_sheet_headers(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+) -> Result<Vec<String>, String> {
+    let wb = state.workbook.read().await;
+    let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    let (_, max_col) = s.used_range();
+
+    let mut headers = Vec::new();
+    for col in 0..=max_col {
+        let value = s
+            .get_cell(row, col)
+            .map(|c| match &c.value {
+                lattice_core::CellValue::Text(t) => t.clone(),
+                lattice_core::CellValue::Number(n) => n.to_string(),
+                lattice_core::CellValue::Boolean(b) => b.to_string(),
+                lattice_core::CellValue::Date(d) => d.clone(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        headers.push(value);
+    }
+
+    Ok(headers)
+}
+
+// ---------------------------------------------------------------------------
+// Pivot table
+// ---------------------------------------------------------------------------
+
+/// Value field specification from the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PivotValueInput {
+    /// 0-based column index within the source range.
+    pub col: u32,
+    /// Aggregation type: "Sum", "Count", "Average", "Min", "Max".
+    pub aggregation: String,
+}
+
+/// Create a pivot table from source data and write results to a target sheet.
+///
+/// Parses the `source_range` (A1:C10 format), builds a `PivotConfig`, calls
+/// `generate_pivot`, creates the target sheet if needed, and writes the
+/// result rows.
+#[tauri::command]
+pub async fn create_pivot_table(
+    state: State<'_, AppState>,
+    source_sheet: String,
+    source_range: String,
+    row_fields: Vec<u32>,
+    value_fields: Vec<PivotValueInput>,
+    target_sheet: String,
+) -> Result<(), String> {
+    use lattice_core::{PivotAggregation, PivotConfig, PivotValue, generate_pivot};
+
+    // Parse the source range (e.g. "A1:C10")
+    let parts: Vec<&str> = source_range.split(':').collect();
+    if parts.len() != 2 {
+        return Err(format!(
+            "Invalid source range '{}': expected 'A1:B2' format",
+            source_range
+        ));
+    }
+    let start = CellRef::parse(parts[0]).map_err(|e| e.to_string())?;
+    let end = CellRef::parse(parts[1]).map_err(|e| e.to_string())?;
+    let range = lattice_core::Range { start, end };
+
+    // Convert value field inputs to PivotValue structs.
+    let pivot_values: Vec<PivotValue> = value_fields
+        .iter()
+        .map(|vf| {
+            let agg = match vf.aggregation.to_lowercase().as_str() {
+                "sum" => PivotAggregation::Sum,
+                "count" => PivotAggregation::Count,
+                "average" => PivotAggregation::Average,
+                "min" => PivotAggregation::Min,
+                "max" => PivotAggregation::Max,
+                "countdistinct" => PivotAggregation::CountDistinct,
+                _ => PivotAggregation::Sum,
+            };
+            PivotValue {
+                source_col: vf.col,
+                aggregation: agg,
+                label: None,
+            }
+        })
+        .collect();
+
+    let config = PivotConfig {
+        source_sheet: source_sheet.clone(),
+        source_range: range,
+        row_fields,
+        col_fields: vec![],
+        value_fields: pivot_values,
+    };
+
+    let mut wb = state.workbook.write().await;
+
+    // Generate the pivot result.
+    let result = generate_pivot(&wb, &config).map_err(|e| e.to_string())?;
+
+    // Create the target sheet if it doesn't exist.
+    if wb.get_sheet(&target_sheet).is_err() {
+        wb.add_sheet(&target_sheet).map_err(|e| e.to_string())?;
+    }
+
+    let target = wb
+        .get_sheet_mut(&target_sheet)
+        .map_err(|e| e.to_string())?;
+
+    // Write headers to row 0.
+    for (col, header) in result.headers.iter().enumerate() {
+        target.set_value(0, col as u32, lattice_core::CellValue::Text(header.clone()));
+    }
+
+    // Write data rows starting at row 1.
+    for (row_idx, row) in result.rows.iter().enumerate() {
+        for (col_idx, value) in row.iter().enumerate() {
+            target.set_value((row_idx + 1) as u32, col_idx as u32, value.clone());
+        }
+    }
+
+    Ok(())
+}
+
 /// Format a Range as "A1:B2" string.
 fn format_range(range: &lattice_core::Range) -> String {
     let start = format_cell_ref(&range.start);
