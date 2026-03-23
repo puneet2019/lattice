@@ -1273,6 +1273,74 @@ body,
 }
 
 /* -----------------------------------------------------------------------
+   Format Dialog — Borders Preview
+   ----------------------------------------------------------------------- */
+
+.border-preview-container {
+  position: relative;
+  width: 200px;
+  height: 120px;
+  margin: 0 auto;
+}
+
+.border-preview-inner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cell-bg);
+  border: 1px solid var(--grid-border);
+}
+
+.border-preview-edge {
+  position: absolute;
+  cursor: pointer;
+  z-index: 1;
+  border-radius: 2px;
+  transition: background 0.1s;
+}
+
+.border-preview-edge:hover {
+  background: var(--selection-bg);
+}
+
+.border-preview-edge.active {
+  background: rgba(26, 115, 232, 0.15);
+}
+
+.border-preview-top {
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 14px;
+}
+
+.border-preview-bottom {
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 14px;
+}
+
+.border-preview-left {
+  top: 12px;
+  left: 0;
+  bottom: 12px;
+  width: 14px;
+}
+
+.border-preview-right {
+  top: 12px;
+  right: 0;
+  bottom: 12px;
+  width: 14px;
+}
+
+/* -----------------------------------------------------------------------
    Scrollbar styling
    ----------------------------------------------------------------------- */
 
