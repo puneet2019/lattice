@@ -14,6 +14,7 @@ import ChartDialog from './components/Charts/ChartDialog';
 import PasteSpecialDialog from './components/PasteSpecialDialog';
 import type { PasteMode } from './components/PasteSpecialDialog';
 import FormatCellsDialog from './components/FormatCellsDialog';
+import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import {
   listSheets,
   addSheet,
@@ -592,6 +593,7 @@ const App: Component = () => {
   // -------------------------------------------------------------------
 
   const [showFormatCells, setShowFormatCells] = createSignal(false);
+  const [showConditionalFormat, setShowConditionalFormat] = createSignal(false);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
 
@@ -647,6 +649,7 @@ const App: Component = () => {
         onFreezeToggle={handleFreezeToggle}
         onSplitToggle={handleSplitToggle}
         onInsertChart={handleInsertChart}
+        onConditionalFormat={() => setShowConditionalFormat(true)}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
@@ -745,6 +748,15 @@ const App: Component = () => {
             setShowFormatCells(false);
           }}
           onClose={() => setShowFormatCells(false)}
+        />
+      </Show>
+      <Show when={showConditionalFormat()}>
+        <ConditionalFormatDialog
+          activeSheet={activeSheetName()}
+          selRange={selRange()}
+          onClose={() => setShowConditionalFormat(false)}
+          onStatusChange={setStatusMessage}
+          onRefresh={() => setRefreshTrigger((n) => n + 1)}
         />
       </Show>
       <Show when={showPasteSpecial()}>

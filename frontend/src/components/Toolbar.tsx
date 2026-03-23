@@ -18,6 +18,7 @@ export interface ToolbarProps {
   onFreezeToggle: () => void;
   onSplitToggle: () => void;
   onInsertChart: () => void;
+  onConditionalFormat: () => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
@@ -444,6 +445,21 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <rect x="2" y="8" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.3" />
           <rect x="6.5" y="4" width="3" height="10" rx="0.5" fill="currentColor" opacity="0.5" />
           <rect x="11" y="6" width="3" height="8" rx="0.5" fill="currentColor" opacity="0.7" />
+        </svg>
+      </button>
+
+      {/* Conditional Formatting */}
+      <button
+        class="toolbar-btn toolbar-btn-wide"
+        title="Conditional formatting"
+        onClick={props.onConditionalFormat}
+        style={{ "font-size": "11px" }}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="1" />
+          <circle cx="5.5" cy="8" r="1.5" fill="#cc0000" stroke="none" />
+          <circle cx="8" cy="8" r="1.5" fill="#f1c232" stroke="none" />
+          <circle cx="10.5" cy="8" r="1.5" fill="#6aa84f" stroke="none" />
         </svg>
       </button>
 
