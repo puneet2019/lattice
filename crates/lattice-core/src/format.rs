@@ -128,7 +128,9 @@ pub struct CellFormat {
     /// Font family name (e.g. `"Arial"`, `"Helvetica"`).
     pub font_family: String,
     /// Font colour as a CSS-style hex string (e.g. `"#000000"`).
-    pub font_color: String,
+    /// `None` means "use the application theme default" (black in light mode,
+    /// white in dark mode). `Some(color)` means the user explicitly set a color.
+    pub font_color: Option<String>,
     /// Background / fill colour.
     pub bg_color: Option<String>,
     /// Horizontal alignment.
@@ -156,7 +158,7 @@ impl Default for CellFormat {
             strikethrough: false,
             font_size: 11.0,
             font_family: "Arial".to_string(),
-            font_color: "#000000".to_string(),
+            font_color: None,
             bg_color: None,
             h_align: HAlign::default(),
             v_align: VAlign::default(),

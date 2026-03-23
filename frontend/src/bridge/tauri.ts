@@ -10,7 +10,7 @@ export interface CellData {
   underline: boolean;
   strikethrough: boolean;
   number_format: string | null;
-  font_color: string;
+  font_color: string | null;
   bg_color: string | null;
   font_family: string;
   h_align: string;

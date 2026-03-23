@@ -25,8 +25,8 @@ pub struct CellData {
     pub strikethrough: bool,
     /// The number format pattern string, if any.
     pub number_format: Option<String>,
-    /// Font color as CSS hex string (e.g. "#ff0000").
-    pub font_color: String,
+    /// Font color as CSS hex string, or null for theme default.
+    pub font_color: Option<String>,
     /// Background/fill color as CSS hex string, if set.
     pub bg_color: Option<String>,
     /// Font family name.

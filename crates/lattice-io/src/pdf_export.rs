@@ -210,8 +210,8 @@ fn cell_format_to_css(cf: &lattice_core::CellFormat) -> String {
     if (cf.font_size - 11.0).abs() > 0.01 {
         parts.push(format!("font-size:{}pt", cf.font_size));
     }
-    if cf.font_color != "#000000" {
-        parts.push(format!("color:{}", cf.font_color));
+    if let Some(ref fc) = cf.font_color {
+        parts.push(format!("color:{}", fc));
     }
     if let Some(ref bg) = cf.bg_color {
         parts.push(format!("background-color:{}", bg));

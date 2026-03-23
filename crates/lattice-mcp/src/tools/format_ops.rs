@@ -161,7 +161,7 @@ pub fn handle_set_cell_format(
             cell.format.font_size = font_size;
         }
         if let Some(ref font_color) = typed.font_color {
-            cell.format.font_color = font_color.clone();
+            cell.format.font_color = Some(font_color.clone());
         }
         // bg_color: present+null → clear; present+string → set; absent → keep.
         if raw.contains_key("bg_color") {

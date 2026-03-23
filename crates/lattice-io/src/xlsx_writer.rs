@@ -157,8 +157,10 @@ fn cell_format_to_xlsx_format(cf: &lattice_core::CellFormat) -> Format {
     fmt = fmt.set_font_size(cf.font_size);
 
     // Parse hex color for font. rust_xlsxwriter uses u32 colors.
-    if let Some(color) = parse_hex_color(&cf.font_color) {
-        fmt = fmt.set_font_color(color);
+    if let Some(ref fc) = cf.font_color {
+        if let Some(color) = parse_hex_color(fc) {
+            fmt = fmt.set_font_color(color);
+        }
     }
 
     if let Some(ref bg) = cf.bg_color

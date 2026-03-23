@@ -61,7 +61,7 @@ pub async fn format_cells(
                 cell.format.font_family = family.clone();
             }
             if let Some(ref color) = format.font_color {
-                cell.format.font_color = color.clone();
+                cell.format.font_color = Some(color.clone());
             }
             if let Some(underline) = format.underline {
                 cell.format.underline = underline;
