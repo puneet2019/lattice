@@ -176,6 +176,10 @@ export interface VirtualGridProps {
   onNamedRangesOpen?: () => void;
   /** Whether to draw grid lines (default true). */
   showGridlines?: boolean;
+  /** Whether to show formulas instead of values. Controlled by App. */
+  showFormulas?: boolean;
+  /** Called when the user toggles formula view via Ctrl+`. */
+  onToggleFormulas?: (value: boolean) => void;
   /** Merged regions for the active sheet. */
   mergedRegions?: MergedRegionData[];
   /** Banded (alternating) row configuration for the active sheet. */
@@ -304,8 +308,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Track where the right-click originated: 'cell' | 'row-header' | 'col-header'
   const [ctxMenuTarget, setCtxMenuTarget] = createSignal<'cell' | 'row-header' | 'col-header'>('cell');
 
-  // Formula view: show raw formulas instead of computed values
-  const [showFormulas, setShowFormulas] = createSignal(false);
+  // Formula view: show raw formulas instead of computed values.
+  // When the parent provides the showFormulas prop, use that; otherwise
+  // fall back to a local signal.
+  const [localShowFormulas, setLocalShowFormulas] = createSignal(false);
+  const showFormulas = () => props.showFormulas !== undefined ? props.showFormulas : localShowFormulas();
+  const setShowFormulas = (v: boolean) => {
+    if (props.onToggleFormulas) {
+      props.onToggleFormulas(v);
+    } else {
+      setLocalShowFormulas(v);
+    }
+  };
 
   // Validation dropdown state (for cells with List validation)
   const [validationDropdownVisible, setValidationDropdownVisible] = createSignal(false);
@@ -1745,55 +1759,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
    * matching style overrides (bg_color, font_color, bold, italic).
    * Rules are evaluated in array order (priority order from backend).
    */
-  /** Interpolate between two hex colors. t in [0, 1]. */
-  function interpolateColor(c1: string, c2: string, t: number): string {
-    const parse = (hex: string) => {
-      const h = hex.replace('#', '');
-      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-    };
-    const [r1, g1, b1] = parse(c1);
-    const [r2, g2, b2] = parse(c2);
-    const lerp = (a: number, b: number) => Math.round(a + (b - a) * t);
-    const toHex = (n: number) => n.toString(16).padStart(2, '0');
-    return `#${toHex(lerp(r1, r2))}${toHex(lerp(g1, g2))}${toHex(lerp(b1, b2))}`;
-  }
-
-  /** Get min/max numeric values in a conditional format range from cellCache. */
-  function getRangeMinMax(sr: number, sc: number, er: number, ec: number): [number, number] {
-    let min = Infinity;
-    let max = -Infinity;
-    for (let r = sr; r <= er; r++) {
-      for (let c = sc; c <= ec; c++) {
-        const cell = cellCache.get(`${r}:${c}`);
-        if (!cell || !cell.value) continue;
-        const v = Number(cell.value);
-        if (!isNaN(v)) {
-          if (v < min) min = v;
-          if (v > max) max = v;
-        }
-      }
-    }
-    if (min === Infinity) { min = 0; max = 1; }
-    if (min === max) { max = min + 1; }
-    return [min, max];
-  }
-
-  interface CfResult {
-    bg_color?: string;
-    font_color?: string;
-    bold?: boolean;
-    italic?: boolean;
-    /** Data bar: proportion 0..1 and color */
-    dataBar?: { ratio: number; color: string };
-    /** Icon set: icon character to draw */
-    icon?: string;
-  }
-
   function evaluateConditionalFormat(
     row: number,
     col: number,
     cellValue: string | undefined,
-  ): CfResult | null {
+  ): { bg_color?: string; font_color?: string; bold?: boolean; italic?: boolean } | null {
     if (conditionalFormatRules.length === 0) return null;
 
     for (const cfRange of conditionalFormatRules) {
@@ -1838,48 +1808,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             cellValue.startsWith('#NULL') ||
             cellValue.startsWith('#NUM')
           );
-        } else if (kind === 'color_scale') {
-          const numVal = cellValue != null ? Number(cellValue) : NaN;
-          if (!isNaN(numVal)) {
-            const [min, max] = getRangeMinMax(cfRange.start_row, cfRange.start_col, cfRange.end_row, cfRange.end_col);
-            const t = Math.max(0, Math.min(1, (numVal - min) / (max - min)));
-            const minC = rule.min_color ?? '#ffffff';
-            const maxC = rule.max_color ?? '#ff0000';
-            const midC = rule.mid_color;
-            let bgColor: string;
-            if (midC) {
-              bgColor = t <= 0.5 ? interpolateColor(minC, midC, t * 2) : interpolateColor(midC, maxC, (t - 0.5) * 2);
-            } else {
-              bgColor = interpolateColor(minC, maxC, t);
-            }
-            return { bg_color: bgColor };
-          }
-          continue;
-        } else if (kind === 'data_bar') {
-          const numVal = cellValue != null ? Number(cellValue) : NaN;
-          if (!isNaN(numVal)) {
-            const [min, max] = getRangeMinMax(cfRange.start_row, cfRange.start_col, cfRange.end_row, cfRange.end_col);
-            const ratio = Math.max(0, Math.min(1, (numVal - min) / (max - min)));
-            return { dataBar: { ratio, color: rule.bar_color ?? '#4285f4' } };
-          }
-          continue;
-        } else if (kind === 'icon_set') {
-          const numVal = cellValue != null ? Number(cellValue) : NaN;
-          if (!isNaN(numVal)) {
-            const icons = rule.icons ?? ['\u2191', '\u2192', '\u2193'];
-            const thresholds = rule.thresholds ?? [67, 33];
-            // Thresholds are in descending order: [high, low]
-            // Values >= high -> icon[0], >= low -> icon[1], else icon[2]
-            let iconChar = icons[icons.length - 1];
-            for (let i = 0; i < thresholds.length; i++) {
-              if (numVal >= thresholds[i]) {
-                iconChar = icons[i];
-                break;
-              }
-            }
-            return { icon: iconChar };
-          }
-          continue;
         }
 
         if (matches) {
@@ -1905,6 +1833,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     rowCount: number,
   ) {
     const PADDING = 4;
+    ctx.textBaseline = 'middle';
 
     // Banded row config
     const banded = props.bandedRows;
@@ -1962,15 +1891,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         if (effectiveBgColor) {
           ctx.fillStyle = effectiveBgColor;
           ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
-        }
-
-        // Draw data bar (proportional fill behind text)
-        if (cfStyle?.dataBar) {
-          const barW = Math.max(2, (cw - 2) * cfStyle.dataBar.ratio);
-          ctx.globalAlpha = 0.35;
-          ctx.fillStyle = cfStyle.dataBar.color;
-          ctx.fillRect(x + 1, y + 1, barW, cellHeight - 2);
-          ctx.globalAlpha = 1.0;
         }
 
         // Draw cell borders if set.
@@ -2043,15 +1963,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           }
         }
 
-        // Draw icon set indicator (even for empty cells with numeric value)
-        if (cfStyle?.icon && cell?.value) {
-          ctx.font = '12px sans-serif';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = COLORS.cellText;
-          ctx.fillText(cfStyle.icon, x + 2, y + cellHeight / 2);
-        }
-
         // Skip text rendering for cells with no value
         if (!cell || !cell.value) continue;
 
@@ -2091,11 +2002,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const userSetAlign = cell.h_align && cell.h_align !== 'left';
         const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
         const maxTextW = cw - PADDING * 2;
-        // Vertical alignment
-        const vAlign = (cell as CellData).v_align ?? 'bottom';
-        const textBaseline: CanvasTextBaseline = vAlign === 'top' ? 'top' : vAlign === 'middle' ? 'middle' : 'bottom';
-        const textY = vAlign === 'top' ? y + PADDING : vAlign === 'middle' ? y + cellHeight / 2 : y + cellHeight - PADDING;
-        ctx.textBaseline = textBaseline;
         // In formula view, show raw formula instead of computed value
         let displayText = showFormulas() && cell.formula ? `=${cell.formula}` : cell.value;
 
@@ -2152,17 +2058,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
           const lineHeight = 16;
           const totalTextH = lines.length * lineHeight;
-          // Vertical alignment for wrapped text block
-          let wrapStartY: number;
-          if (vAlign === 'top') {
-            wrapStartY = y + PADDING + lineHeight / 2;
-          } else if (vAlign === 'bottom') {
-            wrapStartY = y + cellHeight - PADDING - totalTextH + lineHeight / 2;
-          } else {
-            wrapStartY = y + (cellHeight - totalTextH) / 2 + lineHeight / 2;
-          }
-          ctx.textBaseline = 'middle'; // wrapped lines always use middle baseline per line
-          const startY = wrapStartY;
+          const startY = y + (cellHeight - totalTextH) / 2 + lineHeight / 2;
           for (let li = 0; li < lines.length; li++) {
             const lineY = startY + li * lineHeight;
             if (lineY > y + cellHeight) break; // clip vertically
@@ -2193,9 +2089,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.rect(x, y, overflowW, cellHeight);
               ctx.clip();
               ctx.textAlign = 'left';
-              ctx.textBaseline = textBaseline;
-              ctx.fillText(displayText, x + PADDING, textY);
-              drawTextDecorations(x + PADDING, textY, displayText, 'left');
+              ctx.fillText(displayText, x + PADDING, y + cellHeight / 2);
+              drawTextDecorations(x + PADDING, y + cellHeight / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -2213,16 +2108,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               const textX = align === 'right' ? x + cw - PADDING
                 : align === 'center' ? x + cw / 2
                 : x + PADDING;
-              ctx.fillText(displayText, textX, textY);
-              drawTextDecorations(textX, textY, displayText, align as CanvasTextAlign);
+              ctx.fillText(displayText, textX, y + cellHeight / 2);
+              drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
             }
           } else {
             ctx.textAlign = align;
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
               : x + PADDING;
-            ctx.fillText(displayText, textX, textY);
-            drawTextDecorations(textX, textY, displayText, align as CanvasTextAlign);
+            ctx.fillText(displayText, textX, y + cellHeight / 2);
+            drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
           }
         }
       }

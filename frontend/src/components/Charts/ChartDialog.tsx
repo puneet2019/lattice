@@ -3,14 +3,53 @@ import { createSignal, createEffect, For, Show } from 'solid-js';
 import { renderChartSvg, createChart, deleteChart } from '../../bridge/tauri';
 import type { ChartTypeStr } from '../../bridge/tauri';
 
-/** Chart type options shown in the dialog. */
-const CHART_TYPES: { value: ChartTypeStr; label: string; icon: string }[] = [
-  { value: 'bar', label: 'Bar', icon: 'B' },
-  { value: 'line', label: 'Line', icon: 'L' },
-  { value: 'pie', label: 'Pie', icon: 'P' },
-  { value: 'scatter', label: 'Scatter', icon: 'S' },
-  { value: 'area', label: 'Area', icon: 'A' },
+/** Chart type group for organized display. */
+interface ChartTypeGroup {
+  title: string;
+  types: { value: ChartTypeStr; label: string; icon: string }[];
+}
+
+/** Chart types organized by category. */
+const CHART_TYPE_GROUPS: ChartTypeGroup[] = [
+  {
+    title: 'Basic',
+    types: [
+      { value: 'bar', label: 'Bar', icon: 'B' },
+      { value: 'line', label: 'Line', icon: 'L' },
+      { value: 'pie', label: 'Pie', icon: 'P' },
+      { value: 'scatter', label: 'Scatter', icon: 'S' },
+      { value: 'area', label: 'Area', icon: 'A' },
+      { value: 'stacked_bar', label: 'Stacked Bar', icon: 'SB' },
+      { value: 'stacked_area', label: 'Stacked Area', icon: 'SA' },
+    ],
+  },
+  {
+    title: 'Advanced',
+    types: [
+      { value: 'combo', label: 'Combo', icon: 'Cb' },
+      { value: 'histogram', label: 'Histogram', icon: 'H' },
+    ],
+  },
+  {
+    title: 'Financial',
+    types: [
+      { value: 'candlestick', label: 'Candlestick', icon: 'Cs' },
+      { value: 'waterfall', label: 'Waterfall', icon: 'W' },
+    ],
+  },
+  {
+    title: 'Specialty',
+    types: [
+      { value: 'treemap', label: 'Treemap', icon: 'T' },
+      { value: 'radar', label: 'Radar', icon: 'R' },
+      { value: 'bubble', label: 'Bubble', icon: 'Bb' },
+      { value: 'gauge', label: 'Gauge', icon: 'G' },
+    ],
+  },
 ];
+
+/** Flat list of all chart types (for backward compat). */
+const CHART_TYPES = CHART_TYPE_GROUPS.flatMap((g) => g.types);
 
 export interface ChartDialogProps {
   /** Current active sheet name. */
@@ -158,21 +197,28 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
           {/* Chart type selector */}
           <div class="chart-dialog-field">
             <label class="chart-dialog-label">Chart Type</label>
-            <div class="chart-dialog-type-grid">
-              <For each={CHART_TYPES}>
-                {(ct) => (
-                  <button
-                    class={`chart-dialog-type-btn ${chartType() === ct.value ? 'active' : ''}`}
-                    onClick={() => setChartType(ct.value)}
-                  >
-                    <span style={{ "font-size": "18px", "font-weight": "600" }}>
-                      {ct.icon}
-                    </span>
-                    <span>{ct.label}</span>
-                  </button>
-                )}
-              </For>
-            </div>
+            <For each={CHART_TYPE_GROUPS}>
+              {(group) => (
+                <div class="chart-dialog-type-group">
+                  <span class="chart-dialog-type-group-label">{group.title}</span>
+                  <div class="chart-dialog-type-grid">
+                    <For each={group.types}>
+                      {(ct) => (
+                        <button
+                          class={`chart-dialog-type-btn ${chartType() === ct.value ? 'active' : ''}`}
+                          onClick={() => setChartType(ct.value)}
+                        >
+                          <span style={{ "font-size": "18px", "font-weight": "600" }}>
+                            {ct.icon}
+                          </span>
+                          <span>{ct.label}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              )}
+            </For>
           </div>
 
           {/* Data range input */}

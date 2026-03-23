@@ -22,6 +22,8 @@ import SortDialog from './components/SortDialog';
 import NamedRangesDialog from './components/NamedRangesDialog';
 import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import PrintPreviewDialog from './components/PrintPreviewDialog';
+import DataCleanupDialog from './components/DataCleanupDialog';
+import TextToColumnsDialog from './components/TextToColumnsDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -59,6 +61,9 @@ import {
   getMergedRegions,
   setBandedRows,
   getBandedRows,
+  setComment,
+  getComment,
+  textToColumns,
 } from './bridge/tauri';
 import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
@@ -111,6 +116,7 @@ const App: Component = () => {
   const [isDirty, setIsDirty] = createSignal(false);
   const [saveStatus, setSaveStatus] = createSignal<SaveStatus>('saved');
   const [showGridlines, setShowGridlines] = createSignal(true);
+  const [showFormulas, setShowFormulas] = createSignal(false);
   const [recentFiles, setRecentFilesState] = createSignal<RecentFile[]>([]);
 
   /** Mark the workbook as having unsaved changes. */
@@ -333,7 +339,11 @@ const App: Component = () => {
     view_freeze_none: () => { setFrozenRows(0); setFrozenCols(0); setStatusMessage('Freeze panes removed'); },
 
     // -- View > Show / Zoom -------------------------------------------------
-    view_show_formulas: () => { setStatusMessage('Show formulas toggled (not yet implemented)'); },
+    view_show_formulas: () => {
+      setShowFormulas(!showFormulas());
+      setRefreshTrigger((n) => n + 1);
+      setStatusMessage(showFormulas() ? 'Formula view on' : 'Formula view off');
+    },
     view_toggle_gridlines: () => {
       setShowGridlines(!showGridlines());
       setStatusMessage(showGridlines() ? 'Gridlines shown' : 'Gridlines hidden');
@@ -372,8 +382,38 @@ const App: Component = () => {
         .catch((e) => setStatusMessage(`Insert column failed: ${e}`));
     },
     insert_chart: handleInsertChart,
-    insert_note: () => { setStatusMessage('Insert note (not yet implemented)'); },
-    insert_checkbox: () => { setStatusMessage('Insert checkbox (not yet implemented)'); },
+    insert_note: () => {
+      const note = window.prompt('Enter note:');
+      if (note !== null) {
+        const [row, col] = selectedCell();
+        if (note) {
+          void setComment(activeSheetName(), row, col, note)
+            .then(() => setStatusMessage(`Note added to ${cellRefStr(row, col)}`))
+            .catch((e) => setStatusMessage(`Failed to add note: ${e}`));
+        } else {
+          // Empty note clears the existing comment
+          void getComment(activeSheetName(), row, col)
+            .then((existing) => {
+              if (existing) {
+                setStatusMessage(`Note cleared from ${cellRefStr(row, col)}`);
+              } else {
+                setStatusMessage('No note to clear');
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    },
+    insert_checkbox: () => {
+      const [row, col] = selectedCell();
+      void setCell(activeSheetName(), row, col, 'FALSE')
+        .then(() => {
+          setRefreshTrigger((n) => n + 1);
+          markDirty();
+          setStatusMessage(`Checkbox inserted at ${cellRefStr(row, col)}`);
+        })
+        .catch((e) => setStatusMessage(`Insert checkbox failed: ${e}`));
+    },
     insert_named_range: () => { setShowNamedRanges(true); },
 
     // -- Format > Number ----------------------------------------------------
@@ -440,8 +480,8 @@ const App: Component = () => {
     data_create_filter: handleFilterToggle,
     data_named_ranges: () => { setShowNamedRanges(true); },
     data_validation: () => { setShowDataValidation(true); },
-    data_remove_duplicates: () => { setStatusMessage('Remove duplicates (not yet implemented)'); },
-    data_text_to_columns: () => { setStatusMessage('Text to columns (not yet implemented)'); },
+    data_remove_duplicates: () => { setShowDataCleanup(true); },
+    data_text_to_columns: () => { setShowTextToColumns(true); },
     data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
   };
 
@@ -857,11 +897,6 @@ const App: Component = () => {
     setStatusMessage(`Align: ${align}`);
   };
 
-  const handleVAlign = (align: 'top' | 'middle' | 'bottom') => {
-    applyFormat({ v_align: align });
-    setStatusMessage(`Vertical align: ${align}`);
-  };
-
   const handleNumberFormat = (fmt: string) => {
     applyFormat({ number_format: fmt });
     setStatusMessage(`Number format: ${fmt}`);
@@ -1168,6 +1203,8 @@ const App: Component = () => {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = createSignal(false);
   const [showPrintPreview, setShowPrintPreview] = createSignal(false);
   const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
+  const [showDataCleanup, setShowDataCleanup] = createSignal(false);
+  const [showTextToColumns, setShowTextToColumns] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1216,7 +1253,6 @@ const App: Component = () => {
         onBgColor={handleBgColor}
         onBorders={handleBorders}
         onAlign={handleAlign}
-        onVAlign={handleVAlign}
         onTextWrap={handleTextWrap}
         onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}
@@ -1313,6 +1349,11 @@ const App: Component = () => {
           onSortDialogOpen={() => setShowSortDialog(true)}
           onNamedRangesOpen={() => setShowNamedRanges(true)}
           showGridlines={showGridlines()}
+          showFormulas={showFormulas()}
+          onToggleFormulas={(v: boolean) => {
+            setShowFormulas(v);
+            setStatusMessage(v ? 'Formula view on' : 'Formula view off');
+          }}
           mergedRegions={mergedRegions()}
           bandedRows={bandedRows()}
           onNextSheet={handleNextSheet}
@@ -1430,6 +1471,32 @@ const App: Component = () => {
           sheets={sheets()}
           onClose={() => setShowPrintPreview(false)}
           onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showDataCleanup()}>
+        <DataCleanupDialog
+          activeSheet={activeSheetName()}
+          selectionRange={selRange()}
+          onClose={() => setShowDataCleanup(false)}
+          onDataChanged={() => { setRefreshTrigger((n) => n + 1); markDirty(); }}
+          onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showTextToColumns()}>
+        <TextToColumnsDialog
+          onApply={(delimiter: string) => {
+            const [, col] = selectedCell();
+            const [minRow, , maxRow] = selRange();
+            void textToColumns(activeSheetName(), col, delimiter, minRow, maxRow)
+              .then((maxCols) => {
+                setShowTextToColumns(false);
+                setRefreshTrigger((n) => n + 1);
+                markDirty();
+                setStatusMessage(`Text split into ${maxCols} columns`);
+              })
+              .catch((e) => setStatusMessage(`Text to columns failed: ${e}`));
+          }}
+          onClose={() => setShowTextToColumns(false)}
         />
       </Show>
       <SheetTabs

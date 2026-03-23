@@ -28,7 +28,6 @@ export interface CellData {
   bg_color: string | null;
   font_family: string;
   h_align: string;
-  v_align: string;
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
@@ -97,6 +96,58 @@ export async function setCell(
   formula?: string,
 ): Promise<void> {
   return invoke('set_cell', { sheet, row, col, value, formula });
+}
+
+// ---------------------------------------------------------------------------
+// Comment / Note commands
+// ---------------------------------------------------------------------------
+
+export async function setComment(
+  sheet: string,
+  row: number,
+  col: number,
+  text: string,
+): Promise<void> {
+  return invoke('set_comment', { sheet, row, col, text });
+}
+
+export async function getComment(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<string | null> {
+  return invoke('get_comment', { sheet, row, col });
+}
+
+export async function removeComment(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<void> {
+  return invoke('remove_comment', { sheet, row, col });
+}
+
+// ---------------------------------------------------------------------------
+// Data cleanup commands
+// ---------------------------------------------------------------------------
+
+export async function removeDuplicates(
+  sheet: string,
+  startRow: number,
+  endRow: number,
+  columns: number[],
+): Promise<number> {
+  return invoke('remove_duplicates', { sheet, startRow, endRow, columns });
+}
+
+export async function textToColumns(
+  sheet: string,
+  col: number,
+  delimiter: string,
+  startRow: number,
+  endRow: number,
+): Promise<number> {
+  return invoke('text_to_columns', { sheet, col, delimiter, startRow, endRow });
 }
 
 export async function getRange(
@@ -453,7 +504,9 @@ export type ChartTypeStr =
   | 'waterfall'
   | 'radar'
   | 'bubble'
-  | 'gauge';
+  | 'gauge'
+  | 'stacked_bar'
+  | 'stacked_area';
 
 export async function createChart(
   sheet: string,
@@ -740,17 +793,11 @@ export async function resolveNamedRange(
 
 /** Rule type input for adding conditional format rules. */
 export interface RuleTypeInput {
-  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error' | 'color_scale' | 'data_bar' | 'icon_set'
+  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error'
   operator?: string; // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between'
   value1?: number;
   value2?: number;
   text?: string;
-  min_color?: string;
-  max_color?: string;
-  mid_color?: string;
-  bar_color?: string;
-  icons?: string[];
-  thresholds?: number[];
 }
 
 /** Style to apply when a conditional format rule matches. */
@@ -777,18 +824,6 @@ export interface RuleOutput {
   value2?: number | null;
   /** Text needle for text_contains rules. */
   text?: string | null;
-  /** Minimum color for color_scale rules. */
-  min_color?: string | null;
-  /** Maximum color for color_scale rules. */
-  max_color?: string | null;
-  /** Optional midpoint color for color_scale rules. */
-  mid_color?: string | null;
-  /** Bar color for data_bar rules. */
-  bar_color?: string | null;
-  /** Icons for icon_set rules. */
-  icons?: string[] | null;
-  /** Thresholds for icon_set rules. */
-  thresholds?: number[] | null;
 }
 
 /** A conditional format range (from list). */

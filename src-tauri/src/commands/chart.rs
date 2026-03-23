@@ -52,6 +52,7 @@ pub async fn create_chart(
     title: Option<String>,
 ) -> Result<String, String> {
     let ct = parse_chart_type(&chart_type)?;
+    let stacked = is_stacked(&chart_type);
     let chart_id = uuid::Uuid::new_v4().to_string();
 
     let mut chart = Chart::new(&chart_id, ct, &data_range, &sheet);
@@ -66,6 +67,15 @@ pub async fn create_chart(
         .map_err(|e| format!("Chart store lock error: {}", e))?
         .insert(chart_id.clone(), chart);
 
+    // Store stacked flag separately so render_chart_svg can use it.
+    if stacked {
+        state
+            .chart_stacked
+            .lock()
+            .map_err(|e| format!("Stacked map lock error: {}", e))?
+            .insert(chart_id.clone(), true);
+    }
+
     Ok(chart_id)
 }
 
@@ -78,21 +88,29 @@ pub async fn render_chart_svg(
     state: State<'_, AppState>,
     chart_id: String,
 ) -> Result<String, String> {
-    let chart = {
+    let (chart, stacked) = {
         let store = state
             .chart_store
             .charts
             .lock()
             .map_err(|e| format!("Chart store lock error: {}", e))?;
-        store
+        let c = store
             .get(&chart_id)
             .cloned()
-            .ok_or_else(|| format!("Chart not found: {}", chart_id))?
+            .ok_or_else(|| format!("Chart not found: {}", chart_id))?;
+        // Retrieve the stacked flag from the chart_type_raw metadata.
+        let stacked = state
+            .chart_stacked
+            .lock()
+            .map(|m| m.get(&chart_id).copied().unwrap_or(false))
+            .unwrap_or(false);
+        (c, stacked)
     };
 
     // Extract data from the workbook for this chart's range.
     let data = extract_chart_data(&state, &chart).await?;
-    let options = chart.to_options();
+    let mut options = chart.to_options();
+    options.stacked = stacked;
 
     Ok(render_chart(&chart.chart_type, &data, &options))
 }
@@ -136,6 +154,10 @@ pub async fn delete_chart(state: State<'_, AppState>, chart_id: String) -> Resul
         .map_err(|e| format!("Chart store lock error: {}", e))?;
 
     if store.remove(&chart_id).is_some() {
+        // Clean up stacked flag.
+        if let Ok(mut stacked) = state.chart_stacked.lock() {
+            stacked.remove(&chart_id);
+        }
         Ok(())
     } else {
         Err(format!("Chart not found: {}", chart_id))
@@ -149,20 +171,29 @@ pub async fn delete_chart(state: State<'_, AppState>, chart_id: String) -> Resul
 /// Parse a chart type string into a `ChartType` enum value.
 fn parse_chart_type(s: &str) -> Result<ChartType, String> {
     match s {
-        "bar" => Ok(ChartType::Bar),
+        "bar" | "stacked_bar" => Ok(ChartType::Bar),
         "line" => Ok(ChartType::Line),
         "pie" => Ok(ChartType::Pie),
         "scatter" => Ok(ChartType::Scatter),
-        "area" => Ok(ChartType::Area),
+        "area" | "stacked_area" => Ok(ChartType::Area),
         "combo" => Ok(ChartType::Combo),
         "histogram" => Ok(ChartType::Histogram),
         "candlestick" => Ok(ChartType::Candlestick),
         "treemap" => Ok(ChartType::Treemap),
+        "waterfall" => Ok(ChartType::Waterfall),
+        "radar" => Ok(ChartType::Radar),
+        "bubble" => Ok(ChartType::Bubble),
+        "gauge" => Ok(ChartType::Gauge),
         _ => Err(format!(
-            "Invalid chart type '{}'. Valid: bar, line, pie, scatter, area, combo, histogram, candlestick, treemap",
+            "Invalid chart type '{}'. Valid: bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge, stacked_bar, stacked_area",
             s
         )),
     }
+}
+
+/// Returns true when the chart type string requests a stacked rendering.
+fn is_stacked(chart_type_str: &str) -> bool {
+    chart_type_str.starts_with("stacked_")
 }
 
 /// Parse an A1-style range string like "A1:C5" into (start_row, start_col, end_row, end_col).

@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use lattice_core::{AutoSaveConfig, ConditionalFormatStore, UndoStack, Workbook};
 use tokio::sync::RwLock;
@@ -19,6 +20,8 @@ pub struct AppState {
     pub file_path: Arc<RwLock<Option<String>>>,
     /// Conditional formatting rules.
     pub conditional_formats: Arc<RwLock<ConditionalFormatStore>>,
+    /// Per-chart stacked flag (chart_id -> stacked bool).
+    pub chart_stacked: Mutex<HashMap<String, bool>>,
 }
 
 impl AppState {
@@ -31,6 +34,7 @@ impl AppState {
             autosave_config: Arc::new(RwLock::new(AutoSaveConfig::default())),
             file_path: Arc::new(RwLock::new(None)),
             conditional_formats: Arc::new(RwLock::new(ConditionalFormatStore::new())),
+            chart_stacked: Mutex::new(HashMap::new()),
         }
     }
 

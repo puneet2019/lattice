@@ -11,10 +11,19 @@ use crate::svg::{
 
 /// Render bar chart data as an SVG string.
 ///
-/// Produces a vertical grouped bar chart. When multiple series are present,
-/// bars for each category are placed side by side. Single-series charts
-/// render one bar per category.
+/// Produces a vertical grouped bar chart (or stacked when `options.stacked`
+/// is true). When grouped, multiple series are placed side by side within
+/// each category. When stacked, series are layered on top of each other.
 pub fn render(data: &ChartData, options: &ChartOptions) -> String {
+    if options.stacked {
+        render_stacked(data, options)
+    } else {
+        render_grouped(data, options)
+    }
+}
+
+/// Render a grouped (side-by-side) bar chart.
+fn render_grouped(data: &ChartData, options: &ChartOptions) -> String {
     let margins = Margins::for_options(options);
     let pw = margins.plot_width(options.width);
     let ph = margins.plot_height(options.height);
@@ -96,6 +105,108 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
         0.5
     };
     let baseline_y = margins.top + ph * (1.0 - zero_frac);
+    svg.push_str(&format!(
+        r##"<line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="#333333" stroke-width="1"/>"##,
+        x1 = margins.left,
+        x2 = margins.left + pw,
+        y = baseline_y,
+    ));
+    svg.push('\n');
+
+    svg.push_str(&svg_legend(data, &margins, options));
+    svg.push_str(svg_close());
+    svg
+}
+
+/// Render a stacked bar chart. Series values accumulate on top of each other.
+fn render_stacked(data: &ChartData, options: &ChartOptions) -> String {
+    let margins = Margins::for_options(options);
+    let pw = margins.plot_width(options.width);
+    let ph = margins.plot_height(options.height);
+
+    // Compute stacked totals per category for the y-axis scale.
+    let n_categories = data.labels.len().max(1);
+    let mut stacked_max = 0.0_f64;
+    for ci in 0..n_categories {
+        let total: f64 = data
+            .series
+            .iter()
+            .map(|s| s.values.get(ci).copied().unwrap_or(0.0).max(0.0))
+            .sum();
+        if total > stacked_max {
+            stacked_max = total;
+        }
+    }
+
+    let scale = compute_axis_scale(0.0, stacked_max);
+    let y_range = scale.max - scale.min;
+    let category_width = pw / n_categories as f64;
+    let bar_gap = category_width * 0.15;
+    let bar_width = category_width - bar_gap * 2.0;
+
+    let mut svg = String::with_capacity(2048);
+    svg.push_str(&svg_open(options));
+    svg.push('\n');
+    svg.push_str(&svg_title(options));
+    svg.push('\n');
+    svg.push_str(&svg_grid_lines(&scale, &margins, options));
+    svg.push_str(&svg_axis_labels(options, &margins));
+
+    // Draw stacked bars per category
+    for (ci, label) in data.labels.iter().enumerate() {
+        let cat_x = margins.left + ci as f64 * category_width;
+        let bar_x = cat_x + bar_gap;
+
+        let mut cumulative = 0.0_f64;
+        for (si, series) in data.series.iter().enumerate() {
+            let value = series.values.get(ci).copied().unwrap_or(0.0).max(0.0);
+            if value <= 0.0 {
+                continue;
+            }
+            let color = series.color.as_deref().unwrap_or_else(|| series_color(si));
+
+            let bottom_frac = if y_range.abs() > f64::EPSILON {
+                (cumulative - scale.min) / y_range
+            } else {
+                0.0
+            };
+            cumulative += value;
+            let top_frac = if y_range.abs() > f64::EPSILON {
+                (cumulative - scale.min) / y_range
+            } else {
+                1.0
+            };
+
+            let bar_y = margins.top + ph * (1.0 - top_frac);
+            let bar_bottom = margins.top + ph * (1.0 - bottom_frac);
+            let bar_h = (bar_bottom - bar_y).abs();
+
+            svg.push_str(&format!(
+                r#"<rect x="{bx:.1}" y="{by:.1}" width="{bw:.1}" height="{bh:.1}" fill="{color}" rx="1"/>"#,
+                bx = bar_x,
+                by = bar_y,
+                bw = bar_width,
+                bh = bar_h,
+            ));
+            svg.push('\n');
+        }
+
+        // X-axis label
+        let label_x = cat_x + category_width / 2.0;
+        let label_y = margins.top + ph + 18.0;
+        svg.push_str(&svg_text(
+            label_x,
+            label_y,
+            "middle",
+            10,
+            "#666666",
+            &xml_escape(label),
+        ));
+        svg.push('\n');
+    }
+
+    // X-axis baseline
+    let baseline_y = margins.top + ph;
     svg.push_str(&format!(
         r##"<line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}" stroke="#333333" stroke-width="1"/>"##,
         x1 = margins.left,
