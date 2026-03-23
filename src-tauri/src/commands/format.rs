@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use lattice_core::{Border, BorderStyle, CellFormat, HAlign, Operation, TextWrap};
@@ -148,6 +148,128 @@ pub async fn format_cells(
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Merge / Unmerge cells
+// ---------------------------------------------------------------------------
+
+/// A merged region returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergedRegionData {
+    pub start_row: u32,
+    pub start_col: u32,
+    pub end_row: u32,
+    pub end_col: u32,
+}
+
+/// Merge a rectangular region of cells.
+///
+/// The value of the merged cell comes from the top-left cell. All other
+/// cells in the region are cleared. Returns an error if the region
+/// overlaps an existing merged region.
+#[tauri::command]
+pub async fn merge_cells(
+    state: State<'_, AppState>,
+    sheet: String,
+    start_row: u32,
+    start_col: u32,
+    end_row: u32,
+    end_col: u32,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.merge_cells(start_row, start_col, end_row, end_col)
+        .map_err(|e| e.to_string())
+}
+
+/// Unmerge any merged region containing the given cell.
+///
+/// Returns `true` if a region was unmerged, `false` if the cell was
+/// not part of any merged region.
+#[tauri::command]
+pub async fn unmerge_cells(
+    state: State<'_, AppState>,
+    sheet: String,
+    row: u32,
+    col: u32,
+) -> Result<bool, String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    s.unmerge_cell(row, col).map_err(|e| e.to_string())
+}
+
+/// Return all merged regions for a sheet.
+#[tauri::command]
+pub async fn get_merged_regions(
+    state: State<'_, AppState>,
+    sheet: String,
+) -> Result<Vec<MergedRegionData>, String> {
+    let wb = state.workbook.read().await;
+    let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    Ok(s.merged_regions()
+        .iter()
+        .map(|r| MergedRegionData {
+            start_row: r.start_row,
+            start_col: r.start_col,
+            end_row: r.end_row,
+            end_col: r.end_col,
+        })
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Banded (alternating) rows
+// ---------------------------------------------------------------------------
+
+/// Banded row configuration returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BandedRowsData {
+    pub enabled: bool,
+    pub even_color: String,
+    pub odd_color: String,
+    pub header_color: Option<String>,
+}
+
+/// Set banded (alternating) row colours on a sheet.
+#[tauri::command]
+pub async fn set_banded_rows(
+    state: State<'_, AppState>,
+    sheet: String,
+    enabled: bool,
+    even_color: String,
+    odd_color: String,
+    header_color: Option<String>,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    if enabled {
+        s.banded_rows = Some(lattice_core::BandedRows {
+            enabled: true,
+            even_color,
+            odd_color,
+            header_color,
+        });
+    } else {
+        s.banded_rows = None;
+    }
+    Ok(())
+}
+
+/// Get the banded row configuration for a sheet.
+#[tauri::command]
+pub async fn get_banded_rows(
+    state: State<'_, AppState>,
+    sheet: String,
+) -> Result<Option<BandedRowsData>, String> {
+    let wb = state.workbook.read().await;
+    let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
+    Ok(s.banded_rows.as_ref().map(|b| BandedRowsData {
+        enabled: b.enabled,
+        even_color: b.even_color.clone(),
+        odd_color: b.odd_color.clone(),
+        header_color: b.header_color.clone(),
+    }))
 }
 
 /// Parse a border edge update into a core `Border`, or `None` if the

@@ -150,6 +150,76 @@ export async function formatCells(
 }
 
 // ---------------------------------------------------------------------------
+// Merge / Unmerge cells
+// ---------------------------------------------------------------------------
+
+/** A merged region returned from the backend. */
+export interface MergedRegionData {
+  start_row: number;
+  start_col: number;
+  end_row: number;
+  end_col: number;
+}
+
+export async function mergeCells(
+  sheet: string,
+  startRow: number,
+  startCol: number,
+  endRow: number,
+  endCol: number,
+): Promise<void> {
+  return invoke('merge_cells', { sheet, startRow, startCol, endRow, endCol });
+}
+
+export async function unmergeCells(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<boolean> {
+  return invoke('unmerge_cells', { sheet, row, col });
+}
+
+export async function getMergedRegions(
+  sheet: string,
+): Promise<MergedRegionData[]> {
+  return invoke('get_merged_regions', { sheet });
+}
+
+// ---------------------------------------------------------------------------
+// Banded (alternating) rows
+// ---------------------------------------------------------------------------
+
+/** Banded row configuration from the backend. */
+export interface BandedRowsData {
+  enabled: boolean;
+  even_color: string;
+  odd_color: string;
+  header_color: string | null;
+}
+
+export async function setBandedRows(
+  sheet: string,
+  enabled: boolean,
+  evenColor: string,
+  oddColor: string,
+  headerColor?: string | null,
+): Promise<void> {
+  return invoke('set_banded_rows', {
+    sheet,
+    enabled,
+    evenColor,
+    oddColor,
+    headerColor: headerColor ?? null,
+  });
+}
+
+export async function getBandedRows(
+  sheet: string,
+): Promise<BandedRowsData | null> {
+  return invoke('get_banded_rows', { sheet });
+}
+
+// ---------------------------------------------------------------------------
 // Row/Column manipulation
 // ---------------------------------------------------------------------------
 

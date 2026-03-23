@@ -245,6 +245,41 @@ body,
   font-weight: bold;
 }
 
+.toolbar-hex-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--grid-border);
+}
+
+.toolbar-hex-preview {
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  border: 1px solid var(--grid-border);
+  flex-shrink: 0;
+}
+
+.toolbar-hex-input {
+  flex: 1;
+  min-width: 0;
+  font-family: 'SF Mono', ui-monospace, monospace;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--grid-border);
+  border-radius: 3px;
+  background: var(--cell-bg);
+  color: var(--cell-text);
+  outline: none;
+}
+
+.toolbar-hex-input:focus {
+  border-color: var(--selection-border);
+}
+
 /* -----------------------------------------------------------------------
    Formula Bar
    ----------------------------------------------------------------------- */

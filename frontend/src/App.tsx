@@ -52,8 +52,13 @@ import {
   sortRange,
   getRecentFiles,
   addRecentFile,
+  mergeCells,
+  unmergeCells,
+  getMergedRegions,
+  setBandedRows,
+  getBandedRows,
 } from './bridge/tauri';
-import type { FilterInfo, NamedRangeInfo, RecentFile } from './bridge/tauri';
+import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
@@ -394,9 +399,9 @@ const App: Component = () => {
     format_align_right: () => { handleAlign('right'); },
 
     // -- Format > Merge, conditional, clear ---------------------------------
-    format_merge: () => { setStatusMessage('Merge cells (not yet implemented)'); },
+    format_merge: handleMerge,
     format_conditional: () => { setShowConditionalFormat(true); },
-    format_alternating: () => { setStatusMessage('Alternating colors (not yet implemented)'); },
+    format_alternating: handleAlternatingColors,
     format_clear: () => {
       void applyFormat({
         bold: false, italic: false, underline: false, strikethrough: false,
@@ -463,6 +468,10 @@ const App: Component = () => {
       // Recent files not available
     }
 
+    // Load merged regions and banded rows for initial sheet
+    void refreshMergedRegions();
+    void refreshBandedRows();
+
     // Set initial window title
     updateWindowTitle(currentFilePath(), false);
 
@@ -512,6 +521,9 @@ const App: Component = () => {
     setSelectedCell([0, 0]);
     setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
+    // Refresh merged regions and banded rows for the new sheet
+    void refreshMergedRegions();
+    void refreshBandedRows();
   };
 
   const handleAddSheet = async () => {
@@ -931,6 +943,100 @@ const App: Component = () => {
   const [chartOverlays, setChartOverlays] = createSignal<ChartOverlay[]>([]);
   const [showChartDialog, setShowChartDialog] = createSignal(false);
 
+  // -------------------------------------------------------------------
+  // Merge / Unmerge cells
+  // -------------------------------------------------------------------
+
+  const [mergedRegions, setMergedRegions] = createSignal<MergedRegionData[]>([]);
+
+  /** Fetch merged regions for the active sheet. */
+  const refreshMergedRegions = async () => {
+    try {
+      const regions = await getMergedRegions(activeSheetName());
+      setMergedRegions(regions);
+    } catch {
+      setMergedRegions([]);
+    }
+  };
+
+  const handleMerge = async () => {
+    const [minR, minC, maxR, maxC] = selRange();
+    // Need at least 2 cells to merge
+    if (minR === maxR && minC === maxC) {
+      setStatusMessage('Select more than one cell to merge');
+      return;
+    }
+    try {
+      await mergeCells(activeSheetName(), minR, minC, maxR, maxC);
+      await refreshMergedRegions();
+      setRefreshTrigger((n) => n + 1);
+      markDirty();
+      setStatusMessage('Cells merged');
+    } catch (e) {
+      setStatusMessage(`Merge failed: ${e}`);
+    }
+  };
+
+  const handleUnmerge = async () => {
+    const [row, col] = selectedCell();
+    try {
+      const unmerged = await unmergeCells(activeSheetName(), row, col);
+      if (unmerged) {
+        await refreshMergedRegions();
+        setRefreshTrigger((n) => n + 1);
+        markDirty();
+        setStatusMessage('Cells unmerged');
+      } else {
+        setStatusMessage('No merged region at current cell');
+      }
+    } catch (e) {
+      setStatusMessage(`Unmerge failed: ${e}`);
+    }
+  };
+
+  // -------------------------------------------------------------------
+  // Banded (alternating) rows
+  // -------------------------------------------------------------------
+
+  const [bandedRows, setBandedRowsState] = createSignal<BandedRowsData | null>(null);
+
+  /** Fetch banded row config for the active sheet. */
+  const refreshBandedRows = async () => {
+    try {
+      const banded = await getBandedRows(activeSheetName());
+      setBandedRowsState(banded);
+    } catch {
+      setBandedRowsState(null);
+    }
+  };
+
+  const handleAlternatingColors = async () => {
+    const current = bandedRows();
+    if (current && current.enabled) {
+      // Toggle off
+      try {
+        await setBandedRows(activeSheetName(), false, '', '', null);
+        setBandedRowsState(null);
+        setRefreshTrigger((n) => n + 1);
+        markDirty();
+        setStatusMessage('Alternating colors removed');
+      } catch (e) {
+        setStatusMessage(`Failed to remove alternating colors: ${e}`);
+      }
+    } else {
+      // Toggle on with default colors
+      try {
+        await setBandedRows(activeSheetName(), true, '#F3F3F3', '#FFFFFF', '#E8EAED');
+        await refreshBandedRows();
+        setRefreshTrigger((n) => n + 1);
+        markDirty();
+        setStatusMessage('Alternating colors applied');
+      } catch (e) {
+        setStatusMessage(`Failed to apply alternating colors: ${e}`);
+      }
+    }
+  };
+
   const handleInsertChart = () => {
     setShowChartDialog(true);
   };
@@ -1058,6 +1164,8 @@ const App: Component = () => {
         onFilterToggle={handleFilterToggle}
         onConditionalFormat={() => setShowConditionalFormat(true)}
         onPaintFormat={handlePaintFormat}
+        onMerge={handleMerge}
+        onUnmerge={handleUnmerge}
         onInsertFunction={handleInsertFunction}
         boldActive={boldActive()}
         italicActive={italicActive()}
@@ -1139,6 +1247,8 @@ const App: Component = () => {
           onSortDialogOpen={() => setShowSortDialog(true)}
           onNamedRangesOpen={() => setShowNamedRanges(true)}
           showGridlines={showGridlines()}
+          mergedRegions={mergedRegions()}
+          bandedRows={bandedRows()}
         />
         <ChartContainer
           charts={chartOverlays()}

@@ -23,6 +23,8 @@ export interface ToolbarProps {
   onFilterToggle: () => void;
   onConditionalFormat: () => void;
   onPaintFormat: () => void;
+  onMerge: () => void;
+  onUnmerge: () => void;
   onInsertFunction: (fn: string) => void;
   boldActive: boolean;
   italicActive: boolean;
@@ -48,6 +50,17 @@ const FONT_FAMILIES = [
 
 const COMMON_FUNCTIONS = ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN'];
 
+/** Validate a CSS hex color string (3, 4, 6, or 8 hex digits). */
+function isValidHexColor(s: string): boolean {
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(s);
+}
+
+/** Normalise user input into a # prefixed hex string. */
+function normaliseHex(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+}
+
 const PRESET_COLORS = [
   '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
   '#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff',
@@ -66,9 +79,12 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showBordersDropdown, setShowBordersDropdown] = createSignal(false);
   const [showTextWrapDropdown, setShowTextWrapDropdown] = createSignal(false);
   const [showFunctionDropdown, setShowFunctionDropdown] = createSignal(false);
+  const [showMergeDropdown, setShowMergeDropdown] = createSignal(false);
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
   const [lastFontColor, setLastFontColor] = createSignal('#000000');
   const [lastBgColor, setLastBgColor] = createSignal('#ffff00');
+  const [fontHexInput, setFontHexInput] = createSignal('');
+  const [bgHexInput, setBgHexInput] = createSignal('');
 
   let toolbarRef: HTMLDivElement | undefined;
 
@@ -78,7 +94,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     showFontFamilyDropdown() || showFontSizeDropdown() ||
     showFontColorPicker() || showBgColorPicker() ||
     showBordersDropdown() || showTextWrapDropdown() ||
-    showFunctionDropdown();
+    showFunctionDropdown() || showMergeDropdown();
 
   const closeAllDropdowns = () => {
     setShowFontFamilyDropdown(false);
@@ -88,6 +104,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     setShowBordersDropdown(false);
     setShowTextWrapDropdown(false);
     setShowFunctionDropdown(false);
+    setShowMergeDropdown(false);
   };
 
   // -----------------------------------------------------------------------
@@ -316,6 +333,30 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                 />
               )}
             </For>
+            <div class="toolbar-hex-row">
+              <div
+                class="toolbar-hex-preview"
+                style={{ background: isValidHexColor(normaliseHex(fontHexInput())) ? normaliseHex(fontHexInput()) : lastFontColor() }}
+              />
+              <input
+                class="toolbar-hex-input"
+                type="text"
+                placeholder="#000000"
+                maxLength={9}
+                value={fontHexInput()}
+                onInput={(e) => setFontHexInput(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const hex = normaliseHex(fontHexInput());
+                    if (isValidHexColor(hex)) {
+                      handleFontColor(hex);
+                      setFontHexInput('');
+                    }
+                  }
+                  e.stopPropagation();
+                }}
+              />
+            </div>
           </div>
         </Show>
       </div>
@@ -351,6 +392,30 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                 />
               )}
             </For>
+            <div class="toolbar-hex-row">
+              <div
+                class="toolbar-hex-preview"
+                style={{ background: isValidHexColor(normaliseHex(bgHexInput())) ? normaliseHex(bgHexInput()) : lastBgColor() }}
+              />
+              <input
+                class="toolbar-hex-input"
+                type="text"
+                placeholder="#000000"
+                maxLength={9}
+                value={bgHexInput()}
+                onInput={(e) => setBgHexInput(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const hex = normaliseHex(bgHexInput());
+                    if (isValidHexColor(hex)) {
+                      handleBgColor(hex);
+                      setBgHexInput('');
+                    }
+                  }
+                  e.stopPropagation();
+                }}
+              />
+            </div>
           </div>
         </Show>
       </div>
@@ -432,6 +497,30 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
             <div class="toolbar-dropdown-item" onClick={() => { setShowTextWrapDropdown(false); props.onTextWrap('Clip'); }}>
               Clip
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Merge Cells */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn"
+          title="Merge cells"
+          onClick={() => { const wasOpen = showMergeDropdown(); closeAllDropdowns(); if (!wasOpen) setShowMergeDropdown(true); }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="3" width="12" height="10" rx="1" />
+            <line x1="8" y1="3" x2="8" y2="13" stroke-dasharray="2 2" />
+          </svg>
+        </button>
+        <Show when={showMergeDropdown()}>
+          <div class="toolbar-dropdown-menu" style={{ "min-width": "120px" }}>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowMergeDropdown(false); props.onMerge(); }}>
+              Merge all
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowMergeDropdown(false); props.onUnmerge(); }}>
+              Unmerge
             </div>
           </div>
         </Show>

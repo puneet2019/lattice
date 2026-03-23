@@ -370,6 +370,11 @@ fn main() {
             commands::edit::redo,
             // Format commands
             commands::format::format_cells,
+            commands::format::merge_cells,
+            commands::format::unmerge_cells,
+            commands::format::get_merged_regions,
+            commands::format::set_banded_rows,
+            commands::format::get_banded_rows,
             // Conditional format commands
             commands::conditional_format::add_conditional_format,
             commands::conditional_format::list_conditional_formats,

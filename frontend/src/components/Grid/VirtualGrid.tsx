@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
-import type { CellData } from '../../bridge/tauri';
+import type { CellData, MergedRegionData, BandedRowsData } from '../../bridge/tauri';
 import type { PasteMode } from '../PasteSpecialDialog';
 import {
   getCell,
@@ -28,7 +28,6 @@ import {
   sortRange,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
-import { detectAndFill, adjustFormulaRefs } from './fillUtils';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import FormulaHint from './FormulaHint';
@@ -172,6 +171,10 @@ export interface VirtualGridProps {
   onNamedRangesOpen?: () => void;
   /** Whether to draw grid lines (default true). */
   showGridlines?: boolean;
+  /** Merged regions for the active sheet. */
+  mergedRegions?: MergedRegionData[];
+  /** Banded (alternating) row configuration for the active sheet. */
+  bandedRows?: BandedRowsData | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1641,6 +1644,33 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return null;
   }
 
+  /** Find the merged region that a cell belongs to, if any. */
+  function findMergedRegion(row: number, col: number): MergedRegionData | undefined {
+    const regions = props.mergedRegions;
+    if (!regions || regions.length === 0) return undefined;
+    return regions.find(
+      (r) => row >= r.start_row && row <= r.end_row && col >= r.start_col && col <= r.end_col,
+    );
+  }
+
+  /** Compute the total pixel width of a merged region. */
+  function mergedWidth(region: MergedRegionData): number {
+    let w = 0;
+    for (let c = region.start_col; c <= region.end_col; c++) {
+      if (!hiddenCols.has(c)) w += getColWidth(c);
+    }
+    return w;
+  }
+
+  /** Compute the total pixel height of a merged region. */
+  function mergedHeight(region: MergedRegionData): number {
+    let h = 0;
+    for (let r = region.start_row; r <= region.end_row; r++) {
+      if (!hiddenRows.has(r)) h += getRowHeight(r);
+    }
+    return h;
+  }
+
   function drawCellData(
     ctx: CanvasRenderingContext2D,
     sx: number,
@@ -1653,6 +1683,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const PADDING = 4;
     ctx.textBaseline = 'middle';
 
+    // Banded row config
+    const banded = props.bandedRows;
+
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
       // Skip hidden rows (e.g. from auto-filter)
@@ -1663,15 +1696,43 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const col = startCol + c;
         // Skip hidden columns
         if (hiddenCols.has(col)) continue;
+
+        // Merged region handling: skip non-anchor cells
+        const mergedRegion = findMergedRegion(row, col);
+        if (mergedRegion && (row !== mergedRegion.start_row || col !== mergedRegion.start_col)) {
+          continue; // This cell is covered by a merge; skip it
+        }
+
         const cell = cellCache.get(`${row}:${col}`);
-        const cw = getColWidth(col);
+        let cw = getColWidth(col);
+        let cellHeight = rh;
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
+
+        // If this is a merged anchor, expand dimensions
+        if (mergedRegion) {
+          cw = mergedWidth(mergedRegion);
+          cellHeight = mergedHeight(mergedRegion);
+          // Clear the merged area (including internal grid lines)
+          ctx.fillStyle = COLORS.cellBg;
+          ctx.fillRect(x, y, cw, cellHeight);
+        }
+
+        // Banded row background (only if no explicit bg_color on cell)
+        if (banded && banded.enabled && !cell?.bg_color) {
+          if (banded.header_color && row === 0) {
+            ctx.fillStyle = banded.header_color;
+            ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
+          } else {
+            ctx.fillStyle = row % 2 === 0 ? banded.even_color : banded.odd_color;
+            ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
+          }
+        }
 
         // Draw cell background color if set (even for empty cells).
         // Inset by 1px to preserve grid lines.
         if (cell?.bg_color) {
           ctx.fillStyle = cell.bg_color;
-          ctx.fillRect(x + 1, y + 1, cw - 1, rh - 1);
+          ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
         }
 
         // Draw cell borders if set.
@@ -1706,16 +1767,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             ctx.lineWidth = 1;
           };
           drawBorderLine(b.top, x, y, x + cw, y);
-          drawBorderLine(b.bottom, x, y + rh, x + cw, y + rh);
-          drawBorderLine(b.left, x, y, x, y + rh);
-          drawBorderLine(b.right, x + cw, y, x + cw, y + rh);
+          drawBorderLine(b.bottom, x, y + cellHeight, x + cw, y + cellHeight);
+          drawBorderLine(b.left, x, y, x, y + cellHeight);
+          drawBorderLine(b.right, x + cw, y, x + cw, y + cellHeight);
         }
 
         // Draw find match highlights
         if (findMatchSet && findMatchSet.has(`${row}:${col}`)) {
           const isActive = findActiveRow === row && findActiveCol === col;
           ctx.fillStyle = isActive ? 'rgba(0, 180, 80, 0.25)' : 'rgba(255, 235, 59, 0.35)';
-          ctx.fillRect(x, y, cw, rh);
+          ctx.fillRect(x, y, cw, cellHeight);
         }
 
         // Draw validation indicators
@@ -1734,7 +1795,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           if (validation.rule_type === 'list') {
             ctx.fillStyle = COLORS.headerText;
             const arrowX = x + cw - 14;
-            const arrowY = y + rh / 2 - 2;
+            const arrowY = y + cellHeight / 2 - 2;
             ctx.beginPath();
             ctx.moveTo(arrowX, arrowY);
             ctx.lineTo(arrowX + 8, arrowY);
@@ -1752,7 +1813,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           const img = getCachedImage(cell.value);
           if (img) {
             const maxW = cw - PADDING * 2;
-            const maxH = rh - PADDING * 2;
+            const maxH = cellHeight - PADDING * 2;
             if (maxW > 0 && maxH > 0) {
               const scale = Math.min(maxW / img.width, maxH / img.height, 1);
               const drawW = img.width * scale;
@@ -1836,10 +1897,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
           const lineHeight = 16;
           const totalTextH = lines.length * lineHeight;
-          const startY = y + (rh - totalTextH) / 2 + lineHeight / 2;
+          const startY = y + (cellHeight - totalTextH) / 2 + lineHeight / 2;
           for (let li = 0; li < lines.length; li++) {
             const lineY = startY + li * lineHeight;
-            if (lineY > y + rh) break; // clip vertically
+            if (lineY > y + cellHeight) break; // clip vertically
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
               : x + PADDING;
@@ -1864,11 +1925,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               // Clip to overflow width
               ctx.save();
               ctx.beginPath();
-              ctx.rect(x, y, overflowW, rh);
+              ctx.rect(x, y, overflowW, cellHeight);
               ctx.clip();
               ctx.textAlign = 'left';
-              ctx.fillText(displayText, x + PADDING, y + rh / 2);
-              drawTextDecorations(x + PADDING, y + rh / 2, displayText, 'left');
+              ctx.fillText(displayText, x + PADDING, y + cellHeight / 2);
+              drawTextDecorations(x + PADDING, y + cellHeight / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -1886,16 +1947,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               const textX = align === 'right' ? x + cw - PADDING
                 : align === 'center' ? x + cw / 2
                 : x + PADDING;
-              ctx.fillText(displayText, textX, y + rh / 2);
-              drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
+              ctx.fillText(displayText, textX, y + cellHeight / 2);
+              drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
             }
           } else {
             ctx.textAlign = align;
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
               : x + PADDING;
-            ctx.fillText(displayText, textX, y + rh / 2);
-            drawTextDecorations(textX, y + rh / 2, displayText, align as CanvasTextAlign);
+            ctx.fillText(displayText, textX, y + cellHeight / 2);
+            drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
           }
         }
       }
@@ -2350,7 +2411,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   let isFillDragging = false;
   const [fillDragRow, setFillDragRow] = createSignal(-1);
   const [fillDragCol, setFillDragCol] = createSignal(-1);
-  let lastFillHandleClickTime = 0;
 
   /** Check if a local (container-relative) coordinate hits the fill handle. */
   function fillHandleHit(localX: number, localY: number): boolean {
@@ -2418,95 +2478,45 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (isVertical) {
       // Fill each column independently
       for (let c = range.minCol; c <= range.maxCol; c++) {
-        // Collect source values and formulas for this column
+        // Collect source values for this column
         const sourceVals: string[] = [];
-        const sourceFormulas: (string | null)[] = [];
         for (let r = range.minRow; r <= range.maxRow; r++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
-          sourceFormulas.push(cached?.formula ?? null);
         }
 
-        // Check if any source cell has a formula
-        const hasFormulas = sourceFormulas.some((f) => f !== null);
+        // Detect pattern and fill
+        const fillCount = isDown
+          ? fillRange.maxRow - fillRange.minRow + 1
+          : fillRange.maxRow - fillRange.minRow + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isUp);
 
-        const fillCount = fillRange.maxRow - fillRange.minRow + 1;
-
-        if (hasFormulas) {
-          // Formula-aware fill: adjust references per row offset
-          const sourceLen = sourceVals.length;
-          for (let i = 0; i < fillCount; i++) {
-            const srcIdx = i % sourceLen;
-            const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
-            const srcRow = range.minRow + srcIdx;
-            const formula = sourceFormulas[srcIdx];
-            if (formula) {
-              const rowOffset = targetRow - srcRow;
-              const adjusted = adjustFormulaRefs(formula, rowOffset, 0);
-              promises.push(
-                setCell(props.activeSheet, targetRow, c, `=${adjusted}`, adjusted).catch(() => {}),
-              );
-            } else {
-              promises.push(
-                setCell(props.activeSheet, targetRow, c, sourceVals[srcIdx]).catch(() => {}),
-              );
-            }
-          }
-        } else {
-          // Pattern-based fill for plain values
-          const filledValues = detectAndFill(sourceVals, fillCount, isUp);
-          for (let i = 0; i < filledValues.length; i++) {
-            const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
-            promises.push(
-              setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
-            );
-          }
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
+          promises.push(
+            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
+          );
         }
       }
     } else {
       // Fill each row independently
       for (let r = range.minRow; r <= range.maxRow; r++) {
         const sourceVals: string[] = [];
-        const sourceFormulas: (string | null)[] = [];
         for (let c = range.minCol; c <= range.maxCol; c++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
-          sourceFormulas.push(cached?.formula ?? null);
         }
 
-        const hasFormulas = sourceFormulas.some((f) => f !== null);
+        const fillCount = isRight
+          ? fillRange.maxCol - fillRange.minCol + 1
+          : fillRange.maxCol - fillRange.minCol + 1;
+        const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
 
-        const fillCount = fillRange.maxCol - fillRange.minCol + 1;
-
-        if (hasFormulas) {
-          // Formula-aware fill: adjust references per column offset
-          const sourceLen = sourceVals.length;
-          for (let i = 0; i < fillCount; i++) {
-            const srcIdx = i % sourceLen;
-            const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
-            const srcCol = range.minCol + srcIdx;
-            const formula = sourceFormulas[srcIdx];
-            if (formula) {
-              const colOffset = targetCol - srcCol;
-              const adjusted = adjustFormulaRefs(formula, 0, colOffset);
-              promises.push(
-                setCell(props.activeSheet, r, targetCol, `=${adjusted}`, adjusted).catch(() => {}),
-              );
-            } else {
-              promises.push(
-                setCell(props.activeSheet, r, targetCol, sourceVals[srcIdx]).catch(() => {}),
-              );
-            }
-          }
-        } else {
-          // Pattern-based fill for plain values
-          const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
-          for (let i = 0; i < filledValues.length; i++) {
-            const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
-            promises.push(
-              setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
-            );
-          }
+        for (let i = 0; i < filledValues.length; i++) {
+          const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
+          promises.push(
+            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
+          );
         }
       }
     }
@@ -2517,7 +2527,39 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Auto-filled cells');
   }
 
-  // detectAndFill is imported from ./fillUtils
+  /** Simple frontend pattern detection and fill value generation. */
+  function detectAndFill(sourceVals: string[], count: number, _reverse: boolean): string[] {
+    const result: string[] = [];
+    const len = sourceVals.length;
+
+    // Try numeric linear pattern
+    const nums = sourceVals.map(Number);
+    const allNumeric = sourceVals.every((v) => v.trim() !== '' && !isNaN(Number(v)));
+
+    if (allNumeric && len >= 2) {
+      const step = nums[len - 1] - nums[len - 2];
+      const isInteger = nums.every((n) => Number.isInteger(n)) && Number.isInteger(step);
+      for (let i = 0; i < count; i++) {
+        const val = nums[len - 1] + step * (i + 1);
+        result.push(isInteger ? String(Math.round(val)) : String(val));
+      }
+      return result;
+    }
+
+    // Single numeric value: repeat (constant fill)
+    if (allNumeric && len === 1) {
+      for (let i = 0; i < count; i++) {
+        result.push(sourceVals[0]);
+      }
+      return result;
+    }
+
+    // Default: repeat the source values cyclically
+    for (let i = 0; i < count; i++) {
+      result.push(sourceVals[i % len]);
+    }
+    return result;
+  }
 
   function handleFillMouseUp() {
     if (!isFillDragging) return;
@@ -2543,57 +2585,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setFillDragCol(hit.col);
       scheduleDraw();
     }
-  }
-
-  /**
-   * Double-click fill handle: auto-fill down to the last row of adjacent data.
-   * Looks at the column to the left of the selection (or right if at col 0)
-   * to determine the fill extent.
-   */
-  async function handleFillHandleDoubleClick() {
-    const range = getSelectionRange();
-    // Find adjacent reference column
-    const refCol = range.minCol > 0 ? range.minCol - 1 : range.maxCol + 1;
-    if (refCol >= TOTAL_COLS) return;
-
-    // Find the last non-empty row in the reference column starting from maxRow+1
-    let lastDataRow = range.maxRow;
-    const batchSize = 50;
-    let searching = true;
-    let checkRow = range.maxRow + 1;
-
-    while (searching && checkRow < TOTAL_ROWS) {
-      const endRow = Math.min(checkRow + batchSize - 1, TOTAL_ROWS - 1);
-      const data = await getRange(props.activeSheet, checkRow, refCol, endRow, refCol);
-      let foundEmpty = false;
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        const cell = row && row[0];
-        if (!cell || !cell.value || cell.value.trim() === '') {
-          foundEmpty = true;
-          break;
-        }
-        lastDataRow = checkRow + i;
-      }
-      if (foundEmpty || endRow >= TOTAL_ROWS - 1) {
-        searching = false;
-      }
-      checkRow = endRow + 1;
-    }
-
-    if (lastDataRow <= range.maxRow) return; // nothing to fill
-
-    // Set fill drag state to simulate a fill-down to lastDataRow
-    isFillDragging = true;
-    setFillDragRow(lastDataRow);
-    setFillDragCol(range.maxCol);
-
-    await executeFill();
-
-    isFillDragging = false;
-    setFillDragRow(-1);
-    setFillDragCol(-1);
-    draw();
   }
 
   // -----------------------------------------------------------------------
@@ -2841,18 +2832,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Check for fill handle drag or double-click.
+    // Check for fill handle drag.
     if (fillHandleHit(localX, localY)) {
-      const now = Date.now();
-      if (now - lastFillHandleClickTime < 400) {
-        // Double-click on fill handle: auto-fill down to adjacent data extent
-        lastFillHandleClickTime = 0;
-        e.preventDefault();
-        void handleFillHandleDoubleClick();
-        return;
-      }
-      lastFillHandleClickTime = now;
-
       isFillDragging = true;
       const range = getSelectionRange();
       setFillDragRow(range.maxRow);
@@ -2980,10 +2961,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } else {
       setSelectedRow(hit.row);
       setSelectedCol(hit.col);
-      // Set anchor immediately so Shift+Click always has a valid anchor,
-      // even after double-click -> edit -> Escape.
-      setRangeAnchor([hit.row, hit.col]);
-      setRangeEnd([hit.row, hit.col]);
+      setRangeAnchor(null);
+      setRangeEnd(null);
       selectCell(hit.row, hit.col);
 
       if (isDoubleClick) {
@@ -2991,7 +2970,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         return;
       }
 
-      // Start drag-to-select
+      // Start drag-to-select: set anchor and listen for drag
+      setRangeAnchor([hit.row, hit.col]);
+      setRangeEnd([hit.row, hit.col]);
       headerDragKind = null;
       isDragging = true;
       document.addEventListener('mousemove', handleMouseMove);
