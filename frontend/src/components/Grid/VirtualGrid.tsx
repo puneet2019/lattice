@@ -1271,6 +1271,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     let sum = 0;
     let count = 0;
     let numericCount = 0;
+    let minVal = Infinity;
+    let maxVal = -Infinity;
 
     for (let r = range.minRow; r <= range.maxRow; r++) {
       for (let c = range.minCol; c <= range.maxCol; c++) {
@@ -1281,6 +1283,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           if (!isNaN(num)) {
             sum += num;
             numericCount++;
+            if (num < minVal) minVal = num;
+            if (num > maxVal) maxVal = num;
           }
         }
       }
@@ -1289,7 +1293,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (numericCount > 0) {
       const avg = sum / numericCount;
       const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-      props.onSelectionSummary(`Sum: ${sum}  Average: ${avgStr}  Count: ${count}`);
+      props.onSelectionSummary(`Sum: ${sum}  Average: ${avgStr}  Min: ${minVal}  Max: ${maxVal}  Count: ${count}`);
     } else if (count > 0) {
       props.onSelectionSummary(`Count: ${count}`);
     } else {
@@ -3098,6 +3102,33 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onUnderlineToggle();
         return;
       }
+      // Cmd+\: clear formatting — reset all format fields to defaults
+      if (e.key === '\\') {
+        e.preventDefault();
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, {
+          bold: false,
+          italic: false,
+          underline: false,
+          strikethrough: false,
+          font_size: 11,
+          font_family: 'Arial',
+          font_color: '#000000',
+          bg_color: '',
+          h_align: 'left',
+          number_format: 'General',
+          borders: {
+            top: { style: 'none' },
+            bottom: { style: 'none' },
+            left: { style: 'none' },
+            right: { style: 'none' },
+          },
+        }).catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Formatting cleared');
+        return;
+      }
       // Copy
       if (e.key === 'c') {
         e.preventDefault();
@@ -3424,6 +3455,42 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         draw();
         return;
       }
+    }
+
+    // Page Down / Page Up: scroll by one viewport height and move selection
+    if (e.key === 'PageDown' || e.key === 'PageUp') {
+      e.preventDefault();
+      // Compute the number of rows that fit in the viewport (without buffer)
+      const viewH = canvasHeight() - HEADER_HEIGHT;
+      let pageRows = Math.max(1, Math.floor(viewH / DEFAULT_ROW_HEIGHT));
+
+      const curEnd = rangeEnd();
+      let row = curEnd ? curEnd[0] : selectedRow();
+      const col = curEnd ? curEnd[1] : selectedCol();
+
+      if (e.key === 'PageDown') {
+        row = Math.min(TOTAL_ROWS - 1, row + pageRows);
+      } else {
+        row = Math.max(0, row - pageRows);
+      }
+
+      if (e.shiftKey) {
+        // Shift+PageDown/PageUp: extend selection
+        if (!rangeAnchor()) {
+          setRangeAnchor([selectedRow(), selectedCol()]);
+        }
+        setRangeEnd([row, col]);
+        propagateSelectionRange();
+      } else {
+        setSelectedRow(row);
+        setSelectedCol(col);
+        setRangeAnchor(null);
+        setRangeEnd(null);
+        selectCell(row, col);
+      }
+      ensureCellVisible(row, col);
+      draw();
+      return;
     }
 
     // Arrow keys (with optional Shift for range extension)
