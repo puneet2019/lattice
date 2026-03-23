@@ -75,6 +75,9 @@ const App: Component = () => {
   const [boldActive, setBoldActive] = createSignal(false);
   const [italicActive, setItalicActive] = createSignal(false);
   const [underlineActive, setUnderlineActive] = createSignal(false);
+  const [strikethroughActive, setStrikethroughActive] = createSignal(false);
+  const [paintFormatActive, setPaintFormatActive] = createSignal(false);
+  const [paintFormatData, setPaintFormatData] = createSignal<Record<string, unknown> | null>(null);
   const [currentFontFamily, setCurrentFontFamily] = createSignal('Arial');
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
   const [tabColors, setTabColors] = createSignal<Record<string, string>>({});
@@ -456,11 +459,22 @@ const App: Component = () => {
         setBoldActive(cell?.bold ?? false);
         setItalicActive(cell?.italic ?? false);
         setUnderlineActive(cell?.underline ?? false);
+        setStrikethroughActive(cell?.strikethrough ?? false);
+
+        // Paint format: apply copied format to clicked cell then clear
+        const pf = paintFormatData();
+        if (pf) {
+          applyFormat(pf);
+          setPaintFormatData(null);
+          setPaintFormatActive(false);
+          setStatusMessage('Format painted');
+        }
       })
       .catch(() => {
         setBoldActive(false);
         setItalicActive(false);
         setUnderlineActive(false);
+        setStrikethroughActive(false);
       });
   };
 
@@ -536,6 +550,62 @@ const App: Component = () => {
     setUnderlineActive(!underlineActive());
     applyFormat({ underline: underlineActive() });
     setStatusMessage(underlineActive() ? 'Underline on' : 'Underline off');
+  };
+
+  const handleStrikethrough = () => {
+    setStrikethroughActive(!strikethroughActive());
+    applyFormat({ strikethrough: strikethroughActive() });
+    setStatusMessage(strikethroughActive() ? 'Strikethrough on' : 'Strikethrough off');
+  };
+
+  const handleTextWrap = (wrap: 'Overflow' | 'Wrap' | 'Clip') => {
+    applyFormat({ text_wrap: wrap });
+    setStatusMessage(`Text wrap: ${wrap}`);
+  };
+
+  const handlePaintFormat = () => {
+    if (paintFormatActive()) {
+      // Cancel paint mode
+      setPaintFormatActive(false);
+      setPaintFormatData(null);
+      setStatusMessage('Paint format cancelled');
+      return;
+    }
+    // Copy current cell's format
+    const [row, col] = selectedCell();
+    getCell(activeSheetName(), row, col)
+      .then((cell) => {
+        if (!cell) return;
+        const fmt: Record<string, unknown> = {};
+        if (cell.bold) fmt.bold = true;
+        if (cell.italic) fmt.italic = true;
+        if (cell.underline) fmt.underline = true;
+        if (cell.strikethrough) fmt.strikethrough = true;
+        if (cell.font_size && cell.font_size !== 11) fmt.font_size = cell.font_size;
+        if (cell.font_family && cell.font_family !== 'Arial') fmt.font_family = cell.font_family;
+        if (cell.font_color) fmt.font_color = cell.font_color;
+        if (cell.bg_color) fmt.bg_color = cell.bg_color;
+        if (cell.h_align && cell.h_align !== 'left') fmt.h_align = cell.h_align;
+        if (cell.number_format) fmt.number_format = cell.number_format;
+        if (cell.text_wrap && cell.text_wrap !== 'Overflow') fmt.text_wrap = cell.text_wrap;
+        setPaintFormatData(fmt);
+        setPaintFormatActive(true);
+        setStatusMessage('Paint format: click a cell to apply');
+      })
+      .catch(() => {
+        setStatusMessage('Failed to read cell format');
+      });
+  };
+
+  const handleInsertFunction = (fn: string) => {
+    const [row, col] = selectedCell();
+    const value = `=${fn}(`;
+    setFormulaContent(value);
+    // Write to cell and let VirtualGrid enter edit mode via content change
+    setCell(activeSheetName(), row, col, value, `${fn}(`)
+      .catch(() => {});
+    setRefreshTrigger((n) => n + 1);
+    setStatusMessage(`Inserted ${fn} function`);
   };
 
   const handleFontFamily = (family: string) => {
@@ -821,12 +891,14 @@ const App: Component = () => {
         onBold={handleBold}
         onItalic={handleItalic}
         onUnderline={handleUnderline}
+        onStrikethrough={handleStrikethrough}
         onFontSize={handleFontSize}
         onFontFamily={handleFontFamily}
         onFontColor={handleFontColor}
         onBgColor={handleBgColor}
         onBorders={handleBorders}
         onAlign={handleAlign}
+        onTextWrap={handleTextWrap}
         onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -835,12 +907,16 @@ const App: Component = () => {
         onInsertChart={handleInsertChart}
         onFilterToggle={handleFilterToggle}
         onConditionalFormat={() => setShowConditionalFormat(true)}
+        onPaintFormat={handlePaintFormat}
+        onInsertFunction={handleInsertFunction}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
+        strikethroughActive={strikethroughActive()}
         freezeActive={frozenRows() > 0 || frozenCols() > 0}
         splitActive={splitRow() > 0 || splitCol() > 0}
         filterActive={filterActive()}
+        paintFormatActive={paintFormatActive()}
         currentFontFamily={currentFontFamily()}
       />
       <FormulaBar

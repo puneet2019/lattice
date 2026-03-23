@@ -6,12 +6,14 @@ export interface ToolbarProps {
   onBold: () => void;
   onItalic: () => void;
   onUnderline: () => void;
+  onStrikethrough: () => void;
   onFontSize: (size: number) => void;
   onFontFamily: (family: string) => void;
   onFontColor: (color: string) => void;
   onBgColor: (color: string) => void;
   onBorders: (borders: BordersUpdate) => void;
   onAlign: (align: 'left' | 'center' | 'right') => void;
+  onTextWrap: (wrap: 'Overflow' | 'Wrap' | 'Clip') => void;
   onNumberFormat: (format: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -20,12 +22,16 @@ export interface ToolbarProps {
   onInsertChart: () => void;
   onFilterToggle: () => void;
   onConditionalFormat: () => void;
+  onPaintFormat: () => void;
+  onInsertFunction: (fn: string) => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
+  strikethroughActive: boolean;
   freezeActive: boolean;
   splitActive: boolean;
   filterActive: boolean;
+  paintFormatActive: boolean;
   currentFontFamily?: string;
 }
 
@@ -39,6 +45,8 @@ const FONT_FAMILIES = [
   'Georgia',
   'Verdana',
 ];
+
+const COMMON_FUNCTIONS = ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN'];
 
 const PRESET_COLORS = [
   '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff',
@@ -56,6 +64,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showFontColorPicker, setShowFontColorPicker] = createSignal(false);
   const [showBgColorPicker, setShowBgColorPicker] = createSignal(false);
   const [showBordersDropdown, setShowBordersDropdown] = createSignal(false);
+  const [showTextWrapDropdown, setShowTextWrapDropdown] = createSignal(false);
+  const [showFunctionDropdown, setShowFunctionDropdown] = createSignal(false);
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
   const [lastFontColor, setLastFontColor] = createSignal('#000000');
   const [lastBgColor, setLastBgColor] = createSignal('#ffff00');
@@ -67,7 +77,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const anyDropdownOpen = () =>
     showFontFamilyDropdown() || showFontSizeDropdown() ||
     showFontColorPicker() || showBgColorPicker() ||
-    showBordersDropdown();
+    showBordersDropdown() || showTextWrapDropdown() ||
+    showFunctionDropdown();
 
   const closeAllDropdowns = () => {
     setShowFontFamilyDropdown(false);
@@ -75,6 +86,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     setShowFontColorPicker(false);
     setShowBgColorPicker(false);
     setShowBordersDropdown(false);
+    setShowTextWrapDropdown(false);
+    setShowFunctionDropdown(false);
   };
 
   // -----------------------------------------------------------------------
@@ -256,6 +269,29 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       >
         <span style={{ "text-decoration": "underline" }}>U</span>
       </button>
+      <button
+        class={`toolbar-btn ${props.strikethroughActive ? 'active' : ''}`}
+        title="Strikethrough (Cmd+Shift+K)"
+        onClick={props.onStrikethrough}
+      >
+        <span style={{ "text-decoration": "line-through" }}>S</span>
+      </button>
+
+      <div class="toolbar-separator" />
+
+      {/* Paint Format */}
+      <button
+        class={`toolbar-btn ${props.paintFormatActive ? 'active' : ''}`}
+        title="Paint format"
+        onClick={props.onPaintFormat}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="2" width="8" height="5" rx="0.5" />
+          <path d="M11 4.5h1.5v3h-5v1.5" />
+          <line x1="7.5" y1="9" x2="7.5" y2="14" />
+          <line x1="6" y1="14" x2="9" y2="14" />
+        </svg>
+      </button>
 
       <div class="toolbar-separator" />
 
@@ -373,6 +409,34 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         </svg>
       </button>
 
+      {/* Text Wrap */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn"
+          title="Text wrapping"
+          onClick={() => { const wasOpen = showTextWrapDropdown(); closeAllDropdowns(); if (!wasOpen) setShowTextWrapDropdown(true); }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <line x1="2" y1="4" x2="14" y2="4" />
+            <path d="M2 8h9a2 2 0 0 1 0 4H9" />
+            <path d="M10 10.5L8.5 12l1.5 1.5" />
+          </svg>
+        </button>
+        <Show when={showTextWrapDropdown()}>
+          <div class="toolbar-dropdown-menu" style={{ "min-width": "100px" }}>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextWrapDropdown(false); props.onTextWrap('Overflow'); }}>
+              Overflow
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextWrapDropdown(false); props.onTextWrap('Wrap'); }}>
+              Wrap
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextWrapDropdown(false); props.onTextWrap('Clip'); }}>
+              Clip
+            </div>
+          </div>
+        </Show>
+      </div>
+
       <div class="toolbar-separator" />
 
       {/* Number Format Buttons */}
@@ -478,6 +542,43 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <circle cx="10.5" cy="8" r="1.5" fill="#6aa84f" stroke="none" />
         </svg>
       </button>
+
+      <div class="toolbar-separator" />
+
+      {/* Insert Function (Sigma) */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn"
+          title="Insert function"
+          onClick={() => props.onInsertFunction('SUM')}
+        >
+          <span style={{ "font-size": "16px", "font-weight": "bold" }}>&Sigma;</span>
+        </button>
+        <button
+          class="toolbar-btn"
+          title="More functions"
+          style={{ width: '16px', "margin-left": '-4px' }}
+          onClick={() => { const wasOpen = showFunctionDropdown(); closeAllDropdowns(); if (!wasOpen) setShowFunctionDropdown(true); }}
+        >
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+            <path d="M1 2.5L4 5.5L7 2.5" />
+          </svg>
+        </button>
+        <Show when={showFunctionDropdown()}>
+          <div class="toolbar-dropdown-menu" style={{ "min-width": "100px" }}>
+            <For each={COMMON_FUNCTIONS}>
+              {(fn) => (
+                <div
+                  class="toolbar-dropdown-item"
+                  onClick={() => { setShowFunctionDropdown(false); props.onInsertFunction(fn); }}
+                >
+                  {fn}
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
 
       <div class="toolbar-separator" />
 
