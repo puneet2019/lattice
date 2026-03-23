@@ -8,6 +8,7 @@ import FindBar from './components/FindBar';
 import VirtualGrid from './components/Grid/VirtualGrid';
 import SheetTabs from './components/SheetTabs';
 import StatusBar from './components/StatusBar';
+import type { SaveStatus } from './components/StatusBar';
 import ChartContainer from './components/Charts/ChartContainer';
 import type { ChartOverlay } from './components/Charts/ChartContainer';
 import ChartDialog from './components/Charts/ChartDialog';
@@ -101,7 +102,18 @@ const App: Component = () => {
   const [filterDropdownY, setFilterDropdownY] = createSignal(0);
 
   const [isDirty, setIsDirty] = createSignal(false);
+  const [saveStatus, setSaveStatus] = createSignal<SaveStatus>('saved');
+  const [showGridlines, setShowGridlines] = createSignal(true);
   const [recentFiles, setRecentFilesState] = createSignal<RecentFile[]>([]);
+
+  /** Mark the workbook as having unsaved changes. */
+  function markDirty() {
+    if (!isDirty()) {
+      setIsDirty(true);
+      updateWindowTitle(currentFilePath(), true);
+    }
+    setSaveStatus('unsaved');
+  }
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
@@ -145,6 +157,7 @@ const App: Component = () => {
       applyWorkbookInfo(info);
       setCurrentFilePath(null);
       updateWindowTitle(null, false);
+      setSaveStatus('saved');
       setStatusMessage('New workbook created');
     } catch (e) {
       setStatusMessage(`New workbook failed: ${e}`);
@@ -175,6 +188,7 @@ const App: Component = () => {
       applyWorkbookInfo(info);
       setCurrentFilePath(path);
       updateWindowTitle(path, false);
+      setSaveStatus('saved');
       // Track in recent files
       const fileName = path.split('/').pop() || path;
       void addRecentFile(path, fileName).catch(() => {});
@@ -192,11 +206,14 @@ const App: Component = () => {
       return;
     }
     try {
+      setSaveStatus('saving');
       await saveFile(path);
       setIsDirty(false);
       updateWindowTitle(path, false);
+      setSaveStatus('saved');
       setStatusMessage(`Saved: ${path}`);
     } catch (e) {
+      setSaveStatus('unsaved');
       setStatusMessage(`Save failed: ${e}`);
     }
   };
@@ -208,12 +225,15 @@ const App: Component = () => {
         filters: fileFilters,
       });
       if (!path) return; // user cancelled
+      setSaveStatus('saving');
       await saveFile(path);
       setCurrentFilePath(path);
       setIsDirty(false);
       updateWindowTitle(path, false);
+      setSaveStatus('saved');
       setStatusMessage(`Saved: ${path}`);
     } catch (e) {
+      setSaveStatus('unsaved');
       setStatusMessage(`Save As failed: ${e}`);
     }
   };
@@ -306,7 +326,10 @@ const App: Component = () => {
 
     // -- View > Show / Zoom -------------------------------------------------
     view_show_formulas: () => { setStatusMessage('Show formulas toggled (not yet implemented)'); },
-    view_toggle_gridlines: () => { setStatusMessage('Gridlines toggled (not yet implemented)'); },
+    view_toggle_gridlines: () => {
+      setShowGridlines(!showGridlines());
+      setStatusMessage(showGridlines() ? 'Gridlines shown' : 'Gridlines hidden');
+    },
     view_zoom_in: handleZoomIn,
     view_zoom_out: handleZoomOut,
     view_zoom_reset: handleZoomReset,
@@ -315,25 +338,25 @@ const App: Component = () => {
     insert_row_above: () => {
       const [row] = selectedCell();
       void insertRows(activeSheetName(), row, 1)
-        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Row inserted above'); })
+        .then(() => { setRefreshTrigger((n) => n + 1); markDirty(); setStatusMessage('Row inserted above'); })
         .catch((e) => setStatusMessage(`Insert row failed: ${e}`));
     },
     insert_row_below: () => {
       const [row] = selectedCell();
       void insertRows(activeSheetName(), row + 1, 1)
-        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Row inserted below'); })
+        .then(() => { setRefreshTrigger((n) => n + 1); markDirty(); setStatusMessage('Row inserted below'); })
         .catch((e) => setStatusMessage(`Insert row failed: ${e}`));
     },
     insert_col_left: () => {
       const [, col] = selectedCell();
       void insertCols(activeSheetName(), col, 1)
-        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Column inserted left'); })
+        .then(() => { setRefreshTrigger((n) => n + 1); markDirty(); setStatusMessage('Column inserted left'); })
         .catch((e) => setStatusMessage(`Insert column failed: ${e}`));
     },
     insert_col_right: () => {
       const [, col] = selectedCell();
       void insertCols(activeSheetName(), col + 1, 1)
-        .then(() => { setRefreshTrigger((n) => n + 1); setStatusMessage('Column inserted right'); })
+        .then(() => { setRefreshTrigger((n) => n + 1); markDirty(); setStatusMessage('Column inserted right'); })
         .catch((e) => setStatusMessage(`Insert column failed: ${e}`));
     },
     insert_chart: handleInsertChart,
@@ -455,8 +478,26 @@ const App: Component = () => {
     } catch {
       // Tauri event system not available (browser dev mode).
     }
+    // Auto-save every 60 seconds if there are unsaved changes and a file path exists.
+    const autoSaveInterval = setInterval(() => {
+      if (isDirty() && currentFilePath()) {
+        void handleFileSave();
+      }
+    }, 60_000);
+
+    // Warn before closing with unsaved changes.
+    const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+      if (isDirty()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+
     onCleanup(() => {
       unlisten?.();
+      clearInterval(autoSaveInterval);
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
     });
   });
 
@@ -597,10 +638,7 @@ const App: Component = () => {
     }
     setFormulaContent(value);
     setRefreshTrigger((n) => n + 1);
-    if (!isDirty()) {
-      setIsDirty(true);
-      updateWindowTitle(currentFilePath(), true);
-    }
+    markDirty();
   };
 
   const handleFormulaCancel = () => {
@@ -630,6 +668,7 @@ const App: Component = () => {
 
   const handleCellCommit = (_row: number, _col: number, _value: string) => {
     // Grid handles the actual Tauri call.
+    markDirty();
   };
 
   // Toolbar format actions.
@@ -639,10 +678,7 @@ const App: Component = () => {
       await formatCells(activeSheetName(), minR, minC, maxR, maxC, format);
       // Refresh the grid so the canvas re-fetches and renders the new format.
       setRefreshTrigger((n) => n + 1);
-      if (!isDirty()) {
-        setIsDirty(true);
-        updateWindowTitle(currentFilePath(), true);
-      }
+      markDirty();
     } catch (e) {
       setStatusMessage(`Format failed: ${e}`);
     }
@@ -1102,6 +1138,7 @@ const App: Component = () => {
           onFilterColumnClick={handleFilterColumnClick}
           onSortDialogOpen={() => setShowSortDialog(true)}
           onNamedRangesOpen={() => setShowNamedRanges(true)}
+          showGridlines={showGridlines()}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -1220,6 +1257,7 @@ const App: Component = () => {
         zoom={zoom()}
         onZoomChange={handleZoomChange}
         filterSummary={filterInfo() ? `${filterInfo()!.visible_rows} of ${filterInfo()!.total_rows} rows displayed` : undefined}
+        saveStatus={saveStatus()}
       />
     </div>
   );

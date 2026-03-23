@@ -169,6 +169,8 @@ export interface VirtualGridProps {
   onSortDialogOpen?: () => void;
   /** Called when the user opens the named ranges dialog (Ctrl+F3). */
   onNamedRangesOpen?: () => void;
+  /** Whether to draw grid lines (default true). */
+  showGridlines?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +285,74 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [validationDropdownY, setValidationDropdownY] = createSignal(0);
   const [validationDropdownRow, setValidationDropdownRow] = createSignal(0);
   const [validationDropdownCol, setValidationDropdownCol] = createSignal(0);
+
+  // Formula click-to-reference state.
+  // When editing a formula (value starts with '='), clicking a cell inserts a
+  // reference instead of moving the selection.  Dragging inserts a range ref.
+  let formulaRefDragging = false;
+  let formulaRefAnchor: { row: number; col: number } | null = null;
+  // Track what was inserted so we can replace it during drag-extend.
+  let formulaRefInsertStart = -1;
+  let formulaRefInsertEnd = -1;
+
+  /** Colors used to highlight referenced ranges in formulas. */
+  const FORMULA_REF_COLORS = [
+    '#1a73e8', // blue
+    '#ea4335', // red
+    '#34a853', // green
+    '#9334e6', // purple
+    '#e8710a', // orange
+    '#00897b', // teal
+  ];
+
+  /** Whether the editor is in formula selection mode. */
+  function isFormulaSelectionMode(): boolean {
+    return editing() && editValue().trimStart().startsWith('=');
+  }
+
+  /** Parse cell references from a formula string and return their ranges with colors. */
+  function parseFormulaRefs(formula: string): { minRow: number; minCol: number; maxRow: number; maxCol: number; color: string }[] {
+    if (!formula.startsWith('=')) return [];
+    const refs: { minRow: number; minCol: number; maxRow: number; maxCol: number; color: string }[] = [];
+    // Match cell references and range references (e.g., A1, B2:D5, $A$1)
+    const refPattern = /\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?/g;
+    let match: RegExpExecArray | null;
+    let colorIdx = 0;
+    while ((match = refPattern.exec(formula)) !== null) {
+      const refStr = match[0];
+      const parts = refStr.split(':');
+      const clean = (s: string) => s.replace(/\$/g, '');
+      const startRef = parseRefCoords(clean(parts[0]));
+      if (!startRef) continue;
+      let endRef = startRef;
+      if (parts.length === 2) {
+        endRef = parseRefCoords(clean(parts[1])) ?? startRef;
+      }
+      refs.push({
+        minRow: Math.min(startRef.row, endRef.row),
+        minCol: Math.min(startRef.col, endRef.col),
+        maxRow: Math.max(startRef.row, endRef.row),
+        maxCol: Math.max(startRef.col, endRef.col),
+        color: FORMULA_REF_COLORS[colorIdx % FORMULA_REF_COLORS.length],
+      });
+      colorIdx++;
+    }
+    return refs;
+  }
+
+  /** Parse "A1"-style reference to {row, col}. */
+  function parseRefCoords(ref: string): { row: number; col: number } | null {
+    const m = ref.match(/^([A-Za-z]+)(\d+)$/);
+    if (!m) return null;
+    const letters = m[1].toUpperCase();
+    const rowNum = parseInt(m[2], 10);
+    if (isNaN(rowNum) || rowNum < 1) return null;
+    let col = 0;
+    for (let i = 0; i < letters.length; i++) {
+      col = col * 26 + (letters.charCodeAt(i) - 64);
+    }
+    return { row: rowNum - 1, col: col - 1 };
+  }
 
   // Custom column widths / row heights (col/row index -> px).
   // Columns/rows not in the map use the default sizes.
@@ -520,6 +590,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   function startEditing(clearContent: boolean) {
     // Clear marching ants when editing starts
     stopMarchingAnts();
+    // Reset formula ref tracking
+    formulaRefInsertStart = -1;
+    formulaRefInsertEnd = -1;
+    formulaRefAnchor = null;
+    formulaRefDragging = false;
 
     const row = selectedRow();
     const col = selectedCol();
@@ -634,6 +709,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     setEditValue(value);
     props.onContentChange(value);
     autoResizeEditor();
+    // Reset formula ref insertion tracking when user types manually
+    formulaRefInsertStart = -1;
+    formulaRefInsertEnd = -1;
     // Track cursor position for formula argument hints
     if (editorRef) {
       setEditorCursorPos(editorRef.selectionStart ?? value.length);
@@ -1518,6 +1596,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.lineDashOffset = 0;
       ctx.lineWidth = 1;
     }
+
+    // Draw colored borders around formula-referenced ranges
+    if (isFormulaSelectionMode()) {
+      const refs = parseFormulaRefs(editValue());
+      for (const ref of refs) {
+        const rx = ROW_NUMBER_WIDTH + getColX(ref.minCol) - sx;
+        const ry = HEADER_HEIGHT + getRowY(ref.minRow) - sy;
+        const rw = getColX(ref.maxCol + 1) - getColX(ref.minCol);
+        const rh = getRowY(ref.maxRow + 1) - getRowY(ref.minRow);
+        // Light fill
+        ctx.fillStyle = ref.color + '18'; // ~10% opacity
+        ctx.fillRect(rx, ry, rw, rh);
+        // Border
+        ctx.strokeStyle = ref.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.lineWidth = 1;
+      }
+    }
   }
 
   /**
@@ -1815,6 +1912,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     w: number,
     h: number,
   ) {
+    // Skip grid lines if toggled off via View > Show Gridlines.
+    if (props.showGridlines === false) return;
+
     ctx.strokeStyle = COLORS.gridBorder;
     ctx.lineWidth = 1;
 
@@ -2466,6 +2566,84 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return { row, col };
   }
 
+  // -----------------------------------------------------------------------
+  // Formula click-to-reference helpers
+  // -----------------------------------------------------------------------
+
+  /** Build an A1-style reference string from row/col. */
+  function buildCellRef(row: number, col: number): string {
+    return `${col_to_letter(col)}${row + 1}`;
+  }
+
+  /** Build a range reference string from two corners. */
+  function buildRangeRef(r1: number, c1: number, r2: number, c2: number): string {
+    const minR = Math.min(r1, r2);
+    const minC = Math.min(c1, c2);
+    const maxR = Math.max(r1, r2);
+    const maxC = Math.max(c1, c2);
+    if (minR === maxR && minC === maxC) return buildCellRef(minR, minC);
+    return `${buildCellRef(minR, minC)}:${buildCellRef(maxR, maxC)}`;
+  }
+
+  /**
+   * Insert a cell reference at the cursor position in the formula editor.
+   * If there's already a formula-ref insertion in progress (from drag), replace it.
+   */
+  function insertFormulaRef(row: number, col: number, endRow?: number, endCol?: number) {
+    if (!editorRef) return;
+    const value = editValue();
+    const ref = (endRow !== undefined && endCol !== undefined)
+      ? buildRangeRef(row, col, endRow, endCol)
+      : buildCellRef(row, col);
+
+    let newValue: string;
+    let newCursorPos: number;
+
+    if (formulaRefInsertStart >= 0 && formulaRefInsertEnd >= 0) {
+      // Replace the previously inserted reference (drag-extend)
+      newValue = value.slice(0, formulaRefInsertStart) + ref + value.slice(formulaRefInsertEnd);
+      formulaRefInsertEnd = formulaRefInsertStart + ref.length;
+      newCursorPos = formulaRefInsertEnd;
+    } else {
+      // Fresh insertion at the cursor position
+      const cursorPos = editorRef.selectionStart ?? value.length;
+      newValue = value.slice(0, cursorPos) + ref + value.slice(cursorPos);
+      formulaRefInsertStart = cursorPos;
+      formulaRefInsertEnd = cursorPos + ref.length;
+      newCursorPos = formulaRefInsertEnd;
+    }
+
+    setEditValue(newValue);
+    props.onContentChange(newValue);
+    // Update cursor position after DOM updates
+    requestAnimationFrame(() => {
+      if (editorRef) {
+        editorRef.setSelectionRange(newCursorPos, newCursorPos);
+        editorRef.focus();
+      }
+    });
+    scheduleDraw();
+  }
+
+  function handleFormulaRefMouseMove(e: MouseEvent) {
+    if (!formulaRefDragging || !formulaRefAnchor) return;
+    const hit = hitTest(e.clientX, e.clientY);
+    if (!hit) return;
+    // Update the inserted reference to a range
+    insertFormulaRef(formulaRefAnchor.row, formulaRefAnchor.col, hit.row, hit.col);
+  }
+
+  function handleFormulaRefMouseUp() {
+    formulaRefDragging = false;
+    formulaRefAnchor = null;
+    // Reset insert tracking so the next click creates a new insertion
+    formulaRefInsertStart = -1;
+    formulaRefInsertEnd = -1;
+    document.removeEventListener('mousemove', handleFormulaRefMouseMove);
+    document.removeEventListener('mouseup', handleFormulaRefMouseUp);
+    editorRef?.focus();
+  }
+
   let lastClickTime = 0;
   let lastClickRow = -1;
   let lastClickCol = -1;
@@ -2480,8 +2658,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setValidationDropdownVisible(false);
     }
 
-    if (editing()) return; // let the editor handle clicks
+    if (editing() && !isFormulaSelectionMode()) return; // let the editor handle clicks
     if (!containerRef) return;
+
+    // Formula selection mode: clicking inserts a cell reference into the editor.
+    // Skip if the click is on the editor textarea itself (cursor positioning).
+    if (isFormulaSelectionMode() && e.target !== editorRef) {
+      const hit = hitTest(e.clientX, e.clientY);
+      if (hit) {
+        e.preventDefault();
+        e.stopPropagation();
+        insertFormulaRef(hit.row, hit.col);
+        // Start formula-ref drag to allow range selection
+        formulaRefDragging = true;
+        formulaRefAnchor = { row: hit.row, col: hit.col };
+        document.addEventListener('mousemove', handleFormulaRefMouseMove);
+        document.addEventListener('mouseup', handleFormulaRefMouseUp);
+      }
+      return;
+    }
 
     const rect = containerRef.getBoundingClientRect();
     const localX = e.clientX - rect.left;
@@ -4248,6 +4443,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             if (editorRef) setEditorCursorPos(editorRef.selectionStart ?? 0);
           }}
           onBlur={() => {
+            // Don't commit when clicking the canvas in formula selection mode
+            if (editing() && isFormulaSelectionMode()) {
+              // Re-focus the editor after a short delay so the user can continue editing
+              requestAnimationFrame(() => editorRef?.focus());
+              return;
+            }
             if (editing()) {
               commitEdit(0, 0);
             }

@@ -1,6 +1,8 @@
 import type { Component } from 'solid-js';
 import { Show } from 'solid-js';
 
+export type SaveStatus = 'saved' | 'unsaved' | 'saving';
+
 export interface StatusBarProps {
   message: string;
   mode: 'Ready' | 'Edit';
@@ -8,6 +10,7 @@ export interface StatusBarProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   filterSummary?: string;
+  saveStatus?: SaveStatus;
 }
 
 const StatusBar: Component<StatusBarProps> = (props) => {
@@ -35,6 +38,14 @@ const StatusBar: Component<StatusBarProps> = (props) => {
         </Show>
       </div>
       <div class="status-bar-right">
+        <Show when={props.saveStatus}>
+          <span class={`save-status save-status-${props.saveStatus}`}>
+            <span class="save-status-dot" />
+            {props.saveStatus === 'saved' ? 'All changes saved' :
+             props.saveStatus === 'saving' ? 'Saving...' :
+             'Unsaved changes'}
+          </span>
+        </Show>
         <span class="status-zoom-label">{zoomPercent()}%</span>
         <input
           class="status-zoom-slider"

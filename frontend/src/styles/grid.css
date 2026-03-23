@@ -827,6 +827,35 @@ body,
   cursor: pointer;
 }
 
+/* Save status indicator */
+
+.save-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 0 8px;
+}
+
+.save-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.save-status-saved .save-status-dot {
+  background: #34a853;
+}
+
+.save-status-unsaved .save-status-dot {
+  background: #ea4335;
+}
+
+.save-status-saving .save-status-dot {
+  background: #fbbc04;
+}
+
 /* -----------------------------------------------------------------------
    Chart Overlays
    ----------------------------------------------------------------------- */
