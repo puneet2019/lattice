@@ -130,7 +130,7 @@ const App: Component = () => {
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
-    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'csv', 'tsv'] },
+    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'xls', 'ods', 'csv', 'tsv'] },
     { name: 'All Files', extensions: ['*'] },
   ];
 
@@ -1380,7 +1380,6 @@ const App: Component = () => {
       </Show>
       <Show when={showFormatCells()}>
         <FormatCellsDialog
-          cellValue={formulaContent().startsWith('=') ? '' : formulaContent()}
           onApply={(format) => {
             const [minR, minC, maxR, maxC] = selRange();
             formatCells(activeSheetName(), minR, minC, maxR, maxC, format)

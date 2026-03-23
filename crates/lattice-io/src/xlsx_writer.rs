@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use rust_xlsxwriter::{Format, Note, Workbook as XlsxWorkbook};
+use rust_xlsxwriter::{Color, Format, FormatBorder, FormatUnderline, Note, Workbook as XlsxWorkbook};
 
 use lattice_core::{CellValue, Workbook};
 
@@ -138,6 +138,41 @@ fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
                 .set_row_height(row, height)
                 .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
         }
+
+        // Write merged regions.
+        for region in sheet.merged_regions() {
+            worksheet
+                .merge_range(
+                    region.start_row,
+                    region.start_col as u16,
+                    region.end_row,
+                    region.end_col as u16,
+                    "",
+                    &Format::new(),
+                )
+                .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
+        }
+
+        // Write hidden rows.
+        for &row in &sheet.hidden_rows {
+            worksheet
+                .set_row_hidden(row)
+                .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
+        }
+
+        // Write hidden columns.
+        for &col in &sheet.hidden_cols {
+            worksheet
+                .set_column_hidden(col as u16)
+                .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
+        }
+
+        // Write sheet tab color.
+        if let Some(ref color_str) = sheet.tab_color {
+            if let Some(color_val) = parse_hex_color(color_str) {
+                worksheet.set_tab_color(Color::RGB(color_val));
+            }
+        }
     }
 
     Ok(xlsx)
@@ -153,8 +188,15 @@ fn cell_format_to_xlsx_format(cf: &lattice_core::CellFormat) -> Format {
     if cf.italic {
         fmt = fmt.set_italic();
     }
+    if cf.underline {
+        fmt = fmt.set_underline(FormatUnderline::Single);
+    }
+    if cf.strikethrough {
+        fmt = fmt.set_font_strikethrough();
+    }
 
     fmt = fmt.set_font_size(cf.font_size);
+    fmt = fmt.set_font_name(&cf.font_family);
 
     // Parse hex color for font. rust_xlsxwriter uses u32 colors.
     if let Some(ref fc) = cf.font_color {
@@ -187,7 +229,62 @@ fn cell_format_to_xlsx_format(cf: &lattice_core::CellFormat) -> Format {
         lattice_core::VAlign::Bottom => fmt.set_align(rust_xlsxwriter::FormatAlign::Bottom),
     };
 
+    // Borders.
+    if let Some(ref border) = cf.borders.top {
+        fmt = fmt.set_border_top(border_style_to_xlsx(&border.style));
+        if let Some(c) = parse_hex_color(&border.color) {
+            fmt = fmt.set_border_top_color(Color::RGB(c));
+        }
+    }
+    if let Some(ref border) = cf.borders.bottom {
+        fmt = fmt.set_border_bottom(border_style_to_xlsx(&border.style));
+        if let Some(c) = parse_hex_color(&border.color) {
+            fmt = fmt.set_border_bottom_color(Color::RGB(c));
+        }
+    }
+    if let Some(ref border) = cf.borders.left {
+        fmt = fmt.set_border_left(border_style_to_xlsx(&border.style));
+        if let Some(c) = parse_hex_color(&border.color) {
+            fmt = fmt.set_border_left_color(Color::RGB(c));
+        }
+    }
+    if let Some(ref border) = cf.borders.right {
+        fmt = fmt.set_border_right(border_style_to_xlsx(&border.style));
+        if let Some(c) = parse_hex_color(&border.color) {
+            fmt = fmt.set_border_right_color(Color::RGB(c));
+        }
+    }
+
+    // Text wrap.
+    if cf.text_wrap == lattice_core::TextWrap::Wrap {
+        fmt = fmt.set_text_wrap();
+    }
+
+    // Text rotation (Excel supports 0-360 for normal, and 255 for vertical).
+    if cf.text_rotation != 0 {
+        // rust_xlsxwriter expects i16 angle; negative values are allowed.
+        fmt = fmt.set_rotation(cf.text_rotation);
+    }
+
+    // Indent.
+    if cf.indent > 0 {
+        fmt = fmt.set_indent(cf.indent);
+    }
+
     fmt
+}
+
+/// Map our `BorderStyle` to rust_xlsxwriter's `FormatBorder`.
+fn border_style_to_xlsx(style: &lattice_core::BorderStyle) -> FormatBorder {
+    match style {
+        lattice_core::BorderStyle::None => FormatBorder::None,
+        lattice_core::BorderStyle::Thin => FormatBorder::Thin,
+        lattice_core::BorderStyle::Medium => FormatBorder::Medium,
+        lattice_core::BorderStyle::Thick => FormatBorder::Thick,
+        lattice_core::BorderStyle::Dashed => FormatBorder::Dashed,
+        lattice_core::BorderStyle::Dotted => FormatBorder::Dotted,
+        lattice_core::BorderStyle::Double => FormatBorder::Double,
+    }
 }
 
 /// Parse a CSS hex color string like `"#FF0000"` to a u32 color value.
@@ -345,5 +442,350 @@ mod tests {
 
         write_xlsx(&wb, &path).unwrap();
         assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_underline_strikethrough_font_family() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("text_styles.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        let cell = lattice_core::Cell {
+            value: CellValue::Text("Styled".into()),
+            format: CellFormat {
+                underline: true,
+                strikethrough: true,
+                font_family: "Courier New".to_string(),
+                ..CellFormat::default()
+            },
+            ..Default::default()
+        };
+        sheet.set_cell(0, 0, cell);
+
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+
+        // Verify the file can be read back without errors.
+        let wb2 = crate::xlsx_reader::read_xlsx(&path).unwrap();
+        assert_eq!(
+            wb2.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("Styled".into())
+        );
+    }
+
+    #[test]
+    fn test_write_borders() {
+        use lattice_core::{Border, BorderStyle, CellBorders};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("borders.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        let cell = lattice_core::Cell {
+            value: CellValue::Text("Bordered".into()),
+            format: CellFormat {
+                borders: CellBorders {
+                    top: Some(Border {
+                        style: BorderStyle::Thin,
+                        color: "#000000".to_string(),
+                    }),
+                    bottom: Some(Border {
+                        style: BorderStyle::Medium,
+                        color: "#FF0000".to_string(),
+                    }),
+                    left: Some(Border {
+                        style: BorderStyle::Dashed,
+                        color: "#00FF00".to_string(),
+                    }),
+                    right: Some(Border {
+                        style: BorderStyle::Double,
+                        color: "#0000FF".to_string(),
+                    }),
+                },
+                ..CellFormat::default()
+            },
+            ..Default::default()
+        };
+        sheet.set_cell(0, 0, cell);
+
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_text_wrap_rotation_indent() {
+        use lattice_core::TextWrap;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wrap_rot_indent.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+
+        // Cell with text wrap.
+        sheet.set_cell(
+            0,
+            0,
+            lattice_core::Cell {
+                value: CellValue::Text("Wrapped text here".into()),
+                format: CellFormat {
+                    text_wrap: TextWrap::Wrap,
+                    ..CellFormat::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        // Cell with text rotation.
+        sheet.set_cell(
+            1,
+            0,
+            lattice_core::Cell {
+                value: CellValue::Text("Rotated".into()),
+                format: CellFormat {
+                    text_rotation: 45,
+                    ..CellFormat::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        // Cell with indent.
+        sheet.set_cell(
+            2,
+            0,
+            lattice_core::Cell {
+                value: CellValue::Text("Indented".into()),
+                format: CellFormat {
+                    indent: 2,
+                    ..CellFormat::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_merged_regions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("merged.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        sheet.set_value(0, 0, CellValue::Text("Merged Header".into()));
+        sheet.merge_cells(0, 0, 0, 3).unwrap(); // Merge A1:D1
+
+        write_xlsx(&wb, &path).unwrap();
+
+        // Read back and verify the merge region via calamine.
+        let mut excel: calamine::Xlsx<_> =
+            calamine::open_workbook(&path).unwrap();
+        let merges = excel.worksheet_merge_cells("Sheet1").unwrap().unwrap();
+        assert_eq!(merges.len(), 1);
+        assert_eq!(merges[0].start, (0, 0));
+        assert_eq!(merges[0].end, (0, 3));
+    }
+
+    #[test]
+    fn test_write_hidden_rows_and_cols() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hidden.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        sheet.set_value(0, 0, CellValue::Text("Visible".into()));
+        sheet.set_value(1, 0, CellValue::Text("Hidden row".into()));
+        sheet.set_value(0, 1, CellValue::Text("Hidden col".into()));
+        sheet.hidden_rows.insert(1);
+        sheet.hidden_cols.insert(1);
+
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+
+        // Read back and verify values are still present.
+        let wb2 = crate::xlsx_reader::read_xlsx(&path).unwrap();
+        assert_eq!(
+            wb2.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("Visible".into())
+        );
+        assert_eq!(
+            wb2.get_cell("Sheet1", 1, 0).unwrap().unwrap().value,
+            CellValue::Text("Hidden row".into())
+        );
+    }
+
+    #[test]
+    fn test_write_tab_color() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tab_color.xlsx");
+
+        let mut wb = Workbook::new();
+        let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+        sheet.set_tab_color(Some("#FF5500".into()));
+        sheet.set_value(0, 0, CellValue::Text("Colored tab".into()));
+
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+    }
+
+    /// Comprehensive round-trip test: create a workbook with many features,
+    /// write to xlsx, read back, verify all data is preserved.
+    #[test]
+    fn test_comprehensive_round_trip() {
+        use lattice_core::{Border, BorderStyle, CellBorders, TextWrap};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("comprehensive.xlsx");
+
+        let mut wb = Workbook::new();
+        wb.add_sheet("Data").unwrap();
+
+        // Sheet1: mixed cell types, formatting, formulas, comments.
+        {
+            let sheet = wb.get_sheet_mut("Sheet1").unwrap();
+
+            // Text cell with full formatting.
+            sheet.set_cell(
+                0,
+                0,
+                lattice_core::Cell {
+                    value: CellValue::Text("Header".into()),
+                    format: CellFormat {
+                        bold: true,
+                        italic: true,
+                        underline: true,
+                        strikethrough: false,
+                        font_size: 16.0,
+                        font_family: "Helvetica".to_string(),
+                        font_color: Some("#FF0000".to_string()),
+                        bg_color: Some("#FFFF00".to_string()),
+                        h_align: HAlign::Center,
+                        v_align: VAlign::Middle,
+                        number_format: None,
+                        borders: CellBorders {
+                            top: Some(Border {
+                                style: BorderStyle::Thin,
+                                color: "#000000".to_string(),
+                            }),
+                            bottom: Some(Border {
+                                style: BorderStyle::Medium,
+                                color: "#333333".to_string(),
+                            }),
+                            left: None,
+                            right: None,
+                        },
+                        text_wrap: TextWrap::Wrap,
+                        text_rotation: 0,
+                        indent: 0,
+                    },
+                    comment: Some("Header comment".into()),
+                    ..Default::default()
+                },
+            );
+
+            // Number cell with currency format.
+            sheet.set_cell(
+                1,
+                0,
+                lattice_core::Cell {
+                    value: CellValue::Number(1234.56),
+                    format: CellFormat {
+                        number_format: Some("$#,##0.00".to_string()),
+                        ..CellFormat::default()
+                    },
+                    ..Default::default()
+                },
+            );
+
+            // Boolean cell.
+            sheet.set_value(2, 0, CellValue::Boolean(true));
+
+            // Date cell.
+            sheet.set_value(3, 0, CellValue::Date("2024-06-15".into()));
+
+            // Formula cell.
+            sheet.set_cell(
+                4,
+                0,
+                lattice_core::Cell {
+                    value: CellValue::Number(0.0),
+                    formula: Some("SUM(A2:A3)".into()),
+                    ..Default::default()
+                },
+            );
+
+            // Merged region.
+            sheet.set_value(0, 1, CellValue::Text("Merged".into()));
+            sheet.merge_cells(0, 1, 1, 3).unwrap();
+
+            // Hidden row.
+            sheet.set_value(5, 0, CellValue::Text("Hidden".into()));
+            sheet.hidden_rows.insert(5);
+
+            // Hidden column.
+            sheet.hidden_cols.insert(4);
+
+            // Column widths and row heights.
+            sheet.col_widths.insert(0, 25.0);
+            sheet.row_heights.insert(0, 30.0);
+
+            // Tab color.
+            sheet.set_tab_color(Some("#00AA55".into()));
+        }
+
+        // Data sheet: simple data.
+        {
+            let sheet = wb.get_sheet_mut("Data").unwrap();
+            sheet.set_value(0, 0, CellValue::Text("Name".into()));
+            sheet.set_value(0, 1, CellValue::Text("Value".into()));
+            sheet.set_value(1, 0, CellValue::Text("Alice".into()));
+            sheet.set_value(1, 1, CellValue::Number(100.0));
+        }
+
+        // Write to xlsx.
+        write_xlsx(&wb, &path).unwrap();
+        assert!(path.exists());
+
+        // Read back.
+        let wb2 = crate::xlsx_reader::read_xlsx(&path).unwrap();
+
+        // Verify sheet names.
+        assert_eq!(wb2.sheet_names(), vec!["Sheet1", "Data"]);
+
+        // Verify cell values (formatting not round-tripped by calamine reader yet).
+        assert_eq!(
+            wb2.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("Header".into())
+        );
+        assert_eq!(
+            wb2.get_cell("Sheet1", 1, 0).unwrap().unwrap().value,
+            CellValue::Number(1234.56)
+        );
+        assert_eq!(
+            wb2.get_cell("Sheet1", 2, 0).unwrap().unwrap().value,
+            CellValue::Boolean(true)
+        );
+
+        // Data sheet values.
+        assert_eq!(
+            wb2.get_cell("Data", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("Name".into())
+        );
+        assert_eq!(
+            wb2.get_cell("Data", 1, 1).unwrap().unwrap().value,
+            CellValue::Number(100.0)
+        );
+
+        // Verify merged regions via calamine directly.
+        let mut excel: calamine::Xlsx<_> = calamine::open_workbook(&path).unwrap();
+        let merges = excel.worksheet_merge_cells("Sheet1").unwrap().unwrap();
+        assert_eq!(merges.len(), 1);
+        assert_eq!(merges[0].start, (0, 1));
+        assert_eq!(merges[0].end, (1, 3));
     }
 }

@@ -1,6 +1,7 @@
 //! File I/O for Lattice spreadsheets.
 //!
-//! Supports reading and writing `.xlsx`, `.csv`, and JSON export.
+//! Supports reading and writing `.xlsx`, `.csv`, `.tsv`, `.xls`, `.ods`,
+//! and JSON export.
 
 pub mod atomic;
 pub mod cloud;
@@ -82,5 +83,5 @@ pub use pdf_export::{export_print_html, PrintSettings};
 pub use recent_files::{RecentFile, RecentFileStore};
 pub use tsv_io::{read_tsv, write_tsv};
 pub use watcher::FileWatcher;
-pub use xlsx_reader::read_xlsx;
+pub use xlsx_reader::{read_ods, read_spreadsheet, read_xls, read_xlsx};
 pub use xlsx_writer::{write_xlsx, write_xlsx_to_buffer};

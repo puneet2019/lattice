@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use lattice_core::Workbook;
-use lattice_io::{read_xlsx, write_atomic};
+use lattice_io::{read_spreadsheet, write_atomic};
 
 use crate::state::AppState;
 
@@ -17,11 +17,14 @@ pub struct WorkbookInfo {
     pub active_sheet: String,
 }
 
-/// Open an xlsx file and load it into the app state.
+/// Open a spreadsheet file (xlsx, xls, ods, csv, tsv) and load it into the app state.
+///
+/// Uses format auto-detection to pick the right reader based on magic bytes
+/// and file extension.
 #[tauri::command]
 pub async fn open_file(state: State<'_, AppState>, path: String) -> Result<WorkbookInfo, String> {
     let p = Path::new(&path);
-    let wb = read_xlsx(p).map_err(|e| e.to_string())?;
+    let wb = read_spreadsheet(p).map_err(|e| e.to_string())?;
     let info = WorkbookInfo {
         sheets: wb.sheet_names(),
         active_sheet: wb.active_sheet.clone(),
