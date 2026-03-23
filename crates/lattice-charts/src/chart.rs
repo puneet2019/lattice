@@ -105,8 +105,10 @@ pub struct ChartOptions {
     pub color_palette: Option<Vec<String>>,
     /// Background color for the chart (CSS hex, default "#ffffff").
     pub background_color: Option<String>,
-    /// Whether to render stacked bars/areas (default false).
+    /// Whether to stack series values (bar and area charts).
     pub stacked: bool,
+    /// Whether to normalize stacked values to 100% (requires `stacked`).
+    pub normalized: bool,
 }
 
 impl Default for ChartOptions {
@@ -124,6 +126,7 @@ impl Default for ChartOptions {
             color_palette: None,
             background_color: None,
             stacked: false,
+            normalized: false,
         }
     }
 }
@@ -193,6 +196,7 @@ impl Chart {
             color_palette: None,
             background_color: None,
             stacked: false,
+            normalized: false,
         }
     }
 }

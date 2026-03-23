@@ -6,8 +6,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    Margins, compute_axis_scale, format_axis_value, series_color, svg_axis_labels, svg_close,
-    svg_open, svg_text, svg_title,
+    Margins, compute_axis_scale, format_axis_value, format_data_label, series_color,
+    svg_axis_labels, svg_close, svg_open, svg_text, svg_title,
 };
 
 /// Render scatter plot data as an SVG string.
@@ -118,6 +118,19 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
                 r##"<circle cx="{px:.1}" cy="{py:.1}" r="4" fill="{color}" opacity="0.8"/>"##,
             ));
             svg.push('\n');
+
+            // Data label next to each point
+            if options.show_data_labels {
+                svg.push_str(&svg_text(
+                    px + 7.0,
+                    py - 4.0,
+                    "start",
+                    10,
+                    "#333333",
+                    &format_data_label(value),
+                ));
+                svg.push('\n');
+            }
         }
 
         // Optional trendline (linear regression)
@@ -212,7 +225,11 @@ fn y_range_all(data: &ChartData) -> (f64, f64) {
 }
 
 /// Simple linear regression: returns (slope, intercept) or None if degenerate.
-fn linear_regression(xs: &[f64], ys: &[f64]) -> Option<(f64, f64)> {
+///
+/// Computes the least-squares best-fit line y = slope * x + intercept for
+/// the given (x, y) data. Returns `None` if fewer than 2 points are
+/// provided or if the denominator is degenerate (all x-values identical).
+pub fn linear_regression(xs: &[f64], ys: &[f64]) -> Option<(f64, f64)> {
     let n = xs.len().min(ys.len());
     if n < 2 {
         return None;
@@ -317,5 +334,25 @@ mod tests {
         assert!(svg.ends_with("</svg>"));
         // Falls back to indices 0, 1, 2
         assert_eq!(svg.matches("<circle").count(), 3);
+    }
+
+    #[test]
+    fn test_scatter_data_labels() {
+        let opts = ChartOptions {
+            show_data_labels: true,
+            ..ChartOptions::default()
+        };
+        let svg = render(&sample_data(), &opts);
+        // Data labels should contain the y-values
+        assert!(svg.contains("2.1"));
+        assert!(svg.contains("9.5"));
+    }
+
+    #[test]
+    fn test_scatter_no_data_labels_by_default() {
+        let svg = render(&sample_data(), &ChartOptions::default());
+        // "2.1" should not appear as a data label (may appear as axis tick)
+        // Verify no text element has anchor="start" next to a circle (data label style)
+        assert!(!svg.contains("text-anchor=\"start\""));
     }
 }

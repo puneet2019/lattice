@@ -5,8 +5,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    Margins, compute_axis_scale, data_range, series_color, svg_axis_labels, svg_close,
-    svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape,
+    Margins, compute_axis_scale, data_range, format_data_label, series_color, svg_axis_labels,
+    svg_close, svg_grid_lines, svg_legend, svg_open, svg_text, svg_title, xml_escape,
 };
 
 /// Render line chart data as an SVG string.
@@ -73,6 +73,56 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
                 r##"<circle cx="{x:.1}" cy="{y:.1}" r="3.5" fill="{color}" stroke="#ffffff" stroke-width="1.5"/>"##,
             ));
             svg.push('\n');
+        }
+
+        // Data labels above each data point
+        if options.show_data_labels {
+            for (pi, &value) in series.values.iter().enumerate() {
+                if let Some(&(x, y)) = points.get(pi) {
+                    svg.push_str(&svg_text(
+                        x,
+                        y - 8.0,
+                        "middle",
+                        10,
+                        "#333333",
+                        &format_data_label(value),
+                    ));
+                    svg.push('\n');
+                }
+            }
+        }
+
+        // Linear trendline (dashed)
+        if series.values.len() >= 2 {
+            let xs: Vec<f64> = (0..series.values.len()).map(|i| i as f64).collect();
+            if let Some((slope, intercept)) =
+                super::scatter::linear_regression(&xs, &series.values)
+            {
+                // Evaluate trendline at x=0 and x=n-1
+                let trend_y1 = intercept;
+                let trend_y2 = slope * (series.values.len() - 1) as f64 + intercept;
+
+                let frac1 = if y_range.abs() > f64::EPSILON {
+                    (trend_y1 - scale.min) / y_range
+                } else {
+                    0.5
+                };
+                let frac2 = if y_range.abs() > f64::EPSILON {
+                    (trend_y2 - scale.min) / y_range
+                } else {
+                    0.5
+                };
+
+                let px1 = margins.left;
+                let py1 = margins.top + ph * (1.0 - frac1);
+                let px2 = margins.left + pw;
+                let py2 = margins.top + ph * (1.0 - frac2);
+
+                svg.push_str(&format!(
+                    r##"<line x1="{px1:.1}" y1="{py1:.1}" x2="{px2:.1}" y2="{py2:.1}" stroke="{color}" stroke-width="1" stroke-dasharray="5,3" opacity="0.5"/>"##,
+                ));
+                svg.push('\n');
+            }
         }
     }
 
@@ -207,5 +257,65 @@ mod tests {
         assert!(svg.ends_with("</svg>"));
         // Single point: no polyline (needs >= 2 points), but 1 circle
         assert_eq!(svg.matches("<circle").count(), 1);
+    }
+
+    #[test]
+    fn test_line_chart_data_labels() {
+        let opts = ChartOptions {
+            show_data_labels: true,
+            ..ChartOptions::default()
+        };
+        let svg = render(&sample_data(), &opts);
+        // Values 5, 8, 15, 20, 25 should appear as data labels
+        assert!(svg.contains(">5<"));
+        assert!(svg.contains(">8<"));
+        assert!(svg.contains(">15<"));
+        assert!(svg.contains(">20<"));
+        assert!(svg.contains(">25<"));
+    }
+
+    #[test]
+    fn test_line_chart_no_data_labels_by_default() {
+        let svg = render(&sample_data(), &ChartOptions::default());
+        // When data labels are off, fewer text elements should be present
+        let text_count_off = svg.matches("<text").count();
+
+        let opts = ChartOptions {
+            show_data_labels: true,
+            ..ChartOptions::default()
+        };
+        let svg_on = render(&sample_data(), &opts);
+        let text_count_on = svg_on.matches("<text").count();
+
+        // Enabling data labels should add more text elements (one per data point)
+        assert!(
+            text_count_on > text_count_off,
+            "data labels should add text elements: on={text_count_on} off={text_count_off}"
+        );
+    }
+
+    #[test]
+    fn test_line_chart_trendline() {
+        let svg = render(&sample_data(), &ChartOptions::default());
+        // The sample data has a clear upward trend, so a trendline should be drawn
+        assert!(
+            svg.contains("stroke-dasharray=\"5,3\""),
+            "line chart should include a dashed trendline"
+        );
+    }
+
+    #[test]
+    fn test_line_chart_trendline_single_point_no_trendline() {
+        let data = ChartData {
+            labels: vec!["Only".into()],
+            series: vec![DataSeries {
+                name: "S".into(),
+                values: vec![42.0],
+                color: None,
+            }],
+        };
+        let svg = render(&data, &ChartOptions::default());
+        // Single point: not enough data for a trendline
+        assert!(!svg.contains("stroke-dasharray"));
     }
 }

@@ -346,6 +346,40 @@ pub fn data_range_with_zero(data: &ChartData) -> (f64, f64) {
     (min.min(0.0), max.max(0.0))
 }
 
+/// Compute y-axis range for stacked charts (sum of all series values per category).
+///
+/// Returns `(min, max)` with zero always included.
+pub fn data_range_stacked(data: &ChartData) -> (f64, f64) {
+    if data.series.is_empty() || data.labels.is_empty() {
+        return (0.0, 1.0);
+    }
+    let n_categories = data.labels.len();
+    let mut max_sum = f64::NEG_INFINITY;
+    for ci in 0..n_categories {
+        let sum: f64 = data
+            .series
+            .iter()
+            .map(|s| s.values.get(ci).copied().unwrap_or(0.0).max(0.0))
+            .sum();
+        if sum > max_sum {
+            max_sum = sum;
+        }
+    }
+    if max_sum < 0.0 || max_sum < f64::EPSILON {
+        max_sum = 1.0;
+    }
+    (0.0, max_sum)
+}
+
+/// Format a number for data labels (compact display).
+pub fn format_data_label(v: f64) -> String {
+    if v.fract().abs() < 1e-9 {
+        format!("{}", v as i64)
+    } else {
+        format!("{:.1}", v)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
