@@ -40,6 +40,14 @@ pub struct RuleOutput {
     pub italic: Option<bool>,
     pub font_color: Option<String>,
     pub bg_color: Option<String>,
+    /// Comparison operator for cell_value rules (e.g. ">", "<", ">=").
+    pub operator: Option<String>,
+    /// First threshold value for cell_value rules.
+    pub value1: Option<f64>,
+    /// Second threshold value for cell_value "between" rules.
+    pub value2: Option<f64>,
+    /// Text needle for text_contains rules.
+    pub text: Option<String>,
 }
 
 /// Serialized conditional format range for listing.
@@ -159,7 +167,7 @@ fn parse_rule(input: RuleTypeInput, style_input: StyleInput) -> Result<Condition
 }
 
 fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
-    let (kind, description) = match &rule.rule_type {
+    let (kind, description, operator, value1, value2, text) = match &rule.rule_type {
         ConditionalRuleType::CellValue { operator, value1, value2 } => {
             let op_str = match operator {
                 ComparisonOperator::GreaterThan => ">",
@@ -176,15 +184,15 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
             } else {
                 format!("Cell value {} {}", op_str, value1)
             };
-            ("cell_value".to_string(), desc)
+            ("cell_value".to_string(), desc, Some(op_str.to_string()), Some(*value1), *value2, None)
         }
         ConditionalRuleType::TextContains(t) => {
-            ("text_contains".to_string(), format!("Text contains \"{}\"", t))
+            ("text_contains".to_string(), format!("Text contains \"{}\"", t), None, None, None, Some(t.clone()))
         }
-        ConditionalRuleType::IsBlank => ("is_blank".to_string(), "Cell is blank".to_string()),
-        ConditionalRuleType::IsNotBlank => ("is_not_blank".to_string(), "Cell is not blank".to_string()),
-        ConditionalRuleType::IsError => ("is_error".to_string(), "Cell is error".to_string()),
-        _ => ("other".to_string(), "Custom rule".to_string()),
+        ConditionalRuleType::IsBlank => ("is_blank".to_string(), "Cell is blank".to_string(), None, None, None, None),
+        ConditionalRuleType::IsNotBlank => ("is_not_blank".to_string(), "Cell is not blank".to_string(), None, None, None, None),
+        ConditionalRuleType::IsError => ("is_error".to_string(), "Cell is error".to_string(), None, None, None, None),
+        _ => ("other".to_string(), "Custom rule".to_string(), None, None, None, None),
     };
 
     RuleOutput {
@@ -194,5 +202,9 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
         italic: rule.style.italic,
         font_color: rule.style.font_color.clone(),
         bg_color: rule.style.bg_color.clone(),
+        operator,
+        value1,
+        value2,
+        text,
     }
 }

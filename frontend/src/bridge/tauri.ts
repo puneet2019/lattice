@@ -31,8 +31,6 @@ export interface CellData {
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
-  text_rotation?: number;
-  indent?: number;
 }
 
 /** Sheet summary information. */
@@ -76,8 +74,6 @@ export interface FormatOptions {
   number_format?: string;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: BordersUpdate;
-  text_rotation?: number;
-  indent?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -661,6 +657,45 @@ export async function sortRange(
 }
 
 // ---------------------------------------------------------------------------
+// Row group commands
+// ---------------------------------------------------------------------------
+
+/** Row group data returned from the backend. */
+export interface RowGroupData {
+  start: number;
+  end: number;
+  collapsed: boolean;
+}
+
+export async function addRowGroup(
+  sheet: string,
+  start: number,
+  end: number,
+): Promise<void> {
+  return invoke('add_row_group', { sheet, start, end });
+}
+
+export async function removeRowGroup(
+  sheet: string,
+  index: number,
+): Promise<void> {
+  return invoke('remove_row_group', { sheet, index });
+}
+
+export async function toggleRowGroup(
+  sheet: string,
+  index: number,
+): Promise<boolean> {
+  return invoke('toggle_row_group', { sheet, index });
+}
+
+export async function getRowGroups(
+  sheet: string,
+): Promise<RowGroupData[]> {
+  return invoke('get_row_groups', { sheet });
+}
+
+// ---------------------------------------------------------------------------
 // Named range commands
 // ---------------------------------------------------------------------------
 
@@ -722,6 +757,14 @@ export interface RuleOutput {
   italic?: boolean | null;
   font_color?: string | null;
   bg_color?: string | null;
+  /** Comparison operator for cell_value rules (e.g. ">", "<", ">="). */
+  operator?: string | null;
+  /** First threshold value for cell_value rules. */
+  value1?: number | null;
+  /** Second threshold value for cell_value "between" rules. */
+  value2?: number | null;
+  /** Text needle for text_contains rules. */
+  text?: string | null;
 }
 
 /** A conditional format range (from list). */

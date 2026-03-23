@@ -87,6 +87,17 @@ pub struct BandedRows {
     pub header_color: Option<String>,
 }
 
+/// A collapsible row group (outlining / grouping).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowGroup {
+    /// First row of the group (0-based, inclusive).
+    pub start: u32,
+    /// Last row of the group (0-based, inclusive).
+    pub end: u32,
+    /// Whether the group is currently collapsed (rows hidden).
+    pub collapsed: bool,
+}
+
 /// A single sheet inside a workbook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sheet {
@@ -114,6 +125,8 @@ pub struct Sheet {
     pub banded_rows: Option<BandedRows>,
     /// Sparklines attached to cells in this sheet.
     pub sparklines: SparklineStore,
+    /// Row groups (collapsible / outlining sections).
+    pub row_groups: Vec<RowGroup>,
 }
 
 impl Sheet {
@@ -132,6 +145,7 @@ impl Sheet {
             tab_color: None,
             banded_rows: None,
             sparklines: SparklineStore::new(),
+            row_groups: Vec::new(),
         }
     }
 
@@ -1027,6 +1041,87 @@ impl Sheet {
         }
 
         removed_count
+    }
+
+    // ----- Row grouping -----
+
+    /// Add a row group spanning `start..=end` (0-based, inclusive).
+    ///
+    /// Returns an error if the range overlaps an existing group.
+    pub fn add_row_group(&mut self, start: u32, end: u32) -> Result<()> {
+        if start > end {
+            return Err(LatticeError::InvalidRange(
+                "Row group start must be <= end".into(),
+            ));
+        }
+        // Check for overlaps with existing groups
+        for g in &self.row_groups {
+            if start <= g.end && end >= g.start {
+                return Err(LatticeError::InvalidRange(
+                    format!(
+                        "Row group {}..={} overlaps existing group {}..={}",
+                        start, end, g.start, g.end
+                    ),
+                ));
+            }
+        }
+        self.row_groups.push(RowGroup {
+            start,
+            end,
+            collapsed: false,
+        });
+        Ok(())
+    }
+
+    /// Remove the row group at the given index.
+    ///
+    /// If the group was collapsed, the hidden rows are restored.
+    pub fn remove_row_group(&mut self, index: usize) -> Result<()> {
+        if index >= self.row_groups.len() {
+            return Err(LatticeError::InvalidRange(
+                "Row group index out of bounds".into(),
+            ));
+        }
+        let group = self.row_groups.remove(index);
+        // Unhide rows if the group was collapsed
+        if group.collapsed {
+            for r in group.start..=group.end {
+                self.hidden_rows.remove(&r);
+            }
+        }
+        Ok(())
+    }
+
+    /// Toggle a row group between collapsed and expanded.
+    ///
+    /// When collapsed, the rows in the group are added to `hidden_rows`.
+    /// When expanded, they are removed from `hidden_rows`.
+    pub fn toggle_row_group(&mut self, index: usize) -> Result<bool> {
+        if index >= self.row_groups.len() {
+            return Err(LatticeError::InvalidRange(
+                "Row group index out of bounds".into(),
+            ));
+        }
+        let group = &mut self.row_groups[index];
+        group.collapsed = !group.collapsed;
+        let collapsed = group.collapsed;
+        let start = group.start;
+        let end = group.end;
+        if collapsed {
+            for r in start..=end {
+                self.hidden_rows.insert(r);
+            }
+        } else {
+            for r in start..=end {
+                self.hidden_rows.remove(&r);
+            }
+        }
+        Ok(collapsed)
+    }
+
+    /// Return a reference to all row groups.
+    pub fn row_groups(&self) -> &[RowGroup] {
+        &self.row_groups
     }
 }
 
@@ -2212,5 +2307,92 @@ mod tests {
         );
 
         assert_eq!(sheet.used_range(), (0, 0));
+    }
+
+    // ── Row group tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_add_row_group() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.add_row_group(2, 5).is_ok());
+        assert_eq!(sheet.row_groups().len(), 1);
+        assert_eq!(sheet.row_groups()[0].start, 2);
+        assert_eq!(sheet.row_groups()[0].end, 5);
+        assert!(!sheet.row_groups()[0].collapsed);
+    }
+
+    #[test]
+    fn test_add_row_group_invalid_range() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.add_row_group(5, 2).is_err());
+    }
+
+    #[test]
+    fn test_add_row_group_overlap_rejected() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 5).unwrap();
+        assert!(sheet.add_row_group(4, 8).is_err()); // overlaps
+        assert!(sheet.add_row_group(0, 2).is_err()); // overlaps at boundary
+    }
+
+    #[test]
+    fn test_add_row_group_no_overlap() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 5).unwrap();
+        assert!(sheet.add_row_group(6, 10).is_ok()); // adjacent, no overlap
+        assert_eq!(sheet.row_groups().len(), 2);
+    }
+
+    #[test]
+    fn test_toggle_row_group_collapse() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 4).unwrap();
+        let collapsed = sheet.toggle_row_group(0).unwrap();
+        assert!(collapsed);
+        assert!(sheet.hidden_rows.contains(&2));
+        assert!(sheet.hidden_rows.contains(&3));
+        assert!(sheet.hidden_rows.contains(&4));
+    }
+
+    #[test]
+    fn test_toggle_row_group_expand() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 4).unwrap();
+        sheet.toggle_row_group(0).unwrap(); // collapse
+        let collapsed = sheet.toggle_row_group(0).unwrap(); // expand
+        assert!(!collapsed);
+        assert!(!sheet.hidden_rows.contains(&2));
+        assert!(!sheet.hidden_rows.contains(&3));
+        assert!(!sheet.hidden_rows.contains(&4));
+    }
+
+    #[test]
+    fn test_toggle_row_group_invalid_index() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.toggle_row_group(0).is_err());
+    }
+
+    #[test]
+    fn test_remove_row_group() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 4).unwrap();
+        assert!(sheet.remove_row_group(0).is_ok());
+        assert!(sheet.row_groups().is_empty());
+    }
+
+    #[test]
+    fn test_remove_collapsed_group_unhides_rows() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 4).unwrap();
+        sheet.toggle_row_group(0).unwrap(); // collapse
+        assert!(sheet.hidden_rows.contains(&3));
+        sheet.remove_row_group(0).unwrap();
+        assert!(!sheet.hidden_rows.contains(&3)); // rows restored
+    }
+
+    #[test]
+    fn test_remove_row_group_invalid_index() {
+        let mut sheet = Sheet::new("S1");
+        assert!(sheet.remove_row_group(0).is_err());
     }
 }

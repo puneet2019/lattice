@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
-import type { CellData, MergedRegionData, BandedRowsData } from '../../bridge/tauri';
+import type { CellData, MergedRegionData, BandedRowsData, FormatOptions, ConditionalFormatOutput, RowGroupData } from '../../bridge/tauri';
 import type { PasteMode } from '../PasteSpecialDialog';
 import {
   getCell,
@@ -26,6 +26,11 @@ import {
   unhideCols,
   getHiddenCols,
   sortRange,
+  listConditionalFormats,
+  getRowGroups,
+  addRowGroup,
+  removeRowGroup,
+  toggleRowGroup,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -255,6 +260,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Validation cache: maps "row:col" to ValidationData for the current sheet.
   const validationCache = new Map<string, ValidationData>();
   let validationsFetched = false;
+
+  // Conditional format rules for the current sheet.
+  let conditionalFormatRules: ConditionalFormatOutput[] = [];
+
+  // Row groups for the current sheet (collapsible sections).
+  let rowGroups: RowGroupData[] = [];
 
   // Hidden rows set for the current sheet (from auto-filter and manual hide).
   const hiddenRows = new Set<number>();
@@ -565,6 +576,24 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       validationsFetched = true;
     } catch {
       // Backend may not support this yet
+    }
+  }
+
+  /** Load conditional format rules for the active sheet. */
+  async function fetchConditionalFormats() {
+    try {
+      conditionalFormatRules = await listConditionalFormats(props.activeSheet);
+    } catch {
+      conditionalFormatRules = [];
+    }
+  }
+
+  /** Load row groups for the active sheet. */
+  async function fetchRowGroups() {
+    try {
+      rowGroups = await getRowGroups(props.activeSheet);
+    } catch {
+      rowGroups = [];
     }
   }
 
@@ -1700,6 +1729,75 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return h;
   }
 
+  /**
+   * Evaluate conditional format rules for a cell and return the first
+   * matching style overrides (bg_color, font_color, bold, italic).
+   * Rules are evaluated in array order (priority order from backend).
+   */
+  function evaluateConditionalFormat(
+    row: number,
+    col: number,
+    cellValue: string | undefined,
+  ): { bg_color?: string; font_color?: string; bold?: boolean; italic?: boolean } | null {
+    if (conditionalFormatRules.length === 0) return null;
+
+    for (const cfRange of conditionalFormatRules) {
+      if (row < cfRange.start_row || row > cfRange.end_row) continue;
+      if (col < cfRange.start_col || col > cfRange.end_col) continue;
+
+      for (const rule of cfRange.rules) {
+        let matches = false;
+        const kind = rule.kind;
+
+        if (kind === 'cell_value') {
+          const numVal = cellValue != null ? Number(cellValue) : NaN;
+          if (!isNaN(numVal) && rule.operator != null && rule.value1 != null) {
+            const v1 = rule.value1;
+            const v2 = rule.value2;
+            switch (rule.operator) {
+              case '>': matches = numVal > v1; break;
+              case '<': matches = numVal < v1; break;
+              case '>=': matches = numVal >= v1; break;
+              case '<=': matches = numVal <= v1; break;
+              case '=': matches = Math.abs(numVal - v1) < Number.EPSILON; break;
+              case '!=': matches = Math.abs(numVal - v1) >= Number.EPSILON; break;
+              case 'between': matches = numVal >= v1 && numVal <= (v2 ?? v1); break;
+              case 'not between': matches = numVal < v1 || numVal > (v2 ?? v1); break;
+            }
+          }
+        } else if (kind === 'text_contains') {
+          const text = cellValue ?? '';
+          const needle = rule.text ?? '';
+          matches = text.toLowerCase().includes(needle.toLowerCase());
+        } else if (kind === 'is_blank') {
+          matches = !cellValue || cellValue === '';
+        } else if (kind === 'is_not_blank') {
+          matches = cellValue != null && cellValue !== '';
+        } else if (kind === 'is_error') {
+          matches = cellValue != null && (
+            cellValue.startsWith('#DIV/0') ||
+            cellValue.startsWith('#REF') ||
+            cellValue.startsWith('#NAME') ||
+            cellValue.startsWith('#VALUE') ||
+            cellValue.startsWith('#N/A') ||
+            cellValue.startsWith('#NULL') ||
+            cellValue.startsWith('#NUM')
+          );
+        }
+
+        if (matches) {
+          return {
+            bg_color: rule.bg_color ?? undefined,
+            font_color: rule.font_color ?? undefined,
+            bold: rule.bold ?? undefined,
+            italic: rule.italic ?? undefined,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   function drawCellData(
     ctx: CanvasRenderingContext2D,
     sx: number,
@@ -1737,6 +1835,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         let cellHeight = rh;
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
 
+        // Evaluate conditional format rules for this cell
+        const cfStyle = evaluateConditionalFormat(row, col, cell?.value);
+
         // If this is a merged anchor, expand dimensions
         if (mergedRegion) {
           cw = mergedWidth(mergedRegion);
@@ -1746,8 +1847,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillRect(x, y, cw, cellHeight);
         }
 
-        // Banded row background (only if no explicit bg_color on cell)
-        if (banded && banded.enabled && !cell?.bg_color) {
+        // Effective bg_color: conditional format overrides cell format
+        const effectiveBgColor = cfStyle?.bg_color ?? cell?.bg_color;
+
+        // Banded row background (only if no explicit bg_color on cell or CF)
+        if (banded && banded.enabled && !effectiveBgColor) {
           if (banded.header_color && row === 0) {
             ctx.fillStyle = banded.header_color;
             ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
@@ -1759,8 +1863,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
         // Draw cell background color if set (even for empty cells).
         // Inset by 1px to preserve grid lines.
-        if (cell?.bg_color) {
-          ctx.fillStyle = cell.bg_color;
+        if (effectiveBgColor) {
+          ctx.fillStyle = effectiveBgColor;
           ctx.fillRect(x + 1, y + 1, cw - 1, cellHeight - 1);
         }
 
@@ -1855,24 +1959,24 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           continue;
         }
 
-        // Determine font style
-        const fontWeight = cell.bold ? 'bold' : 'normal';
-        const fontStyle = cell.italic ? 'italic' : 'normal';
+        // Determine font style (conditional format can override bold/italic)
+        const cfBold = cfStyle?.bold ?? undefined;
+        const cfItalic = cfStyle?.italic ?? undefined;
+        const fontWeight = (cfBold ?? cell.bold) ? 'bold' : 'normal';
+        const fontStyle = (cfItalic ?? cell.italic) ? 'italic' : 'normal';
         const fontFamily = cell.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
         const fontSize = cell.font_size || 11;
         ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-        // null = no custom color (use theme default). Any value = user explicitly set it.
-        ctx.fillStyle = cell.font_color ?? COLORS.cellText;
+        // Conditional format font_color overrides cell font_color
+        const effectiveFontColor = cfStyle?.font_color ?? cell.font_color;
+        ctx.fillStyle = effectiveFontColor ?? COLORS.cellText;
 
         // Auto-align: numbers right, text left — unless user explicitly set center/right.
         // Backend default is "left", so treat "left" as auto (allows number right-align).
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
         const userSetAlign = cell.h_align && cell.h_align !== 'left';
         const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
-        // Apply indent: each indent level adds 8px of left padding
-        const indentPx = ((cell as CellData).indent ?? 0) * 8;
-        const leftPad = PADDING + indentPx;
-        const maxTextW = cw - leftPad - PADDING;
+        const maxTextW = cw - PADDING * 2;
         // In formula view, show raw formula instead of computed value
         let displayText = showFormulas() && cell.formula ? `=${cell.formula}` : cell.value;
 
@@ -1907,24 +2011,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.lineWidth = 1;
         };
 
-        // Text rotation: when non-zero, render rotated text in cell center
-        const textRotation = (cell as CellData).text_rotation ?? 0;
-        if (textRotation !== 0) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x, y, cw, cellHeight);
-          ctx.clip();
-          const cx = x + cw / 2;
-          const cy = y + cellHeight / 2;
-          ctx.translate(cx, cy);
-          ctx.rotate(textRotation * Math.PI / 180);
-          ctx.textAlign = 'center';
-          ctx.fillText(displayText, 0, 0);
-          drawTextDecorations(0, 0, displayText, 'center');
-          ctx.restore();
-          continue;
-        }
-
         // Determine text rendering mode
         const textWrap = (cell as CellData).text_wrap ?? 'Overflow';
 
@@ -1953,7 +2039,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             if (lineY > y + cellHeight) break; // clip vertically
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
-              : x + leftPad;
+              : x + PADDING;
             ctx.fillText(lines[li], textX, lineY);
             drawTextDecorations(textX, lineY, lines[li], align as CanvasTextAlign);
           }
@@ -1978,8 +2064,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.rect(x, y, overflowW, cellHeight);
               ctx.clip();
               ctx.textAlign = 'left';
-              ctx.fillText(displayText, x + leftPad, y + cellHeight / 2);
-              drawTextDecorations(x + leftPad, y + cellHeight / 2, displayText, 'left');
+              ctx.fillText(displayText, x + PADDING, y + cellHeight / 2);
+              drawTextDecorations(x + PADDING, y + cellHeight / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -1996,7 +2082,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.textAlign = align;
               const textX = align === 'right' ? x + cw - PADDING
                 : align === 'center' ? x + cw / 2
-                : x + leftPad;
+                : x + PADDING;
               ctx.fillText(displayText, textX, y + cellHeight / 2);
               drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
             }
@@ -2004,7 +2090,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             ctx.textAlign = align;
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
-              : x + leftPad;
+              : x + PADDING;
             ctx.fillText(displayText, textX, y + cellHeight / 2);
             drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
           }
@@ -2192,6 +2278,72 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(y) + 2);
         ctx.stroke();
         ctx.lineWidth = 1;
+      }
+
+      // Draw row group +/- indicator in left gutter
+      for (let gi = 0; gi < rowGroups.length; gi++) {
+        const g = rowGroups[gi];
+        if (g.collapsed) {
+          // Show + button on the row just before the collapsed group (or at group start if start=0)
+          const indicatorRow = g.start > 0 ? g.start - 1 : g.start;
+          if (row === indicatorRow) {
+            const btnSize = 9;
+            const btnX = 2;
+            const btnY = y + rh / 2 - btnSize / 2;
+            ctx.strokeStyle = COLORS.headerText;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btnX, btnY, btnSize, btnSize);
+            // Draw + sign
+            ctx.beginPath();
+            ctx.moveTo(btnX + 2, btnY + btnSize / 2);
+            ctx.lineTo(btnX + btnSize - 2, btnY + btnSize / 2);
+            ctx.moveTo(btnX + btnSize / 2, btnY + 2);
+            ctx.lineTo(btnX + btnSize / 2, btnY + btnSize - 2);
+            ctx.stroke();
+          }
+        } else {
+          // Show - button on the first row of the expanded group
+          if (row === g.start) {
+            const btnSize = 9;
+            const btnX = 2;
+            const btnY = y + rh / 2 - btnSize / 2;
+            ctx.strokeStyle = COLORS.headerText;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btnX, btnY, btnSize, btnSize);
+            // Draw - sign
+            ctx.beginPath();
+            ctx.moveTo(btnX + 2, btnY + btnSize / 2);
+            ctx.lineTo(btnX + btnSize - 2, btnY + btnSize / 2);
+            ctx.stroke();
+          }
+          // Draw a bracket line along the gutter for grouped rows
+          if (row >= g.start && row <= g.end) {
+            const lineX = 6;
+            if (row === g.start) {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(lineX, y + rh / 2 + 6);
+              ctx.lineTo(lineX, y + rh);
+              ctx.stroke();
+            } else if (row === g.end) {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(lineX, y);
+              ctx.lineTo(lineX, y + rh / 2);
+              ctx.lineTo(lineX + 4, y + rh / 2);
+              ctx.stroke();
+            } else {
+              ctx.strokeStyle = COLORS.headerText;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(lineX, y);
+              ctx.lineTo(lineX, y + rh);
+              ctx.stroke();
+            }
+          }
+        }
       }
     }
   }
@@ -2793,6 +2945,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const rect = containerRef.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
+
+    // Check if click is on a row group +/- button in the gutter
+    if (localX < 14 && localY >= HEADER_HEIGHT && rowGroups.length > 0) {
+      const contentY = localY - HEADER_HEIGHT + effectiveScrollY(localY);
+      const clickRow = rowAtY(contentY);
+      for (let gi = 0; gi < rowGroups.length; gi++) {
+        const g = rowGroups[gi];
+        const indicatorRow = g.collapsed
+          ? (g.start > 0 ? g.start - 1 : g.start)
+          : g.start;
+        if (clickRow === indicatorRow) {
+          e.preventDefault();
+          void toggleRowGroup(props.activeSheet, gi).then(() => {
+            fetchRowGroups();
+            fetchHiddenRows();
+            lastFetchKey = '';
+            fetchVisibleData();
+            draw();
+          }).catch(() => props.onStatusChange('Toggle row group failed'));
+          return;
+        }
+      }
+    }
 
     // Check if click is on a list validation dropdown arrow
     if (localX >= ROW_NUMBER_WIDTH && localY >= HEADER_HEIGHT) {
@@ -3523,6 +3698,61 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
+  async function ctxGroupRows() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    try {
+      await addRowGroup(props.activeSheet, range.minRow, range.maxRow);
+      await fetchRowGroups();
+      draw();
+      props.onStatusChange(`Grouped rows ${range.minRow + 1}-${range.maxRow + 1}`);
+    } catch (err) {
+      props.onStatusChange(`Group rows failed: ${err}`);
+    }
+  }
+
+  async function ctxUngroupRows() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    // Find the row group that contains the selected rows and remove it
+    const gi = rowGroups.findIndex(
+      (g) => g.start === range.minRow && g.end === range.maxRow,
+    );
+    if (gi >= 0) {
+      try {
+        await removeRowGroup(props.activeSheet, gi);
+        await fetchRowGroups();
+        await fetchHiddenRows();
+        lastFetchKey = '';
+        fetchVisibleData();
+        draw();
+        props.onStatusChange(`Ungrouped rows ${range.minRow + 1}-${range.maxRow + 1}`);
+      } catch (err) {
+        props.onStatusChange(`Ungroup rows failed: ${err}`);
+      }
+    } else {
+      // Try to find any group that overlaps and remove the first match
+      const overlapIdx = rowGroups.findIndex(
+        (g) => range.minRow <= g.end && range.maxRow >= g.start,
+      );
+      if (overlapIdx >= 0) {
+        try {
+          await removeRowGroup(props.activeSheet, overlapIdx);
+          await fetchRowGroups();
+          await fetchHiddenRows();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange('Ungrouped rows');
+        } catch (err) {
+          props.onStatusChange(`Ungroup rows failed: ${err}`);
+        }
+      } else {
+        props.onStatusChange('No row group found for selection');
+      }
+    }
+  }
+
   async function ctxHideCol() {
     dismissContextMenu();
     const range = getSelectionRange();
@@ -3683,6 +3913,55 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         props.onPrevSheet?.();
+        return;
+      }
+    }
+
+    // Option+Shift+1/2/3/4/6/7: border shortcuts
+    if (e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      const borderCode = e.code;
+      const range = getSelectionRange();
+      let borderFormat: FormatOptions | null = null;
+      let statusMsg = '';
+
+      if (borderCode === 'Digit1') {
+        borderFormat = { borders: { top: { style: 'thin', color: '#000000' } } };
+        statusMsg = 'Top border applied';
+      } else if (borderCode === 'Digit2') {
+        borderFormat = { borders: { right: { style: 'thin', color: '#000000' } } };
+        statusMsg = 'Right border applied';
+      } else if (borderCode === 'Digit3') {
+        borderFormat = { borders: { bottom: { style: 'thin', color: '#000000' } } };
+        statusMsg = 'Bottom border applied';
+      } else if (borderCode === 'Digit4') {
+        borderFormat = { borders: { left: { style: 'thin', color: '#000000' } } };
+        statusMsg = 'Left border applied';
+      } else if (borderCode === 'Digit6') {
+        borderFormat = { borders: {
+          top: { style: 'none' },
+          right: { style: 'none' },
+          bottom: { style: 'none' },
+          left: { style: 'none' },
+        } };
+        statusMsg = 'All borders removed';
+      } else if (borderCode === 'Digit7') {
+        borderFormat = { borders: {
+          top: { style: 'thin', color: '#000000' },
+          right: { style: 'thin', color: '#000000' },
+          bottom: { style: 'thin', color: '#000000' },
+          left: { style: 'thin', color: '#000000' },
+        } };
+        statusMsg = 'Outer border applied';
+      }
+
+      if (borderFormat) {
+        e.preventDefault();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol,
+          borderFormat,
+        ).catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange(statusMsg);
         return;
       }
     }
@@ -4524,10 +4803,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
-    // Load validation rules, hidden rows, and hidden cols
+    // Load validation rules, hidden rows, hidden cols, conditional formats, and row groups
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();
+    fetchConditionalFormats();
+    fetchRowGroups();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -4548,6 +4829,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();
+    fetchConditionalFormats();
+    fetchRowGroups();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -4801,6 +5084,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             </div>
             <div class="context-menu-item" onClick={ctxUnhideRow}>
               Unhide row
+            </div>
+            <div class="context-menu-separator" />
+            <div class="context-menu-item" onClick={ctxGroupRows}>
+              Group rows
+            </div>
+            <div class="context-menu-item" onClick={ctxUngroupRows}>
+              Ungroup rows
             </div>
             <div class="context-menu-separator" />
           </Show>

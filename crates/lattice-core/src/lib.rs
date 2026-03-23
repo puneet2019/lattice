@@ -46,7 +46,7 @@ pub use history::{Operation, UndoStack};
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use pivot::{PivotAggregation, PivotConfig, PivotResult, PivotValue, generate_pivot};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
-pub use sheet::{BandedRows, MergedRegion, ProtectedRange, Sheet, SheetProtection};
+pub use sheet::{BandedRows, MergedRegion, ProtectedRange, RowGroup, Sheet, SheetProtection};
 pub use sort::{SortDirection, SortKey};
 pub use sparkline::{SparklineConfig, SparklineStore, SparklineType, render_sparkline_svg};
 pub use validation::{ValidationRule, ValidationStore, ValidationType};

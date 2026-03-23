@@ -396,6 +396,10 @@ fn main() {
             commands::data::list_named_ranges,
             commands::data::remove_named_range,
             commands::data::resolve_named_range,
+            commands::data::add_row_group,
+            commands::data::remove_row_group,
+            commands::data::toggle_row_group,
+            commands::data::get_row_groups,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,
