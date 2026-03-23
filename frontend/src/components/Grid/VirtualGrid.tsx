@@ -166,6 +166,8 @@ export interface VirtualGridProps {
   onFilterColumnClick?: (col: number, x: number, y: number) => void;
   /** Called when user selects "Custom sort..." from context menu. */
   onSortDialogOpen?: () => void;
+  /** Called when the user opens the named ranges dialog (Ctrl+F3). */
+  onNamedRangesOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -3192,6 +3194,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (e.key === 'F2') {
       e.preventDefault();
       startEditing(false);
+      return;
+    }
+
+    // Ctrl+F3: open named ranges manager
+    if (e.key === 'F3' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      props.onNamedRangesOpen?.();
       return;
     }
 

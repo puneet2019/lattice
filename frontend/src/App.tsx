@@ -18,6 +18,7 @@ import DataValidationDialog from './components/DataValidationDialog';
 import FilterDropdown from './components/FilterDropdown';
 import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import SortDialog from './components/SortDialog';
+import NamedRangesDialog from './components/NamedRangesDialog';
 import {
   listSheets,
   addSheet,
@@ -38,8 +39,9 @@ import {
   moveSheet,
   setAutoFilter,
   clearFilter,
+  listNamedRanges,
 } from './bridge/tauri';
-import type { FilterInfo } from './bridge/tauri';
+import type { FilterInfo, NamedRangeInfo } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
@@ -204,6 +206,14 @@ const App: Component = () => {
     } catch {
       // If Tauri is not available (e.g. running in browser for dev), use defaults.
       console.warn('Tauri not available, using default state');
+    }
+
+    // Load named ranges
+    try {
+      const nrs = await listNamedRanges();
+      setNamedRanges(nrs);
+    } catch {
+      // Named ranges not available
     }
 
     // Listen for macOS menu bar events emitted by the Tauri backend.
@@ -648,6 +658,8 @@ const App: Component = () => {
   const [showDataValidation, setShowDataValidation] = createSignal(false);
   const [showConditionalFormat, setShowConditionalFormat] = createSignal(false);
   const [showSortDialog, setShowSortDialog] = createSignal(false);
+  const [showNamedRanges, setShowNamedRanges] = createSignal(false);
+  const [namedRanges, setNamedRanges] = createSignal<NamedRangeInfo[]>([]);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
 
@@ -720,6 +732,7 @@ const App: Component = () => {
         onCancel={handleFormulaCancel}
         onNavigate={handleFormulaNavigate}
         onContentChange={handleContentChange}
+        namedRanges={namedRanges()}
       />
       <Show when={showFindBar()}>
         <FindBar
@@ -780,6 +793,7 @@ const App: Component = () => {
           filterEndCol={filterInfo()?.end_col}
           onFilterColumnClick={handleFilterColumnClick}
           onSortDialogOpen={() => setShowSortDialog(true)}
+          onNamedRangesOpen={() => setShowNamedRanges(true)}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -852,6 +866,24 @@ const App: Component = () => {
           maxCol={25}
           onClose={() => setShowSortDialog(false)}
           onSorted={() => setRefreshTrigger((n) => n + 1)}
+          onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showNamedRanges()}>
+        <NamedRangesDialog
+          activeSheet={activeSheetName()}
+          selectionRange={(() => {
+            const [minR, minC, maxR, maxC] = selRange();
+            const start = cellRefStr(minR, minC);
+            const end = cellRefStr(maxR, maxC);
+            return start === end ? start : `${start}:${end}`;
+          })()}
+          onClose={() => {
+            setShowNamedRanges(false);
+            // Refresh named ranges after dialog closes
+            void listNamedRanges().then(setNamedRanges).catch(() => {});
+          }}
+          onNavigate={handleFormulaNavigate}
           onStatusChange={setStatusMessage}
         />
       </Show>
