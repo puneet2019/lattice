@@ -28,6 +28,7 @@ import {
   sortRange,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
+import { detectAndFill, adjustFormulaRefs } from './fillUtils';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import FormulaHint from './FormulaHint';
@@ -2349,6 +2350,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   let isFillDragging = false;
   const [fillDragRow, setFillDragRow] = createSignal(-1);
   const [fillDragCol, setFillDragCol] = createSignal(-1);
+  let lastFillHandleClickTime = 0;
 
   /** Check if a local (container-relative) coordinate hits the fill handle. */
   function fillHandleHit(localX: number, localY: number): boolean {
@@ -2416,45 +2418,95 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (isVertical) {
       // Fill each column independently
       for (let c = range.minCol; c <= range.maxCol; c++) {
-        // Collect source values for this column
+        // Collect source values and formulas for this column
         const sourceVals: string[] = [];
+        const sourceFormulas: (string | null)[] = [];
         for (let r = range.minRow; r <= range.maxRow; r++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
+          sourceFormulas.push(cached?.formula ?? null);
         }
 
-        // Detect pattern and fill
-        const fillCount = isDown
-          ? fillRange.maxRow - fillRange.minRow + 1
-          : fillRange.maxRow - fillRange.minRow + 1;
-        const filledValues = detectAndFill(sourceVals, fillCount, isUp);
+        // Check if any source cell has a formula
+        const hasFormulas = sourceFormulas.some((f) => f !== null);
 
-        for (let i = 0; i < filledValues.length; i++) {
-          const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
-          promises.push(
-            setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
-          );
+        const fillCount = fillRange.maxRow - fillRange.minRow + 1;
+
+        if (hasFormulas) {
+          // Formula-aware fill: adjust references per row offset
+          const sourceLen = sourceVals.length;
+          for (let i = 0; i < fillCount; i++) {
+            const srcIdx = i % sourceLen;
+            const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
+            const srcRow = range.minRow + srcIdx;
+            const formula = sourceFormulas[srcIdx];
+            if (formula) {
+              const rowOffset = targetRow - srcRow;
+              const adjusted = adjustFormulaRefs(formula, rowOffset, 0);
+              promises.push(
+                setCell(props.activeSheet, targetRow, c, `=${adjusted}`, adjusted).catch(() => {}),
+              );
+            } else {
+              promises.push(
+                setCell(props.activeSheet, targetRow, c, sourceVals[srcIdx]).catch(() => {}),
+              );
+            }
+          }
+        } else {
+          // Pattern-based fill for plain values
+          const filledValues = detectAndFill(sourceVals, fillCount, isUp);
+          for (let i = 0; i < filledValues.length; i++) {
+            const targetRow = isDown ? fillRange.minRow + i : fillRange.maxRow - i;
+            promises.push(
+              setCell(props.activeSheet, targetRow, c, filledValues[i]).catch(() => {}),
+            );
+          }
         }
       }
     } else {
       // Fill each row independently
       for (let r = range.minRow; r <= range.maxRow; r++) {
         const sourceVals: string[] = [];
+        const sourceFormulas: (string | null)[] = [];
         for (let c = range.minCol; c <= range.maxCol; c++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
+          sourceFormulas.push(cached?.formula ?? null);
         }
 
-        const fillCount = isRight
-          ? fillRange.maxCol - fillRange.minCol + 1
-          : fillRange.maxCol - fillRange.minCol + 1;
-        const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
+        const hasFormulas = sourceFormulas.some((f) => f !== null);
 
-        for (let i = 0; i < filledValues.length; i++) {
-          const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
-          promises.push(
-            setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
-          );
+        const fillCount = fillRange.maxCol - fillRange.minCol + 1;
+
+        if (hasFormulas) {
+          // Formula-aware fill: adjust references per column offset
+          const sourceLen = sourceVals.length;
+          for (let i = 0; i < fillCount; i++) {
+            const srcIdx = i % sourceLen;
+            const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
+            const srcCol = range.minCol + srcIdx;
+            const formula = sourceFormulas[srcIdx];
+            if (formula) {
+              const colOffset = targetCol - srcCol;
+              const adjusted = adjustFormulaRefs(formula, 0, colOffset);
+              promises.push(
+                setCell(props.activeSheet, r, targetCol, `=${adjusted}`, adjusted).catch(() => {}),
+              );
+            } else {
+              promises.push(
+                setCell(props.activeSheet, r, targetCol, sourceVals[srcIdx]).catch(() => {}),
+              );
+            }
+          }
+        } else {
+          // Pattern-based fill for plain values
+          const filledValues = detectAndFill(sourceVals, fillCount, isLeft);
+          for (let i = 0; i < filledValues.length; i++) {
+            const targetCol = isRight ? fillRange.minCol + i : fillRange.maxCol - i;
+            promises.push(
+              setCell(props.activeSheet, r, targetCol, filledValues[i]).catch(() => {}),
+            );
+          }
         }
       }
     }
@@ -2465,39 +2517,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Auto-filled cells');
   }
 
-  /** Simple frontend pattern detection and fill value generation. */
-  function detectAndFill(sourceVals: string[], count: number, _reverse: boolean): string[] {
-    const result: string[] = [];
-    const len = sourceVals.length;
-
-    // Try numeric linear pattern
-    const nums = sourceVals.map(Number);
-    const allNumeric = sourceVals.every((v) => v.trim() !== '' && !isNaN(Number(v)));
-
-    if (allNumeric && len >= 2) {
-      const step = nums[len - 1] - nums[len - 2];
-      const isInteger = nums.every((n) => Number.isInteger(n)) && Number.isInteger(step);
-      for (let i = 0; i < count; i++) {
-        const val = nums[len - 1] + step * (i + 1);
-        result.push(isInteger ? String(Math.round(val)) : String(val));
-      }
-      return result;
-    }
-
-    // Single numeric value: repeat (constant fill)
-    if (allNumeric && len === 1) {
-      for (let i = 0; i < count; i++) {
-        result.push(sourceVals[0]);
-      }
-      return result;
-    }
-
-    // Default: repeat the source values cyclically
-    for (let i = 0; i < count; i++) {
-      result.push(sourceVals[i % len]);
-    }
-    return result;
-  }
+  // detectAndFill is imported from ./fillUtils
 
   function handleFillMouseUp() {
     if (!isFillDragging) return;
@@ -2523,6 +2543,57 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       setFillDragCol(hit.col);
       scheduleDraw();
     }
+  }
+
+  /**
+   * Double-click fill handle: auto-fill down to the last row of adjacent data.
+   * Looks at the column to the left of the selection (or right if at col 0)
+   * to determine the fill extent.
+   */
+  async function handleFillHandleDoubleClick() {
+    const range = getSelectionRange();
+    // Find adjacent reference column
+    const refCol = range.minCol > 0 ? range.minCol - 1 : range.maxCol + 1;
+    if (refCol >= TOTAL_COLS) return;
+
+    // Find the last non-empty row in the reference column starting from maxRow+1
+    let lastDataRow = range.maxRow;
+    const batchSize = 50;
+    let searching = true;
+    let checkRow = range.maxRow + 1;
+
+    while (searching && checkRow < TOTAL_ROWS) {
+      const endRow = Math.min(checkRow + batchSize - 1, TOTAL_ROWS - 1);
+      const data = await getRange(props.activeSheet, checkRow, refCol, endRow, refCol);
+      let foundEmpty = false;
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        const cell = row && row[0];
+        if (!cell || !cell.value || cell.value.trim() === '') {
+          foundEmpty = true;
+          break;
+        }
+        lastDataRow = checkRow + i;
+      }
+      if (foundEmpty || endRow >= TOTAL_ROWS - 1) {
+        searching = false;
+      }
+      checkRow = endRow + 1;
+    }
+
+    if (lastDataRow <= range.maxRow) return; // nothing to fill
+
+    // Set fill drag state to simulate a fill-down to lastDataRow
+    isFillDragging = true;
+    setFillDragRow(lastDataRow);
+    setFillDragCol(range.maxCol);
+
+    await executeFill();
+
+    isFillDragging = false;
+    setFillDragRow(-1);
+    setFillDragCol(-1);
+    draw();
   }
 
   // -----------------------------------------------------------------------
@@ -2770,8 +2841,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Check for fill handle drag.
+    // Check for fill handle drag or double-click.
     if (fillHandleHit(localX, localY)) {
+      const now = Date.now();
+      if (now - lastFillHandleClickTime < 400) {
+        // Double-click on fill handle: auto-fill down to adjacent data extent
+        lastFillHandleClickTime = 0;
+        e.preventDefault();
+        void handleFillHandleDoubleClick();
+        return;
+      }
+      lastFillHandleClickTime = now;
+
       isFillDragging = true;
       const range = getSelectionRange();
       setFillDragRow(range.maxRow);
@@ -2899,8 +2980,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     } else {
       setSelectedRow(hit.row);
       setSelectedCol(hit.col);
-      setRangeAnchor(null);
-      setRangeEnd(null);
+      // Set anchor immediately so Shift+Click always has a valid anchor,
+      // even after double-click -> edit -> Escape.
+      setRangeAnchor([hit.row, hit.col]);
+      setRangeEnd([hit.row, hit.col]);
       selectCell(hit.row, hit.col);
 
       if (isDoubleClick) {
@@ -2908,9 +2991,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         return;
       }
 
-      // Start drag-to-select: set anchor and listen for drag
-      setRangeAnchor([hit.row, hit.col]);
-      setRangeEnd([hit.row, hit.col]);
+      // Start drag-to-select
       headerDragKind = null;
       isDragging = true;
       document.addEventListener('mousemove', handleMouseMove);
