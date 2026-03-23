@@ -13,7 +13,7 @@ import ChartContainer from './components/Charts/ChartContainer';
 import type { ChartOverlay } from './components/Charts/ChartContainer';
 import ChartDialog from './components/Charts/ChartDialog';
 import PasteSpecialDialog from './components/PasteSpecialDialog';
-import type { PasteMode, PasteOperation } from './components/PasteSpecialDialog';
+import type { PasteMode } from './components/PasteSpecialDialog';
 import FormatCellsDialog from './components/FormatCellsDialog';
 import DataValidationDialog from './components/DataValidationDialog';
 import FilterDropdown from './components/FilterDropdown';
@@ -21,7 +21,7 @@ import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import SortDialog from './components/SortDialog';
 import NamedRangesDialog from './components/NamedRangesDialog';
 import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
-import DataCleanupDialog from './components/DataCleanupDialog';
+import PrintPreviewDialog from './components/PrintPreviewDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -305,6 +305,7 @@ const App: Component = () => {
     file_export_csv: handleExportCsv,
     file_export_tsv: handleExportTsv,
     file_export_pdf: handleExportPdf,
+    file_print: () => { setShowPrintPreview(true); },
 
     // -- Edit ---------------------------------------------------------------
     edit_undo: () => {
@@ -340,6 +341,10 @@ const App: Component = () => {
     view_zoom_in: handleZoomIn,
     view_zoom_out: handleZoomOut,
     view_zoom_reset: handleZoomReset,
+    view_page_break_preview: () => {
+      setPageBreakPreview(!pageBreakPreview());
+      setStatusMessage(pageBreakPreview() ? 'Page break preview enabled' : 'Page break preview disabled');
+    },
 
     // -- Insert -------------------------------------------------------------
     insert_row_above: () => {
@@ -435,8 +440,7 @@ const App: Component = () => {
     data_create_filter: handleFilterToggle,
     data_named_ranges: () => { setShowNamedRanges(true); },
     data_validation: () => { setShowDataValidation(true); },
-    data_remove_duplicates: () => { setShowDataCleanup(true); },
-    data_cleanup: () => { setShowDataCleanup(true); },
+    data_remove_duplicates: () => { setStatusMessage('Remove duplicates (not yet implemented)'); },
     data_text_to_columns: () => { setStatusMessage('Text to columns (not yet implemented)'); },
     data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
   };
@@ -1154,11 +1158,11 @@ const App: Component = () => {
   const [showSortDialog, setShowSortDialog] = createSignal(false);
   const [showNamedRanges, setShowNamedRanges] = createSignal(false);
   const [namedRanges, setNamedRanges] = createSignal<NamedRangeInfo[]>([]);
-  const [showDataCleanup, setShowDataCleanup] = createSignal(false);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
-  const [pasteSpecialOperation, setPasteSpecialOperation] = createSignal<PasteOperation>('None');
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = createSignal(false);
+  const [showPrintPreview, setShowPrintPreview] = createSignal(false);
+  const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1168,15 +1172,13 @@ const App: Component = () => {
     setShowPasteSpecial(false);
   };
 
-  const handlePasteSpecialPaste = (mode: PasteMode, operation: PasteOperation) => {
+  const handlePasteSpecialPaste = (mode: PasteMode) => {
     setShowPasteSpecial(false);
-    setPasteSpecialOperation(operation);
     setPasteSpecialMode(mode);
   };
 
   const handlePasteSpecialDone = () => {
     setPasteSpecialMode(null);
-    setPasteSpecialOperation('None');
   };
 
   // Load existing charts on mount.
@@ -1293,7 +1295,6 @@ const App: Component = () => {
           onZoomReset={handleZoomReset}
           onPasteSpecialOpen={handlePasteSpecialOpen}
           pasteSpecialMode={pasteSpecialMode()}
-          pasteSpecialOperation={pasteSpecialOperation()}
           onPasteSpecialDone={handlePasteSpecialDone}
           findMatches={findMatches()}
           findActiveIndex={findActiveIndex()}
@@ -1311,6 +1312,10 @@ const App: Component = () => {
           onNextSheet={handleNextSheet}
           onPrevSheet={handlePrevSheet}
           onKeyboardShortcutsOpen={() => setShowKeyboardShortcuts(true)}
+          onPrintPreviewOpen={() => setShowPrintPreview(true)}
+          pageBreakPreview={pageBreakPreview()}
+          pageBreakPaperSize="letter"
+          pageBreakOrientation="portrait"
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -1410,17 +1415,16 @@ const App: Component = () => {
           onClose={handlePasteSpecialClose}
         />
       </Show>
-      <Show when={showDataCleanup()}>
-        <DataCleanupDialog
-          activeSheet={activeSheetName()}
-          selectionRange={selRange()}
-          onClose={() => setShowDataCleanup(false)}
-          onDataChanged={() => setRefreshTrigger((n) => n + 1)}
-          onStatusChange={setStatusMessage}
-        />
-      </Show>
       <Show when={showKeyboardShortcuts()}>
         <KeyboardShortcutsDialog onClose={() => setShowKeyboardShortcuts(false)} />
+      </Show>
+      <Show when={showPrintPreview()}>
+        <PrintPreviewDialog
+          activeSheet={activeSheetName()}
+          sheets={sheets()}
+          onClose={() => setShowPrintPreview(false)}
+          onStatusChange={setStatusMessage}
+        />
       </Show>
       <SheetTabs
         sheets={sheets()}

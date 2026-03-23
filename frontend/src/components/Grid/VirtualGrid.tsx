@@ -2,7 +2,7 @@ import type { Component } from 'solid-js';
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { col_to_letter } from '../../bridge/tauri_helpers';
 import type { CellData, MergedRegionData, BandedRowsData, FormatOptions, ConditionalFormatOutput, RowGroupData } from '../../bridge/tauri';
-import type { PasteMode, PasteOperation } from '../PasteSpecialDialog';
+import type { PasteMode } from '../PasteSpecialDialog';
 import {
   getCell,
   getRange,
@@ -151,8 +151,6 @@ export interface VirtualGridProps {
    * paste operation and then calls onPasteSpecialDone to reset.
    */
   pasteSpecialMode?: PasteMode | null;
-  /** Arithmetic operation for paste special (None, Add, Subtract, Multiply, Divide). */
-  pasteSpecialOperation?: PasteOperation;
   /** Called after a paste special operation completes so App can reset the signal. */
   onPasteSpecialDone?: () => void;
   /** Called when selection summary (Sum/Average/Count) changes for the status bar. */
@@ -188,6 +186,14 @@ export interface VirtualGridProps {
   onPrevSheet?: () => void;
   /** Called when the user presses Cmd+/ to open the keyboard shortcuts help dialog. */
   onKeyboardShortcutsOpen?: () => void;
+  /** Called when the user presses Cmd+P to open the print preview dialog. */
+  onPrintPreviewOpen?: () => void;
+  /** When true, draw blue dashed lines at page break positions. */
+  pageBreakPreview?: boolean;
+  /** Paper size for page break calculation: 'letter'|'a4'|'legal'|'tabloid'. */
+  pageBreakPaperSize?: string;
+  /** Orientation for page break calculation: 'portrait'|'landscape'. */
+  pageBreakOrientation?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,15 +228,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [selectedCol, setSelectedCol] = createSignal(0);
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
-
-  // Formula audit arrows (trace precedents/dependents)
-  interface AuditArrow {
-    fromRow: number;
-    fromCol: number;
-    toRow: number;
-    toCol: number;
-  }
-  const [auditArrows, setAuditArrows] = createSignal<AuditArrow[]>([]);
 
   // Marching ants (copy indicator) state
   let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
@@ -384,99 +381,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       col = col * 26 + (letters.charCodeAt(i) - 64);
     }
     return { row: rowNum - 1, col: col - 1 };
-  }
-
-  /** Extract cell reference coordinates from a formula string. */
-  function extractPrecedents(formula: string): { row: number; col: number }[] {
-    if (!formula) return [];
-    const src = formula.startsWith('=') ? formula : `=${formula}`;
-    const refs = parseFormulaRefs(src);
-    const result: { row: number; col: number }[] = [];
-    for (const ref of refs) {
-      // For ranges, add just the top-left corner as representative
-      result.push({ row: ref.minRow, col: ref.minCol });
-      // If it's a range (not single cell), also add bottom-right
-      if (ref.minRow !== ref.maxRow || ref.minCol !== ref.maxCol) {
-        result.push({ row: ref.maxRow, col: ref.maxCol });
-      }
-    }
-    return result;
-  }
-
-  /** Find all cells in the visible area that reference a given cell. */
-  function findDependents(row: number, col: number): { row: number; col: number }[] {
-    const letter = col_to_letter(col);
-    const cellRef = `${letter}${row + 1}`;
-    const dependents: { row: number; col: number }[] = [];
-    // Search through cached cells for formulas referencing this cell
-    cellCache.forEach((cell, key) => {
-      if (!cell.formula) return;
-      // Check if the formula references this cell
-      const formula = cell.formula;
-      // Simple check: look for the cell reference pattern
-      const pattern = new RegExp(`\\b\\$?${letter}\\$?${row + 1}\\b`, 'i');
-      if (pattern.test(formula)) {
-        const [r, c] = key.split(':').map(Number);
-        dependents.push({ row: r, col: c });
-      }
-    });
-    return dependents;
-  }
-
-  /** Trace precedents: show arrows from referenced cells to the formula cell. */
-  function tracePrecedents() {
-    const row = selectedRow();
-    const col = selectedCol();
-    const cell = cellCache.get(`${row}:${col}`);
-    if (!cell?.formula) {
-      props.onStatusChange('No formula in selected cell');
-      setAuditArrows([]);
-      return;
-    }
-    const prec = extractPrecedents(cell.formula);
-    if (prec.length === 0) {
-      props.onStatusChange('No cell references found in formula');
-      setAuditArrows([]);
-      return;
-    }
-    const arrows: AuditArrow[] = prec.map((p) => ({
-      fromRow: p.row,
-      fromCol: p.col,
-      toRow: row,
-      toCol: col,
-    }));
-    setAuditArrows(arrows);
-    scheduleDraw();
-    props.onStatusChange(`Tracing ${prec.length} precedent${prec.length !== 1 ? 's' : ''}`);
-  }
-
-  /** Trace dependents: show arrows from this cell to all formulas that reference it. */
-  function traceDependents() {
-    const row = selectedRow();
-    const col = selectedCol();
-    const deps = findDependents(row, col);
-    if (deps.length === 0) {
-      props.onStatusChange('No dependents found for this cell');
-      setAuditArrows([]);
-      return;
-    }
-    const arrows: AuditArrow[] = deps.map((d) => ({
-      fromRow: row,
-      fromCol: col,
-      toRow: d.row,
-      toCol: d.col,
-    }));
-    setAuditArrows(arrows);
-    scheduleDraw();
-    props.onStatusChange(`Tracing ${deps.length} dependent${deps.length !== 1 ? 's' : ''}`);
-  }
-
-  /** Clear audit arrows. */
-  function clearAuditArrows() {
-    if (auditArrows().length > 0) {
-      setAuditArrows([]);
-      scheduleDraw();
-    }
   }
 
   // Custom column widths / row heights (col/row index -> px).
@@ -1535,6 +1439,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ctx.lineWidth = 1;
     }
 
+    // Draw page break indicators if enabled.
+    drawPageBreaks(ctx, sx, sy, w / zoomLevel, h / zoomLevel);
+
     // Update status bar selection summary after each draw
     updateSelectionSummary();
   }
@@ -1780,53 +1687,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.strokeRect(rx, ry, rw, rh);
         ctx.lineWidth = 1;
       }
-    }
-
-    // Draw formula audit arrows (trace precedents/dependents)
-    const arrows = auditArrows();
-    if (arrows.length > 0) {
-      ctx.save();
-      ctx.strokeStyle = '#1a73e8';
-      ctx.fillStyle = '#1a73e8';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([]);
-
-      for (const arrow of arrows) {
-        // Compute center of source and target cells
-        const fromX = ROW_NUMBER_WIDTH + getColX(arrow.fromCol) + getColWidth(arrow.fromCol) / 2 - sx;
-        const fromY = HEADER_HEIGHT + getRowY(arrow.fromRow) + getRowHeight(arrow.fromRow) / 2 - sy;
-        const toX = ROW_NUMBER_WIDTH + getColX(arrow.toCol) + getColWidth(arrow.toCol) / 2 - sx;
-        const toY = HEADER_HEIGHT + getRowY(arrow.toRow) + getRowHeight(arrow.toRow) / 2 - sy;
-
-        // Draw line
-        ctx.beginPath();
-        ctx.moveTo(fromX, fromY);
-        ctx.lineTo(toX, toY);
-        ctx.stroke();
-
-        // Draw arrowhead at target
-        const angle = Math.atan2(toY - fromY, toX - fromX);
-        const headLen = 10;
-        ctx.beginPath();
-        ctx.moveTo(toX, toY);
-        ctx.lineTo(
-          toX - headLen * Math.cos(angle - Math.PI / 6),
-          toY - headLen * Math.sin(angle - Math.PI / 6),
-        );
-        ctx.lineTo(
-          toX - headLen * Math.cos(angle + Math.PI / 6),
-          toY - headLen * Math.sin(angle + Math.PI / 6),
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw small circle at source
-        ctx.beginPath();
-        ctx.arc(fromX, fromY, 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.restore();
     }
   }
 
@@ -2248,6 +2108,82 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         }
       }
     }
+  }
+
+  /**
+   * Draw page break indicators (blue dashed lines) based on paper size.
+   * Only drawn when `pageBreakPreview` is true.
+   */
+  function drawPageBreaks(
+    ctx: CanvasRenderingContext2D,
+    sx: number,
+    sy: number,
+    w: number,
+    h: number,
+  ) {
+    if (!props.pageBreakPreview) return;
+
+    // Convert paper size to pixels at 96 DPI.
+    // Paper sizes in inches: letter=8.5x11, a4~8.27x11.69, legal=8.5x14, tabloid=11x17
+    let paperW = 8.5;
+    let paperH = 11;
+    switch (props.pageBreakPaperSize) {
+      case 'a4':     paperW = 8.27; paperH = 11.69; break;
+      case 'legal':  paperW = 8.5;  paperH = 14;    break;
+      case 'tabloid': paperW = 11;  paperH = 17;    break;
+      default:       paperW = 8.5;  paperH = 11;    break; // letter
+    }
+
+    if (props.pageBreakOrientation === 'landscape') {
+      [paperW, paperH] = [paperH, paperW];
+    }
+
+    // Subtract 1.5cm margins on each side (~0.59in) and convert to pixels at 96 DPI.
+    const marginIn = 0.59;
+    const printableW = (paperW - 2 * marginIn) * 96;
+    const printableH = (paperH - 2 * marginIn) * 96;
+
+    if (printableW <= 0 || printableH <= 0) return;
+
+    ctx.save();
+    ctx.strokeStyle = '#1a73e8';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+
+    // Draw vertical page break lines.
+    let accumX = 0;
+    let col = 0;
+    while (accumX < getColX(TOTAL_COLS)) {
+      accumX += printableW;
+      // Find the column that crosses this threshold.
+      while (col < TOTAL_COLS && getColX(col) < accumX) col++;
+      const lineX = ROW_NUMBER_WIDTH + getColX(col) - sx;
+      if (lineX > ROW_NUMBER_WIDTH && lineX < w) {
+        ctx.beginPath();
+        ctx.moveTo(Math.round(lineX), HEADER_HEIGHT);
+        ctx.lineTo(Math.round(lineX), h);
+        ctx.stroke();
+      }
+      if (lineX > w) break;
+    }
+
+    // Draw horizontal page break lines.
+    let accumY = 0;
+    let row = 0;
+    while (accumY < getRowY(TOTAL_ROWS)) {
+      accumY += printableH;
+      while (row < TOTAL_ROWS && getRowY(row) < accumY) row++;
+      const lineY = HEADER_HEIGHT + getRowY(row) - sy;
+      if (lineY > HEADER_HEIGHT && lineY < h) {
+        ctx.beginPath();
+        ctx.moveTo(ROW_NUMBER_WIDTH, Math.round(lineY));
+        ctx.lineTo(w, Math.round(lineY));
+        ctx.stroke();
+      }
+      if (lineY > h) break;
+    }
+
+    ctx.restore();
   }
 
   function drawGridLines(
@@ -3072,8 +3008,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (validationDropdownVisible()) {
       setValidationDropdownVisible(false);
     }
-    // Clear audit arrows on any click
-    clearAuditArrows();
 
     if (editing() && !isFormulaSelectionMode()) return; // let the editor handle clicks
     if (!containerRef) return;
@@ -3634,111 +3568,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Pasted formatting only');
   }
 
-  /** Paste with arithmetic operation: read clipboard + existing, compute result. */
-  async function handlePasteWithOperation(operation: PasteOperation) {
-    let text: string;
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      props.onStatusChange('Paste failed — clipboard access denied');
-      return;
-    }
-    if (!text) return;
-
-    const rows = text.split('\n');
-    const startRow = selectedRow();
-    const startCol = selectedCol();
-    const promises: Promise<void>[] = [];
-
-    for (let r = 0; r < rows.length; r++) {
-      const cols = rows[r].split('\t');
-      for (let c = 0; c < cols.length; c++) {
-        const cellRow = startRow + r;
-        const cellCol = startCol + c;
-        if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
-
-        const pastedVal = parseFloat(cols[c]);
-        if (isNaN(pastedVal)) continue; // Skip non-numeric pasted values
-
-        // Read existing cell value
-        const existing = cellCache.get(`${cellRow}:${cellCol}`);
-        const existingVal = parseFloat(existing?.value ?? '0');
-        const existingNum = isNaN(existingVal) ? 0 : existingVal;
-
-        let result: number;
-        switch (operation) {
-          case 'Add':
-            result = existingNum + pastedVal;
-            break;
-          case 'Subtract':
-            result = existingNum - pastedVal;
-            break;
-          case 'Multiply':
-            result = existingNum * pastedVal;
-            break;
-          case 'Divide':
-            result = pastedVal !== 0 ? existingNum / pastedVal : existingNum;
-            break;
-          default:
-            result = pastedVal;
-        }
-
-        promises.push(
-          setCell(props.activeSheet, cellRow, cellCol, String(result), undefined).catch(() => {}),
-        );
-      }
-    }
-
-    await Promise.all(promises);
-    lastFetchKey = '';
-    fetchVisibleData();
-    props.onStatusChange(`Pasted with operation: ${operation}`);
-  }
-
-  /** Paste column widths only: apply source column widths to target columns. */
-  async function handlePasteColumnWidthsOnly() {
-    let text: string;
-    try {
-      text = await navigator.clipboard.readText();
-    } catch {
-      props.onStatusChange('Paste failed — clipboard access denied');
-      return;
-    }
-    if (!text) return;
-
-    // Determine the number of columns from the first row
-    const firstRow = text.split('\n')[0] ?? '';
-    const numCols = firstRow.split('\t').length;
-
-    // Use the copied range to get source column widths.
-    // If copiedRange is available, use the source column widths.
-    // Otherwise, use the current column widths from the clipboard data dimensions.
-    const targetStartCol = selectedCol();
-    const promises: Promise<void>[] = [];
-
-    for (let c = 0; c < numCols; c++) {
-      const targetCol = targetStartCol + c;
-      if (targetCol >= TOTAL_COLS) break;
-
-      // Get source column width from copiedRange if available
-      let srcWidth = DEFAULT_COL_WIDTH;
-      if (copiedRange) {
-        const srcCol = copiedRange.minCol + c;
-        srcWidth = getColWidth(srcCol);
-      }
-
-      // Apply width to target column
-      colWidths.set(targetCol, srcWidth);
-      promises.push(
-        tauriSetColWidth(props.activeSheet, targetCol, srcWidth).catch(() => {}),
-      );
-    }
-
-    await Promise.all(promises);
-    scheduleDraw();
-    props.onStatusChange('Pasted column widths');
-  }
-
   /** Clear all cells in the current selection. */
   async function clearSelectedCells() {
     const range = getSelectionRange();
@@ -3751,57 +3580,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     await Promise.all(promises);
     lastFetchKey = '';
     fetchVisibleData();
-  }
-
-  /** Transpose the selected range in place. */
-  async function transposeSelection() {
-    const range = getSelectionRange();
-    const numRows = range.maxRow - range.minRow + 1;
-    const numCols = range.maxCol - range.minCol + 1;
-
-    // Read the source data
-    let data: (import('../../bridge/tauri').CellData | null)[][];
-    try {
-      data = await getRange(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol);
-    } catch {
-      props.onStatusChange('Transpose failed: could not read range');
-      return;
-    }
-
-    const promises: Promise<void>[] = [];
-
-    // Clear the original area first (in case transposed is smaller/larger)
-    const clearRows = Math.max(numRows, numCols);
-    const clearCols = Math.max(numRows, numCols);
-    for (let r = 0; r < clearRows; r++) {
-      for (let c = 0; c < clearCols; c++) {
-        const row = range.minRow + r;
-        const col = range.minCol + c;
-        if (row >= TOTAL_ROWS || col >= TOTAL_COLS) continue;
-        promises.push(setCell(props.activeSheet, row, col, '', undefined).catch(() => {}));
-      }
-    }
-
-    // Write transposed data: source (r,c) -> target (c,r)
-    for (let r = 0; r < numRows; r++) {
-      for (let c = 0; c < numCols; c++) {
-        const targetRow = range.minRow + c;
-        const targetCol = range.minCol + r;
-        if (targetRow >= TOTAL_ROWS || targetCol >= TOTAL_COLS) continue;
-        const cell = data[r]?.[c];
-        if (!cell) continue;
-        const value = cell.formula ? `=${cell.formula}` : cell.value;
-        const formula = cell.formula ?? undefined;
-        promises.push(
-          setCell(props.activeSheet, targetRow, targetCol, value, formula).catch(() => {}),
-        );
-      }
-    }
-
-    await Promise.all(promises);
-    lastFetchKey = '';
-    fetchVisibleData();
-    props.onStatusChange(`Transposed ${numRows}x${numCols} to ${numCols}x${numRows}`);
   }
 
   // -----------------------------------------------------------------------
@@ -4162,13 +3940,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     if (editing()) return; // editor handles its own keys
 
-    // Escape: clear audit arrows, then clear marching ants (copy indicator)
+    // Escape: clear marching ants (copy indicator)
     if (e.key === 'Escape') {
-      if (auditArrows().length > 0) {
-        e.preventDefault();
-        clearAuditArrows();
-        return;
-      }
       if (copiedRange) {
         e.preventDefault();
         stopMarchingAnts();
@@ -4425,10 +4198,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         handleCut();
         return;
       }
-      // Cmd+P: print the current view
+      // Cmd+P: open print preview dialog
       if (e.key === 'p' && !e.shiftKey) {
         e.preventDefault();
-        window.print();
+        props.onPrintPreviewOpen?.();
         return;
       }
       // Cmd+Shift+P: open paste special dialog
@@ -4614,18 +4387,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             props.onStatusChange('Copied formula from above');
           }
         }
-        return;
-      }
-      // Cmd+[: trace precedents
-      if (e.key === '[') {
-        e.preventDefault();
-        tracePrecedents();
-        return;
-      }
-      // Cmd+]: trace dependents
-      if (e.key === ']') {
-        e.preventDefault();
-        traceDependents();
         return;
       }
       // Cmd+Shift+E: center align
@@ -5184,32 +4945,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   createEffect(() => {
     const mode = props.pasteSpecialMode;
     if (!mode) return;
-    const operation = props.pasteSpecialOperation ?? 'None';
     const run = async () => {
-      // If an arithmetic operation is selected, use the operation handler
-      if (operation !== 'None' && (mode === 'All' || mode === 'ValuesOnly')) {
-        await handlePasteWithOperation(operation);
-      } else {
-        switch (mode) {
-          case 'All':
-            await handlePaste();
-            break;
-          case 'ValuesOnly':
-            await handlePasteValuesOnly();
-            break;
-          case 'FormulasOnly':
-            await handlePasteFormulasOnly();
-            break;
-          case 'FormattingOnly':
-            await handlePasteFormattingOnly();
-            break;
-          case 'Transposed':
-            await handlePasteTransposed();
-            break;
-          case 'ColumnWidthsOnly':
-            await handlePasteColumnWidthsOnly();
-            break;
-        }
+      switch (mode) {
+        case 'All':
+          await handlePaste();
+          break;
+        case 'ValuesOnly':
+          await handlePasteValuesOnly();
+          break;
+        case 'FormulasOnly':
+          await handlePasteFormulasOnly();
+          break;
+        case 'FormattingOnly':
+          await handlePasteFormattingOnly();
+          break;
+        case 'Transposed':
+          await handlePasteTransposed();
+          break;
       }
       props.onPasteSpecialDone?.();
     };
@@ -5452,16 +5204,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxClearContents}>
             Clear contents
-          </div>
-          <div class="context-menu-item" onClick={() => { dismissContextMenu(); void transposeSelection(); }}>
-            Transpose
-          </div>
-          <div class="context-menu-separator" />
-          <div class="context-menu-item" onClick={() => { dismissContextMenu(); tracePrecedents(); }}>
-            <span>Trace precedents</span><span class="context-menu-shortcut">{'\u2318'}[</span>
-          </div>
-          <div class="context-menu-item" onClick={() => { dismissContextMenu(); traceDependents(); }}>
-            <span>Trace dependents</span><span class="context-menu-shortcut">{'\u2318'}]</span>
           </div>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>

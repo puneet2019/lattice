@@ -6,8 +6,55 @@
 //! opened in a browser and printed to PDF.
 
 use lattice_core::{CellValue, HAlign, VAlign, Workbook};
+use serde::{Deserialize, Serialize};
 
 use crate::{IoError, Result};
+
+/// Print settings that control page layout, margins, and display options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrintSettings {
+    /// Paper size: "letter", "a4", "legal", "tabloid". Default: "letter".
+    #[serde(default = "default_paper_size")]
+    pub paper_size: String,
+    /// Orientation: "portrait" or "landscape". Default: "portrait".
+    #[serde(default = "default_orientation")]
+    pub orientation: String,
+    /// Whether to show gridlines in the printout. Default: true.
+    #[serde(default = "default_true")]
+    pub show_gridlines: bool,
+    /// Whether to show row/column headers (A, B, C / 1, 2, 3). Default: false.
+    #[serde(default)]
+    pub show_headers: bool,
+    /// Scale factor (1.0 = 100%). Default: 1.0.
+    #[serde(default = "default_scale")]
+    pub scale: f64,
+    /// Margin preset: "normal", "narrow", "wide", or "custom". Default: "normal".
+    #[serde(default = "default_margins")]
+    pub margins: String,
+    /// Custom margins in cm (top, bottom, left, right). Used when margins = "custom".
+    #[serde(default)]
+    pub custom_margins: Option<[f64; 4]>,
+}
+
+fn default_paper_size() -> String { "letter".to_string() }
+fn default_orientation() -> String { "portrait".to_string() }
+fn default_true() -> bool { true }
+fn default_scale() -> f64 { 1.0 }
+fn default_margins() -> String { "normal".to_string() }
+
+impl Default for PrintSettings {
+    fn default() -> Self {
+        Self {
+            paper_size: default_paper_size(),
+            orientation: default_orientation(),
+            show_gridlines: true,
+            show_headers: false,
+            scale: 1.0,
+            margins: default_margins(),
+            custom_margins: None,
+        }
+    }
+}
 
 /// Export a sheet as a self-contained, print-ready HTML page.
 ///
@@ -18,6 +65,7 @@ use crate::{IoError, Result};
 /// - Bold, italic, font color, background color, and alignment.
 ///
 /// If `sheet_name` is `None`, the active sheet is exported.
+/// If `settings` is `None`, default print settings are used.
 ///
 /// # Example
 ///
@@ -26,17 +74,27 @@ use crate::{IoError, Result};
 /// use lattice_io::pdf_export::export_print_html;
 ///
 /// let wb = Workbook::new();
-/// let html = export_print_html(&wb, None).unwrap();
+/// let html = export_print_html(&wb, None, None).unwrap();
 /// std::fs::write("output.html", &html).unwrap();
 /// // Open output.html in a browser and print to PDF.
 /// ```
-pub fn export_print_html(workbook: &Workbook, sheet_name: Option<&str>) -> Result<String> {
+pub fn export_print_html(
+    workbook: &Workbook,
+    sheet_name: Option<&str>,
+    settings: Option<&PrintSettings>,
+) -> Result<String> {
+    let defaults = PrintSettings::default();
+    let s = settings.unwrap_or(&defaults);
+
     let name = sheet_name.unwrap_or(&workbook.active_sheet);
     let sheet = workbook.get_sheet(name).map_err(IoError::Core)?;
 
     let (max_row, max_col) = sheet.used_range();
 
     let mut html = String::with_capacity(4096);
+
+    // Build dynamic CSS based on print settings.
+    let dynamic_css = build_print_css(s);
 
     // HTML head with print CSS.
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
@@ -45,7 +103,7 @@ pub fn export_print_html(workbook: &Workbook, sheet_name: Option<&str>) -> Resul
     html.push_str(&escape_html(name));
     html.push_str("</title>\n");
     html.push_str("<style>\n");
-    html.push_str(PRINT_CSS);
+    html.push_str(&dynamic_css);
     html.push_str("</style>\n");
     html.push_str("</head>\n<body>\n");
 
@@ -64,8 +122,22 @@ pub fn export_print_html(workbook: &Workbook, sheet_name: Option<&str>) -> Resul
     // Table.
     html.push_str("<table>\n");
 
+    // Optional column headers row (A, B, C...).
+    if s.show_headers {
+        html.push_str("<thead><tr><th class=\"row-header\"></th>");
+        for col in 0..=max_col {
+            html.push_str("<th class=\"col-header\">");
+            html.push_str(&col_to_letter(col));
+            html.push_str("</th>\n");
+        }
+        html.push_str("</tr></thead>\n");
+    }
+
     // Colgroup for column widths.
     html.push_str("<colgroup>\n");
+    if s.show_headers {
+        html.push_str("<col style=\"width:40px\">\n"); // row number column
+    }
     for col in 0..=max_col {
         let width = sheet.col_widths.get(&col).copied().unwrap_or(80.0);
         // Excel column width units are roughly 7px per unit.
@@ -83,6 +155,11 @@ pub fn export_print_html(workbook: &Workbook, sheet_name: Option<&str>) -> Resul
             html.push_str(&format!(" style=\"height:{}px\"", height.round() as u32));
         }
         html.push_str(">\n");
+
+        // Row number header.
+        if s.show_headers {
+            html.push_str(&format!("<td class=\"row-header\">{}</td>\n", row + 1));
+        }
 
         for col in 0..=max_col {
             let (content, style) = match sheet.get_cell(row, col) {
@@ -115,62 +192,132 @@ pub fn export_print_html(workbook: &Workbook, sheet_name: Option<&str>) -> Resul
     Ok(html)
 }
 
-/// CSS rules for screen display and print layout.
-const PRINT_CSS: &str = r#"
-* {
+/// Convert a 0-based column index to a letter (A, B, ..., Z, AA, AB, ...).
+fn col_to_letter(col: u32) -> String {
+    let mut result = String::new();
+    let mut c = col as usize;
+    loop {
+        result.insert(0, (b'A' + (c % 26) as u8) as char);
+        if c < 26 {
+            break;
+        }
+        c = c / 26 - 1;
+    }
+    result
+}
+
+/// Build the CSS string based on `PrintSettings`.
+fn build_print_css(s: &PrintSettings) -> String {
+    let border_rule = if s.show_gridlines {
+        "border: 1px solid #ccc;"
+    } else {
+        "border: none;"
+    };
+
+    let scale_transform = if (s.scale - 1.0).abs() > 0.001 {
+        format!(
+            "body {{ transform: scale({:.3}); transform-origin: top left; }}\n",
+            s.scale
+        )
+    } else {
+        String::new()
+    };
+
+    // Resolve page size CSS value.
+    let page_size = match s.paper_size.as_str() {
+        "letter" => "8.5in 11in",
+        "legal" => "8.5in 14in",
+        "tabloid" => "11in 17in",
+        "a4" => "210mm 297mm",
+        _ => "8.5in 11in",
+    };
+
+    let page_orientation = match s.orientation.as_str() {
+        "landscape" => " landscape",
+        _ => " portrait",
+    };
+
+    // Resolve margins.
+    let margin_css = match s.margins.as_str() {
+        "narrow" => "margin: 0.5cm;".to_string(),
+        "wide" => "margin: 2.5cm;".to_string(),
+        "custom" => {
+            if let Some([top, bottom, left, right]) = s.custom_margins {
+                format!(
+                    "margin: {:.2}cm {:.2}cm {:.2}cm {:.2}cm;",
+                    top, right, bottom, left
+                )
+            } else {
+                "margin: 1.5cm;".to_string()
+            }
+        }
+        _ => "margin: 1.5cm;".to_string(), // "normal"
+    };
+
+    // Header style for row/col headers.
+    let header_css = if s.show_headers {
+        ".row-header, .col-header { background: #f0f0f0; font-weight: 600; text-align: center; font-size: 9pt; color: #666; border: 1px solid #ccc; padding: 2px 4px; }\n"
+    } else {
+        ""
+    };
+
+    format!(
+        r#"* {{
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-}
-body {
+}}
+body {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                  "Helvetica Neue", Arial, sans-serif;
     font-size: 11pt;
     color: #000;
     padding: 20px;
-}
-h1 {
+}}
+h1 {{
     font-size: 14pt;
     margin-bottom: 12px;
     font-weight: 600;
-}
-table {
+}}
+table {{
     border-collapse: collapse;
     width: 100%;
     table-layout: fixed;
-}
-td {
-    border: 1px solid #ccc;
+}}
+td {{
+    {border_rule}
     padding: 4px 6px;
     vertical-align: bottom;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 11pt;
-}
-@media print {
-    body {
+}}
+{header_css}{scale_transform}@media print {{
+    body {{
         padding: 0;
-    }
-    h1 {
+    }}
+    h1 {{
         page-break-after: avoid;
-    }
-    table {
+    }}
+    table {{
         page-break-inside: auto;
-    }
-    tr {
+    }}
+    tr {{
         page-break-inside: avoid;
         page-break-after: auto;
-    }
-    td {
+    }}
+    td {{
         border-color: #999;
-    }
-    @page {
-        margin: 1.5cm;
-        size: A4 landscape;
-    }
+    }}
+    @page {{
+        {margin_css}
+        size: {page_size}{page_orientation};
+    }}
+}}
+"#
+    )
 }
-"#;
 
 /// Convert a `CellValue` to an HTML-safe string.
 fn cell_value_to_html(value: &CellValue) -> String {
@@ -249,7 +396,7 @@ mod tests {
     #[test]
     fn test_export_empty_sheet() {
         let wb = Workbook::new();
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("This sheet is empty."));
         assert!(html.contains("<title>Sheet1</title>"));
     }
@@ -264,7 +411,7 @@ mod tests {
         wb.set_cell("Sheet1", 1, 0, CellValue::Boolean(true))
             .unwrap();
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("<table>"));
         assert!(html.contains("Hello"));
         assert!(html.contains("42"));
@@ -292,7 +439,7 @@ mod tests {
         };
         sheet.set_cell(0, 0, cell);
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("font-weight:bold"));
         assert!(html.contains("font-style:italic"));
         assert!(html.contains("font-size:14pt"));
@@ -313,7 +460,7 @@ mod tests {
         )
         .unwrap();
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -325,7 +472,7 @@ mod tests {
         wb.set_cell("Data", 0, 0, CellValue::Text("data value".into()))
             .unwrap();
 
-        let html = export_print_html(&wb, Some("Data")).unwrap();
+        let html = export_print_html(&wb, Some("Data"), None).unwrap();
         assert!(html.contains("<title>Data</title>"));
         assert!(html.contains("data value"));
     }
@@ -333,7 +480,7 @@ mod tests {
     #[test]
     fn test_export_sheet_not_found() {
         let wb = Workbook::new();
-        let result = export_print_html(&wb, Some("NonExistent"));
+        let result = export_print_html(&wb, Some("NonExistent"), None);
         assert!(result.is_err());
     }
 
@@ -342,7 +489,7 @@ mod tests {
         let mut wb = Workbook::new();
         wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("@media print"));
         assert!(html.contains("@page"));
         assert!(html.contains("page-break-inside"));
@@ -355,7 +502,7 @@ mod tests {
         sheet.col_widths.insert(0, 20.0);
         sheet.set_value(0, 0, CellValue::Text("wide".into()));
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("width:140px")); // 20 * 7 = 140
     }
 
@@ -366,7 +513,7 @@ mod tests {
         sheet.row_heights.insert(0, 30.0);
         sheet.set_value(0, 0, CellValue::Text("tall".into()));
 
-        let html = export_print_html(&wb, None).unwrap();
+        let html = export_print_html(&wb, None, None).unwrap();
         assert!(html.contains("height:30px"));
     }
 
@@ -387,5 +534,66 @@ mod tests {
             cell_value_to_html(&CellValue::Date("2024-01-01".into())),
             "2024-01-01"
         );
+    }
+
+    #[test]
+    fn test_export_with_landscape_a4() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
+        let settings = PrintSettings {
+            paper_size: "a4".to_string(),
+            orientation: "landscape".to_string(),
+            ..PrintSettings::default()
+        };
+        let html = export_print_html(&wb, None, Some(&settings)).unwrap();
+        assert!(html.contains("210mm 297mm"));
+        assert!(html.contains("landscape"));
+    }
+
+    #[test]
+    fn test_export_no_gridlines() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
+        let settings = PrintSettings {
+            show_gridlines: false,
+            ..PrintSettings::default()
+        };
+        let html = export_print_html(&wb, None, Some(&settings)).unwrap();
+        assert!(html.contains("border: none;"));
+    }
+
+    #[test]
+    fn test_export_with_headers() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("val".into())).unwrap();
+        let settings = PrintSettings {
+            show_headers: true,
+            ..PrintSettings::default()
+        };
+        let html = export_print_html(&wb, None, Some(&settings)).unwrap();
+        assert!(html.contains("col-header"));
+        assert!(html.contains("row-header"));
+        assert!(html.contains(">A<"));
+    }
+
+    #[test]
+    fn test_export_custom_margins() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
+        let settings = PrintSettings {
+            margins: "custom".to_string(),
+            custom_margins: Some([1.0, 2.0, 1.5, 2.5]),
+            ..PrintSettings::default()
+        };
+        let html = export_print_html(&wb, None, Some(&settings)).unwrap();
+        assert!(html.contains("1.00cm"));
+    }
+
+    #[test]
+    fn test_col_to_letter_fn() {
+        assert_eq!(col_to_letter(0), "A");
+        assert_eq!(col_to_letter(25), "Z");
+        assert_eq!(col_to_letter(26), "AA");
+        assert_eq!(col_to_letter(27), "AB");
     }
 }

@@ -31,7 +31,6 @@ export interface CellData {
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
-  comment?: string | null;
 }
 
 /** Sheet summary information. */
@@ -387,6 +386,34 @@ export async function exportTsv(sheet: string, path: string): Promise<void> {
 
 export async function exportHtml(sheet: string): Promise<string> {
   return invoke('export_html', { sheet });
+}
+
+/** Print settings passed to the export_html command for print preview. */
+export interface PrintSettingsParams {
+  paperSize?: string;
+  orientation?: string;
+  showGridlines?: boolean;
+  showHeaders?: boolean;
+  scale?: number;
+  margins?: string;
+  customMargins?: [number, number, number, number];
+}
+
+/** Export print-ready HTML with optional print settings. */
+export async function exportPrintHtml(
+  sheet: string,
+  settings?: PrintSettingsParams,
+): Promise<string> {
+  return invoke('export_html', {
+    sheet,
+    paperSize: settings?.paperSize,
+    orientation: settings?.orientation,
+    showGridlines: settings?.showGridlines,
+    showHeaders: settings?.showHeaders,
+    scale: settings?.scale,
+    margins: settings?.margins,
+    customMargins: settings?.customMargins,
+  });
 }
 
 export async function newWorkbook(): Promise<WorkbookInfo> {
@@ -819,59 +846,4 @@ export async function removeConditionalFormat(
     endCol,
     ruleIndex,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Comment commands
-// ---------------------------------------------------------------------------
-
-export async function setComment(
-  sheet: string,
-  row: number,
-  col: number,
-  text: string,
-): Promise<void> {
-  return invoke('set_comment', { sheet, row, col, text });
-}
-
-export async function getComment(
-  sheet: string,
-  row: number,
-  col: number,
-): Promise<string | null> {
-  return invoke('get_comment', { sheet, row, col });
-}
-
-export async function removeComment(
-  sheet: string,
-  row: number,
-  col: number,
-): Promise<void> {
-  return invoke('remove_comment', { sheet, row, col });
-}
-
-// ---------------------------------------------------------------------------
-// Protection commands
-// ---------------------------------------------------------------------------
-
-/** Sheet protection info from the backend. */
-export interface SheetProtectionData {
-  is_protected: boolean;
-  allow_select: boolean;
-  allow_sort: boolean;
-  allow_filter: boolean;
-}
-
-export async function isCellProtected(
-  sheet: string,
-  row: number,
-  col: number,
-): Promise<boolean> {
-  return invoke('is_cell_protected', { sheet, row, col });
-}
-
-export async function getSheetProtection(
-  sheet: string,
-): Promise<SheetProtectionData | null> {
-  return invoke('get_sheet_protection', { sheet });
 }

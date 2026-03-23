@@ -106,7 +106,7 @@ const SHORTCUT_CATEGORIES: ShortcutCategory[] = [
       { keys: 'Cmd+Shift+0', description: 'Unhide columns' },
       { keys: 'Ctrl+F3', description: 'Named ranges manager' },
       { keys: 'Cmd+K', description: 'Insert hyperlink' },
-      { keys: 'Cmd+P', description: 'Print' },
+      { keys: 'Cmd+P', description: 'Print preview' },
     ],
   },
 ];
