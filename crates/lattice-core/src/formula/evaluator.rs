@@ -14,17 +14,53 @@ use crate::selection::parse_cell_ref;
 use crate::sheet::Sheet;
 use rand::Rng;
 use regex::Regex;
+use std::collections::HashMap;
+
+/// Describes a range being iterated by ARRAYFORMULA.
+#[derive(Clone, Debug)]
+struct IterRange {
+    /// Start row (inclusive).
+    r_min: u32,
+    /// Start column (inclusive).
+    c_min: u32,
+    /// End row (inclusive).
+    r_max: u32,
+    /// End column (inclusive).
+    c_max: u32,
+}
 
 /// Internal evaluation context that bundles the current sheet with an optional
-/// cross-sheet resolver.
+/// cross-sheet resolver, LET variable scope, and ARRAYFORMULA iteration state.
 struct EvalCtx<'a> {
     sheet: &'a Sheet,
     resolver: Option<&'a dyn SheetResolver>,
+    /// Variable bindings from a LET() function. Variable names are stored
+    /// in upper-case for case-insensitive lookup.
+    let_vars: Option<HashMap<String, CellValue>>,
+    /// Ranges being iterated by ARRAYFORMULA, along with the current
+    /// (row_offset, col_offset) within each range.
+    array_iter: Option<(Vec<IterRange>, u32, u32)>,
 }
 
 impl<'a> EvalCtx<'a> {
     fn new(sheet: &'a Sheet, resolver: Option<&'a dyn SheetResolver>) -> Self {
-        Self { sheet, resolver }
+        Self {
+            sheet,
+            resolver,
+            let_vars: None,
+            array_iter: None,
+        }
+    }
+
+    /// Create a child context that inherits the sheet and resolver but has
+    /// its own LET variable scope.
+    fn with_let_vars(&self, vars: HashMap<String, CellValue>) -> Self {
+        Self {
+            sheet: self.sheet,
+            resolver: self.resolver,
+            let_vars: Some(vars),
+            array_iter: self.array_iter.clone(),
+        }
     }
 
     /// Resolve a cell reference from another sheet. Returns `#REF!` if no
@@ -206,6 +242,28 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             }
             Ok(val)
         }
+        Token::Function(name) if name == "ARRAYFORMULA" => {
+            *pos += 1; // skip function name
+            if *pos < tokens.len() && tokens[*pos] == Token::LParen {
+                *pos += 1; // skip '('
+            }
+            let result = parse_arrayformula(tokens, pos, ctx)?;
+            if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+                *pos += 1; // skip ')'
+            }
+            Ok(result)
+        }
+        Token::Function(name) if name == "LET" => {
+            *pos += 1; // skip function name
+            if *pos < tokens.len() && tokens[*pos] == Token::LParen {
+                *pos += 1; // skip '('
+            }
+            let result = parse_let_function(tokens, pos, ctx)?;
+            if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+                *pos += 1; // skip ')'
+            }
+            Ok(result)
+        }
         Token::Function(name) => {
             let name = name.clone();
             *pos += 1; // skip function name
@@ -223,18 +281,59 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             *pos += 1;
             // Check if this is a range (next token is ':')
             if *pos < tokens.len() && tokens[*pos] == Token::Colon {
-                // This is a range — return it as-is; the caller (function) will handle it
-                // But if we're in expression context, just return the first cell's value
+                // In array iteration context, a range as an expression operand
+                // should return the value at the current iteration offset.
+                if let Some((ref ranges, row_off, col_off)) = ctx.array_iter {
+                    if let Ok(cr) = parse_cell_ref(&r) {
+                        // Peek at the end ref
+                        if *pos + 1 < tokens.len() {
+                            if let Token::CellRef(end_r) = &tokens[*pos + 1] {
+                                if let Ok(end_cr) = parse_cell_ref(end_r) {
+                                    let r_min = cr.row.min(end_cr.row);
+                                    let c_min = cr.col.min(end_cr.col);
+                                    // Check if this range is one of our iterated ranges
+                                    let is_iter = ranges.iter().any(|ir| {
+                                        ir.r_min == r_min && ir.c_min == c_min
+                                    });
+                                    if is_iter {
+                                        *pos += 2; // skip ':' and end ref
+                                        let target_row = r_min + row_off;
+                                        let target_col = c_min + col_off;
+                                        return match ctx.sheet.get_cell(target_row, target_col) {
+                                            Some(cell) => Ok(cell.value.clone()),
+                                            None => Ok(CellValue::Empty),
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Not in array iteration — return first cell's value
                 let cr = parse_cell_ref(&r)?;
                 return match ctx.sheet.get_cell(cr.row, cr.col) {
                     Some(cell) => Ok(cell.value.clone()),
                     None => Ok(CellValue::Empty),
                 };
             }
-            let cr = parse_cell_ref(&r)?;
-            match ctx.sheet.get_cell(cr.row, cr.col) {
-                Some(cell) => Ok(cell.value.clone()),
-                None => Ok(CellValue::Empty),
+            // Try as a cell reference first; if that fails, check LET variables
+            match parse_cell_ref(&r) {
+                Ok(cr) => match ctx.sheet.get_cell(cr.row, cr.col) {
+                    Some(cell) => Ok(cell.value.clone()),
+                    None => Ok(CellValue::Empty),
+                },
+                Err(_) => {
+                    // Not a valid cell ref — check if it's a LET variable
+                    let upper = r.to_ascii_uppercase();
+                    if let Some(ref vars) = ctx.let_vars {
+                        if let Some(val) = vars.get(&upper) {
+                            return Ok(val.clone());
+                        }
+                    }
+                    Err(LatticeError::FormulaError(format!(
+                        "unknown name: {r}"
+                    )))
+                }
             }
         }
         Token::SheetRef(sheet_name, cell_ref) => {
@@ -255,6 +354,228 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             tokens[*pos]
         ))),
     }
+}
+
+/// Parse the LET function: `LET(name1, value1, name2, value2, ..., formula)`.
+///
+/// LET is handled specially because the final argument (the formula) must be
+/// evaluated with the named variables in scope. If it were parsed through the
+/// normal argument evaluation path, variable references would fail before the
+/// function ever sees them.
+///
+/// Names are CellRef tokens that are NOT valid cell references (e.g. `x`, `total`).
+/// The function requires an odd number of arguments >= 3 (at least one
+/// name-value pair plus the final formula).
+fn parse_let_function(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalCtx<'_>,
+) -> Result<CellValue> {
+    // Collect raw argument token ranges (delimited by commas at depth 0).
+    let mut arg_starts: Vec<usize> = Vec::new();
+    let mut arg_ends: Vec<usize> = Vec::new();
+    let mut depth = 0i32;
+
+    // Empty argument list
+    if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+        return Err(LatticeError::FormulaError(
+            "LET requires at least 3 arguments".into(),
+        ));
+    }
+
+    arg_starts.push(*pos);
+    let start = *pos;
+    while *pos < tokens.len() {
+        match &tokens[*pos] {
+            Token::LParen => {
+                depth += 1;
+                *pos += 1;
+            }
+            Token::RParen => {
+                if depth == 0 {
+                    arg_ends.push(*pos);
+                    break;
+                }
+                depth -= 1;
+                *pos += 1;
+            }
+            Token::Comma if depth == 0 => {
+                arg_ends.push(*pos);
+                *pos += 1; // skip comma
+                arg_starts.push(*pos);
+            }
+            _ => *pos += 1,
+        }
+    }
+
+    let n_args = arg_starts.len();
+    #[allow(clippy::manual_is_multiple_of)]
+    if n_args < 3 || n_args % 2 == 0 {
+        return Err(LatticeError::FormulaError(
+            "LET requires an odd number of arguments >= 3 (name, value, ..., formula)".into(),
+        ));
+    }
+
+    // Build the variable scope by evaluating name-value pairs.
+    // Names should be CellRef tokens (identifiers), values are expressions.
+    let mut vars: HashMap<String, CellValue> = HashMap::new();
+    // Inherit any existing LET variables from an outer scope.
+    if let Some(ref outer_vars) = ctx.let_vars {
+        vars.extend(outer_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+
+    let n_pairs = (n_args - 1) / 2;
+    for i in 0..n_pairs {
+        let name_idx = i * 2;
+        let value_idx = i * 2 + 1;
+
+        // Parse the name — should be a single CellRef token (identifier)
+        let name_start = arg_starts[name_idx];
+        let name_end = arg_ends[name_idx];
+        if name_end - name_start != 1 {
+            return Err(LatticeError::FormulaError(
+                "LET: variable name must be a single identifier".into(),
+            ));
+        }
+        let var_name = match &tokens[name_start] {
+            Token::CellRef(name) => name.to_ascii_uppercase(),
+            Token::StringLiteral(name) => name.to_ascii_uppercase(),
+            _ => {
+                return Err(LatticeError::FormulaError(format!(
+                    "LET: expected variable name, got {:?}",
+                    tokens[name_start]
+                )));
+            }
+        };
+
+        // Evaluate the value expression using the current scope (so later
+        // variables can reference earlier ones).
+        let value_ctx = ctx.with_let_vars(vars.clone());
+        let mut value_pos = arg_starts[value_idx];
+        let value = parse_expression(tokens, &mut value_pos, &value_ctx)?;
+        // Reset pos back — we track it via arg_starts/arg_ends
+        let _ = start; // suppress unused warning
+        vars.insert(var_name, value);
+    }
+
+    // Evaluate the final formula expression with all variables in scope.
+    let formula_ctx = ctx.with_let_vars(vars);
+    let formula_start = arg_starts[n_args - 1];
+    let mut formula_pos = formula_start;
+    parse_expression(tokens, &mut formula_pos, &formula_ctx)
+}
+
+/// Parse `ARRAYFORMULA(expression)`.
+///
+/// Scans the inner expression for range references used as expression operands
+/// (e.g. `A1:A10 * B1:B10`), determines the output dimensions from those ranges,
+/// and evaluates the expression once per element, producing a 2D
+/// `CellValue::Array`.
+///
+/// If no range operands are found, falls back to normal single-value evaluation.
+fn parse_arrayformula(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalCtx<'_>,
+) -> Result<CellValue> {
+    // Record the start of the inner expression so we can re-evaluate it per element.
+    let expr_start = *pos;
+
+    // Find the end of the expression (matching closing paren at depth 0).
+    let mut depth = 0i32;
+    let mut expr_end = *pos;
+    while expr_end < tokens.len() {
+        match &tokens[expr_end] {
+            Token::LParen => {
+                depth += 1;
+                expr_end += 1;
+            }
+            Token::RParen => {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                expr_end += 1;
+            }
+            _ => expr_end += 1,
+        }
+    }
+
+    // Scan for range patterns (CellRef : CellRef) that appear as expression
+    // operands (not inside a function call's argument list).
+    let inner_tokens = &tokens[expr_start..expr_end];
+    let mut ranges: Vec<IterRange> = Vec::new();
+    let mut scan_depth = 0i32;
+    let mut si = 0;
+    while si < inner_tokens.len() {
+        match &inner_tokens[si] {
+            Token::LParen => {
+                scan_depth += 1;
+                si += 1;
+            }
+            Token::RParen => {
+                scan_depth -= 1;
+                si += 1;
+            }
+            Token::CellRef(start_ref) if scan_depth == 0 => {
+                if si + 2 < inner_tokens.len()
+                    && inner_tokens[si + 1] == Token::Colon
+                {
+                    if let Token::CellRef(end_ref) = &inner_tokens[si + 2] {
+                        if let (Ok(s), Ok(e)) =
+                            (parse_cell_ref(start_ref), parse_cell_ref(end_ref))
+                        {
+                            ranges.push(IterRange {
+                                r_min: s.row.min(e.row),
+                                c_min: s.col.min(e.col),
+                                r_max: s.row.max(e.row),
+                                c_max: s.col.max(e.col),
+                            });
+                        }
+                        si += 3;
+                        continue;
+                    }
+                }
+                si += 1;
+            }
+            _ => si += 1,
+        }
+    }
+
+    // If no range operands were found, just evaluate normally.
+    if ranges.is_empty() {
+        let val = parse_expression(tokens, pos, ctx)?;
+        return Ok(val);
+    }
+
+    // Determine output dimensions from the first range.
+    let n_rows = ranges[0].r_max - ranges[0].r_min + 1;
+    let n_cols = ranges[0].c_max - ranges[0].c_min + 1;
+
+    // Evaluate the expression for each (row, col) offset.
+    let mut result_rows: Vec<Vec<CellValue>> = Vec::new();
+    for r_off in 0..n_rows {
+        let mut result_row: Vec<CellValue> = Vec::new();
+        for c_off in 0..n_cols {
+            let iter_ctx = EvalCtx {
+                sheet: ctx.sheet,
+                resolver: ctx.resolver,
+                let_vars: ctx.let_vars.clone(),
+                array_iter: Some((ranges.clone(), r_off, c_off)),
+            };
+            let mut iter_pos = expr_start;
+            match parse_expression(tokens, &mut iter_pos, &iter_ctx) {
+                Ok(val) => result_row.push(val),
+                Err(_) => result_row.push(CellValue::Error(CellError::Value)),
+            }
+        }
+        result_rows.push(result_row);
+    }
+
+    // Advance pos past the inner expression.
+    *pos = expr_end;
+
+    Ok(CellValue::Array(result_rows))
 }
 
 /// An argument to a function — either a single value, a range, or a
@@ -280,9 +601,12 @@ fn parse_function_args(
     tokens: &[Token],
     pos: &mut usize,
     ctx: &EvalCtx<'_>,
-    _func_name: &str,
+    func_name: &str,
 ) -> Result<Vec<FuncArg>> {
     let mut args: Vec<FuncArg> = Vec::new();
+    // Error-trapping functions: evaluation errors in arguments should be
+    // caught and turned into CellValue::Error instead of propagating.
+    let is_error_trapping = matches!(func_name, "IFERROR" | "IFNA" | "ISERROR" | "ISERR" | "ISNA");
 
     // Empty argument list
     if *pos < tokens.len() && tokens[*pos] == Token::RParen {
@@ -330,9 +654,42 @@ fn parse_function_args(
             }
         }
 
-        // Otherwise, parse a full expression as a single-value argument
-        let val = parse_expression(tokens, pos, ctx)?;
-        args.push(FuncArg::Value(val));
+        // Otherwise, parse a full expression as a single-value argument.
+        // For error-trapping functions, catch evaluation errors and convert
+        // them to CellValue::Error so the function can handle them.
+        if is_error_trapping {
+            let saved_pos = *pos;
+            match parse_expression(tokens, pos, ctx) {
+                Ok(val) => args.push(FuncArg::Value(val)),
+                Err(_) => {
+                    // On error, skip forward to the next comma or closing paren
+                    // so subsequent arguments can still be parsed correctly.
+                    *pos = saved_pos;
+                    let mut depth = 0i32;
+                    while *pos < tokens.len() {
+                        match &tokens[*pos] {
+                            Token::LParen => {
+                                depth += 1;
+                                *pos += 1;
+                            }
+                            Token::RParen => {
+                                if depth == 0 {
+                                    break;
+                                }
+                                depth -= 1;
+                                *pos += 1;
+                            }
+                            Token::Comma if depth == 0 => break,
+                            _ => *pos += 1,
+                        }
+                    }
+                    args.push(FuncArg::Value(CellValue::Error(CellError::Value)));
+                }
+            }
+        } else {
+            let val = parse_expression(tokens, pos, ctx)?;
+            args.push(FuncArg::Value(val));
+        }
 
         if *pos < tokens.len() && tokens[*pos] == Token::Comma {
             *pos += 1;
@@ -366,6 +723,22 @@ fn coerce_to_number(val: &CellValue) -> Result<f64> {
                 .map(|v| coerce_to_number(v))
                 .unwrap_or(Ok(0.0))
         }
+    }
+}
+
+/// Coerce a CellValue to f64 for SUMPRODUCT-style operations.
+/// Non-numeric values (text, errors, empty) become 0.0 instead of erroring.
+fn coerce_to_number_or_zero(val: &CellValue) -> f64 {
+    match val {
+        CellValue::Number(n) => *n,
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
     }
 }
 
@@ -704,22 +1077,37 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             Ok(CellValue::Number(nums.iter().product()))
         }
         "SUMPRODUCT" => {
-            // SUMPRODUCT(range1, range2, ...)
-            if args.len() < 2 {
+            // SUMPRODUCT(array1, [array2, ...])
+            // Multiplies corresponding elements of arrays, then sums the products.
+            // With a single array, just sums the values.
+            // Accepts ranges, cross-sheet ranges, and single values.
+            if args.is_empty() {
                 return Err(LatticeError::FormulaError(
-                    "SUMPRODUCT requires at least 2 range arguments".into(),
+                    "SUMPRODUCT requires at least 1 argument".into(),
                 ));
             }
             let mut arrays: Vec<Vec<f64>> = Vec::new();
             for arg in &args {
                 match arg {
                     FuncArg::Range(start, end) => {
-                        arrays.push(resolve_range_numbers(start, end, ctx.sheet)?);
+                        let vals = resolve_range_values(start, end, ctx.sheet)?;
+                        arrays.push(
+                            vals.iter()
+                                .map(|v| coerce_to_number_or_zero(v))
+                                .collect(),
+                        );
                     }
-                    _ => {
-                        return Err(LatticeError::FormulaError(
-                            "SUMPRODUCT: arguments must be ranges".into(),
-                        ));
+                    FuncArg::SheetRange(sheet_name, start, end) => {
+                        let vals =
+                            resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?;
+                        arrays.push(
+                            vals.iter()
+                                .map(|v| coerce_to_number_or_zero(v))
+                                .collect(),
+                        );
+                    }
+                    FuncArg::Value(v) => {
+                        arrays.push(vec![coerce_to_number_or_zero(v)]);
                     }
                 }
             }
@@ -3636,17 +4024,151 @@ mod tests {
     }
 
     #[test]
-    fn test_iferror() {
+    fn test_iferror_no_error() {
         let sheet = Sheet::new("T");
         assert_eq!(eval("IFERROR(1, 0)", &sheet), CellValue::Number(1.0));
     }
 
     #[test]
-    fn test_switch() {
+    fn test_iferror_div_zero() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("IFERROR(1/0, 99)", &sheet), CellValue::Number(99.0));
+    }
+
+    #[test]
+    fn test_iferror_cell_with_error() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Error(CellError::Ref));
+        assert_eq!(
+            eval(r#"IFERROR(A1, "fallback")"#, &sheet),
+            CellValue::Text("fallback".to_string())
+        );
+    }
+
+    #[test]
+    fn test_iferror_text_arithmetic_error() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("abc".to_string()));
+        // A1 + 1 where A1 is text should trigger an error that IFERROR catches
+        assert_eq!(
+            eval("IFERROR(A1 + 1, 0)", &sheet),
+            CellValue::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn test_ifna_catches_na() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Error(CellError::NA));
+        assert_eq!(
+            eval(r#"IFNA(A1, "not found")"#, &sheet),
+            CellValue::Text("not found".to_string())
+        );
+    }
+
+    #[test]
+    fn test_ifna_passes_through_other_errors() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Error(CellError::Ref));
+        // IFNA should NOT catch #REF! — it only catches #N/A
+        assert_eq!(
+            eval(r#"IFNA(A1, "caught")"#, &sheet),
+            CellValue::Error(CellError::Ref)
+        );
+    }
+
+    #[test]
+    fn test_ifna_no_error() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("IFNA(42, 0)", &sheet), CellValue::Number(42.0));
+    }
+
+    #[test]
+    fn test_switch_text_case_insensitive() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"SWITCH("Hello", "HELLO", "matched", "no match")"#, &sheet),
+            CellValue::Text("matched".to_string())
+        );
+    }
+
+    #[test]
+    fn test_switch_no_match_default() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"SWITCH(99, 1, "one", 2, "two", "default")"#, &sheet),
+            CellValue::Text("default".to_string())
+        );
+    }
+
+    #[test]
+    fn test_switch_no_match_no_default() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"SWITCH(99, 1, "one", 2, "two")"#, &sheet),
+            CellValue::Error(CellError::NA)
+        );
+    }
+
+    #[test]
+    fn test_switch_first_match() {
         let sheet = Sheet::new("T");
         assert_eq!(
             eval(r#"SWITCH(2, 1, "one", 2, "two", "other")"#, &sheet),
             CellValue::Text("two".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sumproduct_two_ranges() {
+        // SUMPRODUCT(A1:A3, B1:B3) = 1*4 + 2*5 + 3*6 = 4+10+18 = 32
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        sheet.set_value(0, 1, CellValue::Number(4.0));
+        sheet.set_value(1, 1, CellValue::Number(5.0));
+        sheet.set_value(2, 1, CellValue::Number(6.0));
+        assert_eq!(
+            eval("SUMPRODUCT(A1:A3, B1:B3)", &sheet),
+            CellValue::Number(32.0)
+        );
+    }
+
+    #[test]
+    fn test_sumproduct_single_range() {
+        // SUMPRODUCT with a single range just sums the values
+        let sheet = make_sheet_with_column(&[1.0, 2.0, 3.0]);
+        assert_eq!(
+            eval("SUMPRODUCT(A1:A3)", &sheet),
+            CellValue::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn test_sumproduct_mismatched_sizes() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(0, 1, CellValue::Number(3.0));
+        assert_eq!(
+            eval("SUMPRODUCT(A1:A2, B1:B1)", &sheet),
+            CellValue::Error(CellError::Value)
+        );
+    }
+
+    #[test]
+    fn test_sumproduct_with_text_treated_as_zero() {
+        // Non-numeric cells should be treated as 0
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(5.0));
+        sheet.set_value(1, 0, CellValue::Text("abc".to_string()));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 1, CellValue::Number(3.0));
+        // 5*2 + 0*3 = 10
+        assert_eq!(
+            eval("SUMPRODUCT(A1:A2, B1:B2)", &sheet),
+            CellValue::Number(10.0)
         );
     }
 
@@ -5131,5 +5653,177 @@ mod tests {
         // COLUMNS(B3:F10) = 5 (B=2, F=6, 6-2+1=5)
         let result = eval("COLUMNS(B3:F10)", &sheet);
         assert_eq!(result, CellValue::Number(5.0));
+    }
+
+    // ===== LET =====
+
+    #[test]
+    fn test_let_simple() {
+        // LET(x, 10, x + 5) = 15
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("LET(x, 10, x + 5)", &sheet),
+            CellValue::Number(15.0)
+        );
+    }
+
+    #[test]
+    fn test_let_two_variables() {
+        // LET(x, 10, y, 20, x + y) = 30
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("LET(x, 10, y, 20, x + y)", &sheet),
+            CellValue::Number(30.0)
+        );
+    }
+
+    #[test]
+    fn test_let_variable_references_earlier_variable() {
+        // LET(x, 5, y, x * 2, x + y) = 5 + 10 = 15
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("LET(x, 5, y, x * 2, x + y)", &sheet),
+            CellValue::Number(15.0)
+        );
+    }
+
+    #[test]
+    fn test_let_with_cell_refs() {
+        // LET(total, A1 + A2, total * 2)
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 0, CellValue::Number(7.0));
+        assert_eq!(
+            eval("LET(total, A1 + A2, total * 2)", &sheet),
+            CellValue::Number(20.0)
+        );
+    }
+
+    #[test]
+    fn test_let_with_string_variable() {
+        // LET(greeting, "hello", greeting)
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"LET(greeting, "hello", greeting)"#, &sheet),
+            CellValue::Text("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn test_let_case_insensitive() {
+        // Variable names are case-insensitive
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("LET(MyVar, 42, MYVAR)", &sheet),
+            CellValue::Number(42.0)
+        );
+    }
+
+    #[test]
+    fn test_let_with_function_in_value() {
+        // LET(total, SUM(A1:A3), total / 3)
+        let sheet = make_sheet_with_column(&[10.0, 20.0, 30.0]);
+        assert_eq!(
+            eval("LET(total, SUM(A1:A3), total / 3)", &sheet),
+            CellValue::Number(20.0)
+        );
+    }
+
+    #[test]
+    fn test_let_too_few_args() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        assert!(evaluator.evaluate("LET(x, 10)", &sheet).is_err());
+    }
+
+    #[test]
+    fn test_let_even_args_error() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        // 4 args: name, value, name, value — no final formula
+        assert!(evaluator.evaluate("LET(x, 1, y, 2)", &sheet).is_err());
+    }
+
+    // ===== ARRAYFORMULA =====
+
+    #[test]
+    fn test_arrayformula_multiply_ranges() {
+        // ARRAYFORMULA(A1:A3 * B1:B3)
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        sheet.set_value(0, 1, CellValue::Number(10.0));
+        sheet.set_value(1, 1, CellValue::Number(20.0));
+        sheet.set_value(2, 1, CellValue::Number(30.0));
+        let result = eval("ARRAYFORMULA(A1:A3 * B1:B3)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(10.0)],
+                vec![CellValue::Number(40.0)],
+                vec![CellValue::Number(90.0)],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_arrayformula_add_ranges() {
+        // ARRAYFORMULA(A1:A2 + B1:B2)
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(5.0));
+        sheet.set_value(1, 0, CellValue::Number(10.0));
+        sheet.set_value(0, 1, CellValue::Number(1.0));
+        sheet.set_value(1, 1, CellValue::Number(2.0));
+        let result = eval("ARRAYFORMULA(A1:A2 + B1:B2)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(6.0)],
+                vec![CellValue::Number(12.0)],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_arrayformula_scalar_fallback() {
+        // ARRAYFORMULA with no range operands falls back to normal evaluation
+        let sheet = Sheet::new("T");
+        let result = eval("ARRAYFORMULA(1 + 2)", &sheet);
+        assert_eq!(result, CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn test_arrayformula_range_times_scalar() {
+        // ARRAYFORMULA(A1:A3 * 2)
+        let sheet = make_sheet_with_column(&[3.0, 6.0, 9.0]);
+        let result = eval("ARRAYFORMULA(A1:A3 * 2)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(6.0)],
+                vec![CellValue::Number(12.0)],
+                vec![CellValue::Number(18.0)],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_arrayformula_2d_range() {
+        // ARRAYFORMULA on a 2x2 range
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+        // Multiply 2x2 range by 10
+        let result = eval("ARRAYFORMULA(A1:B2 * 10)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(10.0), CellValue::Number(20.0)],
+                vec![CellValue::Number(30.0), CellValue::Number(40.0)],
+            ])
+        );
     }
 }
