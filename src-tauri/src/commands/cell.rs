@@ -55,6 +55,10 @@ pub struct CellData {
     pub text_wrap: String,
     /// Cell border configuration.
     pub borders: Option<CellBordersData>,
+    /// Text rotation in degrees (0-360, 0 = normal).
+    pub text_rotation: i16,
+    /// Number of indent levels (0 = none).
+    pub indent: u8,
 }
 
 /// Get a single cell's data.
@@ -267,6 +271,8 @@ fn cell_to_data(c: &lattice_core::Cell) -> CellData {
             lattice_core::TextWrap::Clip => "Clip".to_string(),
         },
         borders,
+        text_rotation: c.format.text_rotation,
+        indent: c.format.indent,
     }
 }
 

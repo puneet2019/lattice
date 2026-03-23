@@ -36,6 +36,8 @@ pub struct FormatUpdate {
     pub number_format: Option<String>,
     pub text_wrap: Option<String>,
     pub borders: Option<BordersUpdate>,
+    pub text_rotation: Option<i16>,
+    pub indent: Option<u8>,
 }
 
 /// Apply formatting to a range of cells.
@@ -110,6 +112,13 @@ pub async fn format_cells(
                     "Clip" => TextWrap::Clip,
                     _ => TextWrap::Overflow,
                 };
+            }
+
+            if let Some(rotation) = format.text_rotation {
+                cell.format.text_rotation = rotation;
+            }
+            if let Some(indent) = format.indent {
+                cell.format.indent = indent;
             }
 
             if let Some(ref borders) = format.borders {

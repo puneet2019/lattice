@@ -281,7 +281,7 @@ mod tests {
                 bold: true,
                 italic: true,
                 font_size: 14.0,
-                font_color: "#FF0000".to_string(),
+                font_color: Some("#FF0000".to_string()),
                 bg_color: Some("#FFFF00".to_string()),
                 h_align: HAlign::Center,
                 v_align: VAlign::Middle,

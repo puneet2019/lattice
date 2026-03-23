@@ -112,6 +112,8 @@ pub struct SetCellFormatArgs {
     pub h_align: Option<String>,
     pub v_align: Option<String>,
     pub number_format: Option<Value>,
+    pub text_rotation: Option<i16>,
+    pub indent: Option<u8>,
 }
 
 /// Handle the `set_cell_format` tool call.
@@ -184,6 +186,12 @@ pub fn handle_set_cell_format(
                 Value::String(s) => Some(s.clone()),
                 other => Some(other.to_string()),
             };
+        }
+        if let Some(rotation) = typed.text_rotation {
+            cell.format.text_rotation = rotation;
+        }
+        if let Some(indent) = typed.indent {
+            cell.format.indent = indent;
         }
         cells_formatted += 1;
     }
@@ -267,11 +275,13 @@ fn format_to_json(fmt: &CellFormat) -> Value {
         "bold": fmt.bold,
         "italic": fmt.italic,
         "font_size": fmt.font_size,
-        "font_color": fmt.font_color,
+        "font_color": fmt.font_color.as_deref().unwrap_or("#000000"),
         "bg_color": fmt.bg_color,
         "h_align": h_align_str(&fmt.h_align),
         "v_align": v_align_str(&fmt.v_align),
         "number_format": fmt.number_format,
+        "text_rotation": fmt.text_rotation,
+        "indent": fmt.indent,
     })
 }
 

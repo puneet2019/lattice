@@ -31,6 +31,8 @@ export interface CellData {
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
+  text_rotation?: number;
+  indent?: number;
 }
 
 /** Sheet summary information. */
@@ -74,6 +76,8 @@ export interface FormatOptions {
   number_format?: string;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: BordersUpdate;
+  text_rotation?: number;
+  indent?: number;
 }
 
 // ---------------------------------------------------------------------------

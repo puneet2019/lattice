@@ -891,6 +891,88 @@ body,
   background: #fbbc04;
 }
 
+/* Zoom preset dropdown */
+
+.status-zoom-dropdown {
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-zoom-clickable {
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+
+.status-zoom-clickable:hover {
+  background: var(--selection-bg);
+}
+
+.status-zoom-menu {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 4px;
+  z-index: 200;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  box-shadow: var(--context-menu-shadow);
+  padding: 4px 0;
+  min-width: 70px;
+}
+
+.status-zoom-menu-item {
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--context-menu-text);
+  text-align: right;
+}
+
+.status-zoom-menu-item:hover {
+  background: var(--context-menu-hover);
+}
+
+.status-zoom-menu-item.active {
+  color: var(--selection-border);
+  font-weight: 600;
+}
+
+/* Status bar stat customization menu */
+
+.status-stat-menu {
+  z-index: 200;
+  background: var(--context-menu-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  box-shadow: var(--context-menu-shadow);
+  padding: 4px 0;
+  min-width: 100px;
+}
+
+.status-stat-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--context-menu-text);
+}
+
+.status-stat-menu-item:hover {
+  background: var(--context-menu-hover);
+}
+
+.status-stat-check {
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--selection-border);
+}
+
 /* -----------------------------------------------------------------------
    Chart Overlays
    ----------------------------------------------------------------------- */

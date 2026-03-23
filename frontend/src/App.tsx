@@ -742,6 +742,37 @@ const App: Component = () => {
     setStatusMessage(`Text wrap: ${wrap}`);
   };
 
+  const handleTextRotation = (degrees: number) => {
+    applyFormat({ text_rotation: degrees });
+    setStatusMessage(degrees === 0 ? 'Text rotation: normal' : `Text rotation: ${degrees}\u00B0`);
+  };
+
+  const handleIndent = async () => {
+    const [row, col] = selectedCell();
+    try {
+      const cellData = await getCell(activeSheetName(), row, col);
+      const current = cellData?.indent ?? 0;
+      applyFormat({ indent: Math.min(current + 1, 15) });
+      setStatusMessage(`Indent: ${current + 1}`);
+    } catch {
+      applyFormat({ indent: 1 });
+    }
+  };
+
+  const handleOutdent = async () => {
+    const [row, col] = selectedCell();
+    try {
+      const cellData = await getCell(activeSheetName(), row, col);
+      const current = cellData?.indent ?? 0;
+      if (current > 0) {
+        applyFormat({ indent: current - 1 });
+        setStatusMessage(`Indent: ${current - 1}`);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const handlePaintFormat = () => {
     if (paintFormatActive()) {
       // Cancel paint mode
@@ -1182,6 +1213,9 @@ const App: Component = () => {
         onFilterToggle={handleFilterToggle}
         onConditionalFormat={() => setShowConditionalFormat(true)}
         onPaintFormat={handlePaintFormat}
+        onIndent={handleIndent}
+        onOutdent={handleOutdent}
+        onTextRotation={handleTextRotation}
         onMerge={handleMerge}
         onUnmerge={handleUnmerge}
         onInsertFunction={handleInsertFunction}

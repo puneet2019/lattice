@@ -25,6 +25,9 @@ export interface ToolbarProps {
   onPaintFormat: () => void;
   onMerge: () => void;
   onUnmerge: () => void;
+  onIndent: () => void;
+  onOutdent: () => void;
+  onTextRotation: (degrees: number) => void;
   onInsertFunction: (fn: string) => void;
   boldActive: boolean;
   italicActive: boolean;
@@ -80,6 +83,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showTextWrapDropdown, setShowTextWrapDropdown] = createSignal(false);
   const [showFunctionDropdown, setShowFunctionDropdown] = createSignal(false);
   const [showMergeDropdown, setShowMergeDropdown] = createSignal(false);
+  const [showTextRotationDropdown, setShowTextRotationDropdown] = createSignal(false);
+  const [customRotation, setCustomRotation] = createSignal('');
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
   const [lastFontColor, setLastFontColor] = createSignal('#000000');
   const [lastBgColor, setLastBgColor] = createSignal('#ffff00');
@@ -94,7 +99,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     showFontFamilyDropdown() || showFontSizeDropdown() ||
     showFontColorPicker() || showBgColorPicker() ||
     showBordersDropdown() || showTextWrapDropdown() ||
-    showFunctionDropdown() || showMergeDropdown();
+    showFunctionDropdown() || showMergeDropdown() ||
+    showTextRotationDropdown();
 
   const closeAllDropdowns = () => {
     setShowFontFamilyDropdown(false);
@@ -105,6 +111,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     setShowTextWrapDropdown(false);
     setShowFunctionDropdown(false);
     setShowMergeDropdown(false);
+    setShowTextRotationDropdown(false);
   };
 
   // -----------------------------------------------------------------------
@@ -489,6 +496,24 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         </svg>
       </button>
 
+      {/* Indent / Outdent */}
+      <button class="toolbar-btn" title="Decrease indent" aria-label="Decrease indent" onClick={props.onOutdent}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="2" y1="3" x2="14" y2="3" />
+          <line x1="6" y1="7" x2="14" y2="7" />
+          <line x1="6" y1="11" x2="14" y2="11" />
+          <path d="M4 9L2 7l2-2" />
+        </svg>
+      </button>
+      <button class="toolbar-btn" title="Increase indent" aria-label="Increase indent" onClick={props.onIndent}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <line x1="2" y1="3" x2="14" y2="3" />
+          <line x1="6" y1="7" x2="14" y2="7" />
+          <line x1="6" y1="11" x2="14" y2="11" />
+          <path d="M2 5l2 2-2 2" />
+        </svg>
+      </button>
+
       {/* Text Wrap */}
       <div class="toolbar-dropdown" style={{ position: 'relative' }}>
         <button
@@ -538,6 +563,65 @@ const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
             <div class="toolbar-dropdown-item" onClick={() => { setShowMergeDropdown(false); props.onUnmerge(); }}>
               Unmerge
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Text Rotation */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn"
+          title="Text rotation"
+          aria-label="Text rotation"
+          onClick={() => { const wasOpen = showTextRotationDropdown(); closeAllDropdowns(); if (!wasOpen) setShowTextRotationDropdown(true); }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <text x="3" y="12" font-size="11" fill="currentColor" stroke="none" transform="rotate(-30 8 8)">A</text>
+            <path d="M12 4a6 6 0 0 1-1.5 5.5" />
+            <path d="M11.5 8l-1 1.5 1.5.5" />
+          </svg>
+        </button>
+        <Show when={showTextRotationDropdown()}>
+          <div class="toolbar-dropdown-menu" style={{ "min-width": "150px" }}>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextRotationDropdown(false); props.onTextRotation(0); }}>
+              0° (Normal)
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextRotationDropdown(false); props.onTextRotation(45); }}>
+              45° (Diagonal up)
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextRotationDropdown(false); props.onTextRotation(-45); }}>
+              -45° (Diagonal down)
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextRotationDropdown(false); props.onTextRotation(90); }}>
+              90° (Vertical up)
+            </div>
+            <div class="toolbar-dropdown-item" onClick={() => { setShowTextRotationDropdown(false); props.onTextRotation(-90); }}>
+              -90° (Vertical down)
+            </div>
+            <div class="toolbar-dropdown-item" style={{ "border-top": "1px solid var(--grid-border)", "padding-top": "6px", "margin-top": "2px" }}>
+              <input
+                class="toolbar-hex-input"
+                type="number"
+                min="-360"
+                max="360"
+                placeholder="Custom..."
+                value={customRotation()}
+                onInput={(e) => setCustomRotation(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const val = parseInt(customRotation(), 10);
+                    if (!isNaN(val)) {
+                      setShowTextRotationDropdown(false);
+                      props.onTextRotation(val);
+                      setCustomRotation('');
+                    }
+                  }
+                  e.stopPropagation();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: '80px' }}
+              />
             </div>
           </div>
         </Show>

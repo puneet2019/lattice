@@ -1869,7 +1869,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
         const userSetAlign = cell.h_align && cell.h_align !== 'left';
         const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
-        const maxTextW = cw - PADDING * 2;
+        // Apply indent: each indent level adds 8px of left padding
+        const indentPx = ((cell as CellData).indent ?? 0) * 8;
+        const leftPad = PADDING + indentPx;
+        const maxTextW = cw - leftPad - PADDING;
         // In formula view, show raw formula instead of computed value
         let displayText = showFormulas() && cell.formula ? `=${cell.formula}` : cell.value;
 
@@ -1904,6 +1907,24 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.lineWidth = 1;
         };
 
+        // Text rotation: when non-zero, render rotated text in cell center
+        const textRotation = (cell as CellData).text_rotation ?? 0;
+        if (textRotation !== 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, cw, cellHeight);
+          ctx.clip();
+          const cx = x + cw / 2;
+          const cy = y + cellHeight / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(textRotation * Math.PI / 180);
+          ctx.textAlign = 'center';
+          ctx.fillText(displayText, 0, 0);
+          drawTextDecorations(0, 0, displayText, 'center');
+          ctx.restore();
+          continue;
+        }
+
         // Determine text rendering mode
         const textWrap = (cell as CellData).text_wrap ?? 'Overflow';
 
@@ -1932,7 +1953,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             if (lineY > y + cellHeight) break; // clip vertically
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
-              : x + PADDING;
+              : x + leftPad;
             ctx.fillText(lines[li], textX, lineY);
             drawTextDecorations(textX, lineY, lines[li], align as CanvasTextAlign);
           }
@@ -1957,8 +1978,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.rect(x, y, overflowW, cellHeight);
               ctx.clip();
               ctx.textAlign = 'left';
-              ctx.fillText(displayText, x + PADDING, y + cellHeight / 2);
-              drawTextDecorations(x + PADDING, y + cellHeight / 2, displayText, 'left');
+              ctx.fillText(displayText, x + leftPad, y + cellHeight / 2);
+              drawTextDecorations(x + leftPad, y + cellHeight / 2, displayText, 'left');
               ctx.restore();
             } else {
               // Clip with ellipsis
@@ -1975,7 +1996,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.textAlign = align;
               const textX = align === 'right' ? x + cw - PADDING
                 : align === 'center' ? x + cw / 2
-                : x + PADDING;
+                : x + leftPad;
               ctx.fillText(displayText, textX, y + cellHeight / 2);
               drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
             }
@@ -1983,7 +2004,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             ctx.textAlign = align;
             const textX = align === 'right' ? x + cw - PADDING
               : align === 'center' ? x + cw / 2
-              : x + PADDING;
+              : x + leftPad;
             ctx.fillText(displayText, textX, y + cellHeight / 2);
             drawTextDecorations(textX, y + cellHeight / 2, displayText, align as CanvasTextAlign);
           }

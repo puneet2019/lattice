@@ -147,6 +147,10 @@ pub struct CellFormat {
     pub borders: CellBorders,
     /// Text wrapping mode.
     pub text_wrap: TextWrap,
+    /// Text rotation in degrees (0-360, 0 = normal).
+    pub text_rotation: i16,
+    /// Number of indent levels (0 = none). Each level adds 8px of left padding.
+    pub indent: u8,
 }
 
 impl Default for CellFormat {
@@ -165,6 +169,8 @@ impl Default for CellFormat {
             number_format: None,
             borders: CellBorders::default(),
             text_wrap: TextWrap::default(),
+            text_rotation: 0,
+            indent: 0,
         }
     }
 }
@@ -1090,6 +1096,49 @@ mod tests {
             ..CellFormat::default()
         };
         assert_eq!(fmt.text_wrap, TextWrap::Wrap);
+    }
+
+    // ── Text rotation ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cell_format_default_text_rotation() {
+        let fmt = CellFormat::default();
+        assert_eq!(fmt.text_rotation, 0);
+    }
+
+    #[test]
+    fn test_cell_format_with_text_rotation() {
+        let fmt = CellFormat {
+            text_rotation: 45,
+            ..CellFormat::default()
+        };
+        assert_eq!(fmt.text_rotation, 45);
+    }
+
+    #[test]
+    fn test_cell_format_negative_text_rotation() {
+        let fmt = CellFormat {
+            text_rotation: -90,
+            ..CellFormat::default()
+        };
+        assert_eq!(fmt.text_rotation, -90);
+    }
+
+    // ── Indent ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_cell_format_default_indent() {
+        let fmt = CellFormat::default();
+        assert_eq!(fmt.indent, 0);
+    }
+
+    #[test]
+    fn test_cell_format_with_indent() {
+        let fmt = CellFormat {
+            indent: 3,
+            ..CellFormat::default()
+        };
+        assert_eq!(fmt.indent, 3);
     }
 
     // -- Checkbox formatting ---------------------------------------------------
