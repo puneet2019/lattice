@@ -1390,6 +1390,43 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           ctx.fillRect(x + 1, y + 1, cw - 1, rh - 1);
         }
 
+        // Draw cell borders if set.
+        if (cell?.borders) {
+          const b = cell.borders;
+          const drawBorderLine = (
+            edge: { style: string; color: string } | null | undefined,
+            x1: number, y1: number, x2: number, y2: number,
+          ) => {
+            if (!edge || edge.style === 'none') return;
+            ctx.strokeStyle = edge.color || '#000000';
+            ctx.lineWidth = edge.style === 'thick' ? 3 : edge.style === 'medium' ? 2 : 1;
+            if (edge.style === 'dashed') {
+              ctx.setLineDash([4, 3]);
+            } else if (edge.style === 'dotted') {
+              ctx.setLineDash([1, 2]);
+            } else if (edge.style === 'double') {
+              ctx.setLineDash([]);
+              ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+              const dx = x2 === x1 ? 0 : 0;
+              const dy = y2 === y1 ? 0 : 0;
+              const off = x1 === x2 ? 2 : 0;
+              const offY = y1 === y2 ? 2 : 0;
+              ctx.beginPath(); ctx.moveTo(x1 + off, y1 + offY); ctx.lineTo(x2 + off, y2 + offY); ctx.stroke();
+              return;
+            } else {
+              ctx.setLineDash([]);
+            }
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.lineWidth = 1;
+          };
+          drawBorderLine(b.top, x, y, x + cw, y);
+          drawBorderLine(b.bottom, x, y + rh, x + cw, y + rh);
+          drawBorderLine(b.left, x, y, x, y + rh);
+          drawBorderLine(b.right, x + cw, y, x + cw, y + rh);
+        }
+
         // Draw find match highlights
         if (findMatchSet && findMatchSet.has(`${row}:${col}`)) {
           const isActive = findActiveRow === row && findActiveCol === col;

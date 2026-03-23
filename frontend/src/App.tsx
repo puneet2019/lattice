@@ -420,6 +420,11 @@ const App: Component = () => {
     setStatusMessage(color ? `Fill color: ${color}` : 'Fill removed');
   };
 
+  const handleBorders = (borders: Record<string, unknown>) => {
+    applyFormat({ borders });
+    setStatusMessage('Borders applied');
+  };
+
   const handleAlign = (align: 'left' | 'center' | 'right') => {
     applyFormat({ h_align: align });
     setStatusMessage(`Align: ${align}`);
@@ -634,6 +639,7 @@ const App: Component = () => {
         onFontFamily={handleFontFamily}
         onFontColor={handleFontColor}
         onBgColor={handleBgColor}
+        onBorders={handleBorders}
         onAlign={handleAlign}
         onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}

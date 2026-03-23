@@ -1,5 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
+import type { BordersUpdate } from '../bridge/tauri';
 
 export interface ToolbarProps {
   onBold: () => void;
@@ -9,6 +10,7 @@ export interface ToolbarProps {
   onFontFamily: (family: string) => void;
   onFontColor: (color: string) => void;
   onBgColor: (color: string) => void;
+  onBorders: (borders: BordersUpdate) => void;
   onAlign: (align: 'left' | 'center' | 'right') => void;
   onNumberFormat: (format: string) => void;
   onUndo: () => void;
@@ -50,6 +52,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   const [showFontSizeDropdown, setShowFontSizeDropdown] = createSignal(false);
   const [showFontColorPicker, setShowFontColorPicker] = createSignal(false);
   const [showBgColorPicker, setShowBgColorPicker] = createSignal(false);
+  const [showBordersDropdown, setShowBordersDropdown] = createSignal(false);
   const [currentFontSize, setCurrentFontSize] = createSignal(11);
   const [lastFontColor, setLastFontColor] = createSignal('#000000');
   const [lastBgColor, setLastBgColor] = createSignal('#ffff00');
@@ -60,13 +63,15 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
   const anyDropdownOpen = () =>
     showFontFamilyDropdown() || showFontSizeDropdown() ||
-    showFontColorPicker() || showBgColorPicker();
+    showFontColorPicker() || showBgColorPicker() ||
+    showBordersDropdown();
 
   const closeAllDropdowns = () => {
     setShowFontFamilyDropdown(false);
     setShowFontSizeDropdown(false);
     setShowFontColorPicker(false);
     setShowBgColorPicker(false);
+    setShowBordersDropdown(false);
   };
 
   // -----------------------------------------------------------------------
@@ -135,6 +140,24 @@ const Toolbar: Component<ToolbarProps> = (props) => {
     btn.classList.add('active');
     setTimeout(() => btn.classList.remove('active'), 150);
     props.onNumberFormat(format);
+  };
+
+  const thinEdge = { style: 'thin', color: '#000000' };
+  const noneEdge = { style: 'none' };
+
+  const BORDER_PRESETS: { label: string; borders: BordersUpdate }[] = [
+    { label: 'All borders', borders: { top: thinEdge, bottom: thinEdge, left: thinEdge, right: thinEdge } },
+    { label: 'Outer borders', borders: { top: thinEdge, bottom: thinEdge, left: thinEdge, right: thinEdge } },
+    { label: 'No borders', borders: { top: noneEdge, bottom: noneEdge, left: noneEdge, right: noneEdge } },
+    { label: 'Top border', borders: { top: thinEdge } },
+    { label: 'Bottom border', borders: { bottom: thinEdge } },
+    { label: 'Left border', borders: { left: thinEdge } },
+    { label: 'Right border', borders: { right: thinEdge } },
+  ];
+
+  const handleBorderPreset = (borders: BordersUpdate) => {
+    setShowBordersDropdown(false);
+    props.onBorders(borders);
   };
 
   return (
@@ -287,6 +310,35 @@ const Toolbar: Component<ToolbarProps> = (props) => {
                   onClick={() => handleBgColor(color)}
                   title={color}
                 />
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+
+      {/* Borders */}
+      <div class="toolbar-dropdown" style={{ position: 'relative' }}>
+        <button
+          class="toolbar-btn"
+          title="Borders"
+          onClick={() => { const wasOpen = showBordersDropdown(); closeAllDropdowns(); if (!wasOpen) setShowBordersDropdown(true); }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="12" height="12" rx="0.5" />
+            <line x1="8" y1="2" x2="8" y2="14" />
+            <line x1="2" y1="8" x2="14" y2="8" />
+          </svg>
+        </button>
+        <Show when={showBordersDropdown()}>
+          <div class="toolbar-dropdown-menu" style={{ "min-width": "140px" }}>
+            <For each={BORDER_PRESETS}>
+              {(preset) => (
+                <div
+                  class="toolbar-dropdown-item"
+                  onClick={() => handleBorderPreset(preset.borders)}
+                >
+                  {preset.label}
+                </div>
               )}
             </For>
           </div>
