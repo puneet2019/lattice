@@ -1043,6 +1043,31 @@ body,
   color: var(--danger-color);
 }
 
+.chart-overlay-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chart-overlay-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--header-text);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.chart-overlay-action-btn:hover {
+  background: var(--selection-bg);
+  color: var(--selection-border);
+}
+
 .chart-overlay-body {
   flex: 1;
   overflow: hidden;

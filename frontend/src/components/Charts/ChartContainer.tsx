@@ -3,6 +3,7 @@ import { createSignal, createEffect, onCleanup, For } from 'solid-js';
 import {
   renderChartSvg,
   deleteChart,
+  updateChart,
 } from '../../bridge/tauri';
 import type { ChartInfo } from '../../bridge/tauri';
 
@@ -26,6 +27,10 @@ export interface ChartContainerProps {
   onMove: (chartId: string, x: number, y: number) => void;
   /** Called when a chart's size changes after resize. */
   onResize: (chartId: string, width: number, height: number) => void;
+  /** Called when a chart is double-clicked to edit. */
+  onEditChart?: (chartId: string) => void;
+  /** Called when chart SVG is re-rendered (e.g. after resize). */
+  onSvgUpdate?: (chartId: string, svg: string) => void;
 }
 
 /** A single floating chart overlay. */
@@ -34,15 +39,16 @@ const ChartPanel: Component<{
   onDelete: (chartId: string) => void;
   onMove: (chartId: string, x: number, y: number) => void;
   onResize: (chartId: string, width: number, height: number) => void;
+  onEditChart?: (chartId: string) => void;
+  onSvgUpdate?: (chartId: string, svg: string) => void;
 }> = (props) => {
   const [svgContent, setSvgContent] = createSignal('');
   const [dragging, setDragging] = createSignal(false);
   const [resizing, setResizing] = createSignal(false);
   const [dragOffset, setDragOffset] = createSignal({ x: 0, y: 0 });
 
-  // Fetch the SVG on mount or when chart ID changes.
-  createEffect(() => {
-    const chartId = props.chart.info.id;
+  /** Fetch and set the chart SVG. */
+  const fetchSvg = (chartId: string) => {
     void renderChartSvg(chartId)
       .then((svg) => setSvgContent(svg))
       .catch(() => {
@@ -53,12 +59,22 @@ const ChartPanel: Component<{
             `</svg>`,
         );
       });
+  };
+
+  // Fetch the SVG on mount or when chart ID changes.
+  createEffect(() => {
+    fetchSvg(props.chart.info.id);
   });
 
   const handleClose = () => {
     void deleteChart(props.chart.info.id)
       .then(() => props.onDelete(props.chart.info.id))
       .catch(() => props.onDelete(props.chart.info.id));
+  };
+
+  // -- Double-click to edit --
+  const handleBodyDoubleClick = () => {
+    props.onEditChart?.(props.chart.info.id);
   };
 
   // -- Drag logic --
@@ -88,8 +104,26 @@ const ChartPanel: Component<{
   };
 
   const handleMouseUp = () => {
+    const wasResizing = resizing();
     setDragging(false);
     setResizing(false);
+
+    // On resize end, update backend dimensions and re-render SVG.
+    if (wasResizing) {
+      const chartId = props.chart.info.id;
+      const w = props.chart.width;
+      const h = props.chart.height;
+      void updateChart(chartId, undefined, undefined, undefined, w, h)
+        .then(() => renderChartSvg(chartId))
+        .then((svg) => {
+          setSvgContent(svg);
+          props.onSvgUpdate?.(chartId, svg);
+        })
+        .catch(() => {
+          // Re-fetch to stay in sync even on error.
+          fetchSvg(chartId);
+        });
+    }
   };
 
   // -- Resize logic --
@@ -118,6 +152,40 @@ const ChartPanel: Component<{
   const titleText = () =>
     props.chart.info.title ?? `${props.chart.info.chart_type} chart`;
 
+  /** Download chart as PNG. */
+  const handleDownloadPng = () => {
+    const svg = svgContent();
+    if (!svg) return;
+
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = props.chart.width * dpr;
+      canvas.height = props.chart.height * dpr;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      ctx.scale(dpr, dpr);
+      ctx.drawImage(img, 0, 0, props.chart.width, props.chart.height);
+      URL.revokeObjectURL(url);
+
+      const pngUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `${titleText().replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+      link.href = pngUrl;
+      link.click();
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  };
+
   return (
     <div
       class="chart-overlay"
@@ -131,29 +199,48 @@ const ChartPanel: Component<{
       {/* Header bar (drag handle) */}
       <div class="chart-overlay-header" onMouseDown={handleDragStart}>
         <span class="chart-overlay-title">{titleText()}</span>
-        <button
-          class="chart-overlay-close"
-          onClick={handleClose}
-          title="Delete chart"
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
+        <div class="chart-overlay-header-actions">
+          <button
+            class="chart-overlay-action-btn"
+            onClick={handleDownloadPng}
+            title="Download as PNG"
           >
-            <line x1="2" y1="2" x2="10" y2="10" />
-            <line x1="10" y1="2" x2="2" y2="10" />
-          </svg>
-        </button>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path d="M6 1v7M3 6l3 3 3-3M2 10h8" />
+            </svg>
+          </button>
+          <button
+            class="chart-overlay-close"
+            onClick={handleClose}
+            title="Delete chart"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <line x1="2" y1="2" x2="10" y2="10" />
+              <line x1="10" y1="2" x2="2" y2="10" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* SVG chart body */}
       <div
         class="chart-overlay-body"
         innerHTML={svgContent()}
+        onDblClick={handleBodyDoubleClick}
       />
 
       {/* Resize handle (bottom-right corner) */}
@@ -175,6 +262,8 @@ const ChartContainer: Component<ChartContainerProps> = (props) => {
           onDelete={props.onDelete}
           onMove={props.onMove}
           onResize={props.onResize}
+          onEditChart={props.onEditChart}
+          onSvgUpdate={props.onSvgUpdate}
         />
       )}
     </For>

@@ -144,6 +144,118 @@ pub async fn list_charts(
     Ok(charts)
 }
 
+/// Get the current configuration of an existing chart.
+#[tauri::command]
+pub async fn get_chart_config(
+    state: State<'_, AppState>,
+    chart_id: String,
+) -> Result<ChartInfo, String> {
+    let store = state
+        .chart_store
+        .charts
+        .lock()
+        .map_err(|e| format!("Chart store lock error: {}", e))?;
+
+    let chart = store
+        .get(&chart_id)
+        .ok_or_else(|| format!("Chart not found: {}", chart_id))?;
+
+    // Reconstruct the chart_type string including stacked prefix.
+    let stacked = state
+        .chart_stacked
+        .lock()
+        .map(|m| m.get(&chart_id).copied().unwrap_or(false))
+        .unwrap_or(false);
+
+    let chart_type_str = if stacked {
+        format!("stacked_{}", chart.chart_type)
+    } else {
+        chart.chart_type.to_string()
+    };
+
+    Ok(ChartInfo {
+        id: chart.id.clone(),
+        chart_type: chart_type_str,
+        data_range: chart.data_range.clone(),
+        sheet: chart.sheet.clone(),
+        title: chart.title.clone(),
+        width: chart.width,
+        height: chart.height,
+    })
+}
+
+/// Update an existing chart's type, data range, and/or title.
+#[tauri::command]
+pub async fn update_chart(
+    state: State<'_, AppState>,
+    chart_id: String,
+    chart_type: Option<String>,
+    data_range: Option<String>,
+    title: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> Result<ChartInfo, String> {
+    let mut store = state
+        .chart_store
+        .charts
+        .lock()
+        .map_err(|e| format!("Chart store lock error: {}", e))?;
+
+    let chart = store
+        .get_mut(&chart_id)
+        .ok_or_else(|| format!("Chart not found: {}", chart_id))?;
+
+    // Update chart type if provided.
+    let mut new_stacked = None;
+    if let Some(ref ct_str) = chart_type {
+        let ct = parse_chart_type(ct_str)?;
+        chart.chart_type = ct;
+        new_stacked = Some(is_stacked(ct_str));
+    }
+
+    if let Some(ref dr) = data_range {
+        // Validate range format.
+        let _ = parse_range(dr)?;
+        chart.data_range = dr.clone();
+    }
+
+    // Title: Some("") clears, Some("text") sets, None leaves unchanged.
+    if let Some(ref t) = title {
+        chart.title = if t.is_empty() { None } else { Some(t.clone()) };
+    }
+
+    if let Some(w) = width {
+        chart.width = w;
+    }
+
+    if let Some(h) = height {
+        chart.height = h;
+    }
+
+    let info = ChartInfo {
+        id: chart.id.clone(),
+        chart_type: chart_type.unwrap_or_else(|| chart.chart_type.to_string()),
+        data_range: chart.data_range.clone(),
+        sheet: chart.sheet.clone(),
+        title: chart.title.clone(),
+        width: chart.width,
+        height: chart.height,
+    };
+
+    // Update stacked flag if chart type was changed.
+    if let Some(stacked) = new_stacked {
+        if let Ok(mut map) = state.chart_stacked.lock() {
+            if stacked {
+                map.insert(chart_id, true);
+            } else {
+                map.remove(&chart_id);
+            }
+        }
+    }
+
+    Ok(info)
+}
+
 /// Delete a chart by its ID.
 #[tauri::command]
 pub async fn delete_chart(state: State<'_, AppState>, chart_id: String) -> Result<(), String> {

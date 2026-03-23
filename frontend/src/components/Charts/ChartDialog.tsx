@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
-import { renderChartSvg, createChart, deleteChart } from '../../bridge/tauri';
+import { renderChartSvg, createChart, deleteChart, updateChart } from '../../bridge/tauri';
 import type { ChartTypeStr } from '../../bridge/tauri';
 
 /** Chart type group for organized display. */
@@ -54,22 +54,35 @@ const CHART_TYPES = CHART_TYPE_GROUPS.flatMap((g) => g.types);
 export interface ChartDialogProps {
   /** Current active sheet name. */
   activeSheet: string;
-  /** Called when a chart is created (returns chart ID). */
+  /** Called when a chart is created or updated (returns chart ID). */
   onInsert: (chartId: string) => void;
   /** Called when dialog is cancelled/closed. */
   onClose: () => void;
+  /** If set, dialog is in edit mode for an existing chart. */
+  editChartId?: string;
+  /** Initial chart type when editing. */
+  initialChartType?: ChartTypeStr;
+  /** Initial data range when editing. */
+  initialDataRange?: string;
+  /** Initial title when editing. */
+  initialTitle?: string;
 }
 
 const ChartDialog: Component<ChartDialogProps> = (props) => {
-  const [chartType, setChartType] = createSignal<ChartTypeStr>('bar');
-  const [dataRange, setDataRange] = createSignal('');
-  const [title, setTitle] = createSignal('');
+  const isEditMode = () => !!props.editChartId;
+
+  const [chartType, setChartType] = createSignal<ChartTypeStr>(
+    props.initialChartType ?? 'bar',
+  );
+  const [dataRange, setDataRange] = createSignal(props.initialDataRange ?? '');
+  const [title, setTitle] = createSignal(props.initialTitle ?? '');
   const [previewSvg, setPreviewSvg] = createSignal('');
   const [previewChartId, setPreviewChartId] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal('');
 
   // Debounced preview: create a temporary chart and render its SVG.
+  // In edit mode we render the existing chart's SVG for the initial preview.
   let previewTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const updatePreview = () => {
@@ -83,7 +96,22 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
     previewTimeout = setTimeout(() => {
       void (async () => {
         try {
-          // Clean up previous preview chart.
+          // In edit mode, update the existing chart for preview.
+          if (isEditMode()) {
+            const editId = props.editChartId!;
+            await updateChart(
+              editId,
+              chartType(),
+              range,
+              title() || undefined,
+            );
+            const svg = await renderChartSvg(editId);
+            setPreviewSvg(svg);
+            setError('');
+            return;
+          }
+
+          // In create mode, clean up previous preview chart.
           const prevId = previewChartId();
           if (prevId) {
             try {
@@ -129,19 +157,31 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
 
     setLoading(true);
     try {
-      // If we already have a preview chart, use it.
-      const existingId = previewChartId();
-      if (existingId) {
-        setPreviewChartId(null);
-        props.onInsert(existingId);
-      } else {
-        const chartId = await createChart(
-          props.activeSheet,
+      if (isEditMode()) {
+        // Update the existing chart and return its ID.
+        const editId = props.editChartId!;
+        await updateChart(
+          editId,
           chartType(),
           range,
           title() || undefined,
         );
-        props.onInsert(chartId);
+        props.onInsert(editId);
+      } else {
+        // If we already have a preview chart, use it.
+        const existingId = previewChartId();
+        if (existingId) {
+          setPreviewChartId(null);
+          props.onInsert(existingId);
+        } else {
+          const chartId = await createChart(
+            props.activeSheet,
+            chartType(),
+            range,
+            title() || undefined,
+          );
+          props.onInsert(chartId);
+        }
       }
     } catch (e) {
       setError(String(e));
@@ -151,13 +191,15 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
   };
 
   const handleCancel = async () => {
-    // Clean up preview chart if one exists.
-    const prevId = previewChartId();
-    if (prevId) {
-      try {
-        await deleteChart(prevId);
-      } catch {
-        // Ignore.
+    // In create mode, clean up preview chart if one exists.
+    if (!isEditMode()) {
+      const prevId = previewChartId();
+      if (prevId) {
+        try {
+          await deleteChart(prevId);
+        } catch {
+          // Ignore.
+        }
       }
     }
     props.onClose();
@@ -173,7 +215,7 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
     <div class="chart-dialog-backdrop" onClick={handleBackdropClick}>
       <div class="chart-dialog">
         <div class="chart-dialog-header">
-          <h2>Insert Chart</h2>
+          <h2>{isEditMode() ? 'Edit Chart' : 'Insert Chart'}</h2>
           <button
             class="chart-overlay-close"
             onClick={() => void handleCancel()}
@@ -282,7 +324,9 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
             onClick={() => void handleInsert()}
             disabled={loading() || !dataRange()}
           >
-            {loading() ? 'Creating...' : 'Insert Chart'}
+            {loading()
+              ? isEditMode() ? 'Updating...' : 'Creating...'
+              : isEditMode() ? 'Update Chart' : 'Insert Chart'}
           </button>
         </div>
       </div>

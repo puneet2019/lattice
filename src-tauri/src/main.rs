@@ -409,13 +409,13 @@ fn main() {
             commands::data::get_row_groups,
             commands::data::remove_duplicates,
             commands::data::text_to_columns,
-            commands::data::get_sheet_headers,
-            commands::data::create_pivot_table,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,
             commands::chart::list_charts,
             commands::chart::delete_chart,
+            commands::chart::get_chart_config,
+            commands::chart::update_chart,
             // Autosave commands
             commands::autosave::get_autosave_config,
             commands::autosave::set_autosave_config,

@@ -24,7 +24,6 @@ import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import PrintPreviewDialog from './components/PrintPreviewDialog';
 import DataCleanupDialog from './components/DataCleanupDialog';
 import TextToColumnsDialog from './components/TextToColumnsDialog';
-import PivotDialog from './components/PivotDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -47,6 +46,8 @@ import {
   undo as tauriUndo,
   redo as tauriRedo,
   listCharts,
+  getChartConfig,
+  renderChartSvg,
   setSheetTabColor,
   moveSheet,
   setAutoFilter,
@@ -67,7 +68,7 @@ import {
   textToColumns,
 } from './bridge/tauri';
 import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData } from './bridge/tauri';
-import type { ChartInfo } from './bridge/tauri';
+import type { ChartInfo, ChartTypeStr } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
 
@@ -483,7 +484,7 @@ const App: Component = () => {
     data_validation: () => { setShowDataValidation(true); },
     data_remove_duplicates: () => { setShowDataCleanup(true); },
     data_text_to_columns: () => { setShowTextToColumns(true); },
-    data_pivot_table: () => { setShowPivotDialog(true); },
+    data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
   };
 
   // Load sheets on mount and subscribe to menu events.
@@ -1037,6 +1038,10 @@ const App: Component = () => {
 
   const [chartOverlays, setChartOverlays] = createSignal<ChartOverlay[]>([]);
   const [showChartDialog, setShowChartDialog] = createSignal(false);
+  const [editChartId, setEditChartId] = createSignal<string | undefined>(undefined);
+  const [editChartType, setEditChartType] = createSignal<ChartTypeStr | undefined>(undefined);
+  const [editDataRange, setEditDataRange] = createSignal<string | undefined>(undefined);
+  const [editTitle, setEditTitle] = createSignal<string | undefined>(undefined);
 
   // -------------------------------------------------------------------
   // Merge / Unmerge cells
@@ -1133,14 +1138,56 @@ const App: Component = () => {
   };
 
   const handleInsertChart = () => {
+    setEditChartId(undefined);
+    setEditChartType(undefined);
+    setEditDataRange(undefined);
+    setEditTitle(undefined);
     setShowChartDialog(true);
+  };
+
+  const handleEditChart = async (chartId: string) => {
+    try {
+      const config = await getChartConfig(chartId);
+      setEditChartId(chartId);
+      setEditChartType(config.chart_type as ChartTypeStr);
+      setEditDataRange(config.data_range);
+      setEditTitle(config.title ?? '');
+      setShowChartDialog(true);
+    } catch (e) {
+      setStatusMessage(`Failed to load chart config: ${e}`);
+    }
   };
 
   const handleChartInserted = (chartId: string) => {
     setShowChartDialog(false);
-    // Fetch the new chart info and add it as an overlay.
-    void loadChartOverlay(chartId);
-    setStatusMessage('Chart inserted');
+
+    if (editChartId()) {
+      // Edit mode: refresh the overlay info and re-render SVG.
+      void (async () => {
+        try {
+          const config = await getChartConfig(chartId);
+          const svg = await renderChartSvg(chartId);
+          setChartOverlays(
+            chartOverlays().map((c) =>
+              c.info.id === chartId
+                ? { ...c, info: config }
+                : c,
+            ),
+          );
+          setStatusMessage('Chart updated');
+        } catch {
+          setStatusMessage('Chart updated');
+        }
+      })();
+      setEditChartId(undefined);
+      setEditChartType(undefined);
+      setEditDataRange(undefined);
+      setEditTitle(undefined);
+    } else {
+      // Create mode: fetch the new chart info and add it as an overlay.
+      void loadChartOverlay(chartId);
+      setStatusMessage('Chart inserted');
+    }
   };
 
   const loadChartOverlay = async (chartId: string) => {
@@ -1187,6 +1234,10 @@ const App: Component = () => {
 
   const handleChartDialogClose = () => {
     setShowChartDialog(false);
+    setEditChartId(undefined);
+    setEditChartType(undefined);
+    setEditDataRange(undefined);
+    setEditTitle(undefined);
   };
 
   // -------------------------------------------------------------------
@@ -1206,7 +1257,6 @@ const App: Component = () => {
   const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
   const [showDataCleanup, setShowDataCleanup] = createSignal(false);
   const [showTextToColumns, setShowTextToColumns] = createSignal(false);
-  const [showPivotDialog, setShowPivotDialog] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1371,6 +1421,7 @@ const App: Component = () => {
           onDelete={handleChartDelete}
           onMove={handleChartMove}
           onResize={handleChartResize}
+          onEditChart={(id) => void handleEditChart(id)}
         />
       </div>
       <Show when={showChartDialog()}>
@@ -1378,6 +1429,10 @@ const App: Component = () => {
           activeSheet={activeSheetName()}
           onInsert={handleChartInserted}
           onClose={handleChartDialogClose}
+          editChartId={editChartId()}
+          initialChartType={editChartType()}
+          initialDataRange={editDataRange()}
+          initialTitle={editTitle()}
         />
       </Show>
       <Show when={showFormatCells()}>
@@ -1500,21 +1555,6 @@ const App: Component = () => {
               .catch((e) => setStatusMessage(`Text to columns failed: ${e}`));
           }}
           onClose={() => setShowTextToColumns(false)}
-        />
-      </Show>
-      <Show when={showPivotDialog()}>
-        <PivotDialog
-          activeSheet={activeSheetName()}
-          selectionRange={selRange()}
-          onClose={() => setShowPivotDialog(false)}
-          onCreated={(target) => {
-            setSheets((prev) => prev.includes(target) ? prev : [...prev, target]);
-            setActiveSheetLocal(target);
-            void setActiveSheet(target);
-            setRefreshTrigger((n) => n + 1);
-            markDirty();
-          }}
-          onStatusChange={setStatusMessage}
         />
       </Show>
       <SheetTabs

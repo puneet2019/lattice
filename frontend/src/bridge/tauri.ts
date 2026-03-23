@@ -536,6 +536,28 @@ export async function deleteChart(chartId: string): Promise<void> {
   return invoke('delete_chart', { chartId });
 }
 
+export async function getChartConfig(chartId: string): Promise<ChartInfo> {
+  return invoke('get_chart_config', { chartId });
+}
+
+export async function updateChart(
+  chartId: string,
+  chartType?: ChartTypeStr,
+  dataRange?: string,
+  title?: string,
+  width?: number,
+  height?: number,
+): Promise<ChartInfo> {
+  return invoke('update_chart', {
+    chartId,
+    chartType: chartType ?? null,
+    dataRange: dataRange ?? null,
+    title: title ?? null,
+    width: width ?? null,
+    height: height ?? null,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Validation commands
 // ---------------------------------------------------------------------------
@@ -876,49 +898,5 @@ export async function removeConditionalFormat(
     endRow,
     endCol,
     ruleIndex,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Pivot table commands
-// ---------------------------------------------------------------------------
-
-/** Value field input for pivot table creation. */
-export interface PivotValueInput {
-  col: number;
-  aggregation: string;
-}
-
-/**
- * Get the header values (first row) of a sheet as strings.
- *
- * Used to populate column dropdowns in the pivot dialog.
- */
-export async function getSheetHeaders(
-  sheet: string,
-  row: number,
-): Promise<string[]> {
-  return invoke('get_sheet_headers', { sheet, row });
-}
-
-/**
- * Create a pivot table from source data.
- *
- * Groups by `rowFields` columns, aggregates `valueFields`, and writes
- * the result to `targetSheet` (created if it doesn't exist).
- */
-export async function createPivotTable(
-  sourceSheet: string,
-  sourceRange: string,
-  rowFields: number[],
-  valueFields: PivotValueInput[],
-  targetSheet: string,
-): Promise<void> {
-  return invoke('create_pivot_table', {
-    sourceSheet,
-    sourceRange,
-    rowFields,
-    valueFields,
-    targetSheet,
   });
 }
