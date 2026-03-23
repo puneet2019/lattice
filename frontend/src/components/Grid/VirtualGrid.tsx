@@ -1424,7 +1424,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const fontFamily = cell.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
         const fontSize = cell.font_size || 11;
         ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
-        ctx.fillStyle = cell.font_color || COLORS.cellText;
+        // Use theme text color unless user explicitly set a non-default font color.
+        // Backend defaults to "#000000" which is invisible in dark mode.
+        const hasCustomColor = cell.font_color && cell.font_color !== '#000000';
+        ctx.fillStyle = hasCustomColor ? cell.font_color : COLORS.cellText;
 
         // Auto-align: numbers right, text left — unless user explicitly set center/right.
         // Backend default is "left", so treat "left" as auto (allows number right-align).
@@ -1446,7 +1449,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           } else {
             lineStartX = textX;
           }
-          ctx.strokeStyle = cell.font_color || COLORS.cellText;
+          ctx.strokeStyle = hasCustomColor ? cell.font_color : COLORS.cellText;
           ctx.lineWidth = Math.max(1, fontSize / 12);
           if (cell.underline) {
             const underlineY = textY + fontSize * 0.15;
