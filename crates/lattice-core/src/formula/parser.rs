@@ -167,7 +167,12 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             _ if ch.is_ascii_alphabetic() || ch == '_' || ch == '$' => {
                 let start = i;
                 while i < chars.len()
-                    && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+                    && (chars[i].is_ascii_alphanumeric()
+                        || chars[i] == '_'
+                        || chars[i] == '$'
+                        || (chars[i] == '.'
+                            && i + 1 < chars.len()
+                            && chars[i + 1].is_ascii_alphabetic()))
                 {
                     i += 1;
                 }
