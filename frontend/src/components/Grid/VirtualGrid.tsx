@@ -24,6 +24,7 @@ import {
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
+import FormulaHint from './FormulaHint';
 import {
   DEFAULT_COL_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -249,6 +250,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Formula auto-complete state (function name suggestions)
   const [formulaAcVisible, setFormulaAcVisible] = createSignal(false);
   const [formulaAcSelectedIdx, setFormulaAcSelectedIdx] = createSignal(0);
+
+  // Cursor position in the editor (for formula argument hints)
+  const [editorCursorPos, setEditorCursorPos] = createSignal(0);
 
   // Context menu state
   const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
@@ -600,6 +604,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     setEditValue(value);
     props.onContentChange(value);
     autoResizeEditor();
+    // Track cursor position for formula argument hints
+    if (editorRef) {
+      setEditorCursorPos(editorRef.selectionStart ?? value.length);
+    }
 
     // Show/hide auto-complete based on input
     const trimmed = value.trim();
@@ -3783,6 +3791,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           value={editValue()}
           onInput={(e) => handleEditorInput(e.currentTarget.value)}
           onKeyDown={handleEditorKeyDown}
+          onKeyUp={() => {
+            if (editorRef) setEditorCursorPos(editorRef.selectionStart ?? 0);
+          }}
+          onClick={() => {
+            if (editorRef) setEditorCursorPos(editorRef.selectionStart ?? 0);
+          }}
           onBlur={() => {
             if (editing()) {
               commitEdit(0, 0);
@@ -3830,6 +3844,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           selectedIndex={formulaAcSelectedIdx()}
           onAccept={acceptFormulaAutoComplete}
           onDismiss={() => setFormulaAcVisible(false)}
+        />
+        <FormulaHint
+          inputValue={editValue()}
+          cursorPos={editorCursorPos()}
+          left={(() => {
+            const col = selectedCol();
+            const fc = props.frozenCols ?? 0;
+            const sx = col < fc ? 0 : scrollX();
+            return ROW_NUMBER_WIDTH + getColX(col) - sx;
+          })()}
+          top={(() => {
+            const row = selectedRow();
+            const fr = props.frozenRows ?? 0;
+            const sy = row < fr ? 0 : scrollY();
+            return HEADER_HEIGHT + getRowY(row) - sy + getRowHeight(row) + 20;
+          })()}
+          visible={editValue().startsWith('=') && !formulaAcVisible()}
         />
       </Show>
       <Show when={ctxMenuVisible()}>
