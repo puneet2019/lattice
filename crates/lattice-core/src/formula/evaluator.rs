@@ -1324,6 +1324,127 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 _ => Ok(CellValue::Text(String::new())),
             }
         }
+        "CLEAN" => {
+            // CLEAN(text) — remove non-printable characters (ASCII 0-31)
+            let a = require_args(&args, 1, "CLEAN")?;
+            let s = coerce_to_string(&a[0]);
+            let cleaned: String = s.chars().filter(|c| !c.is_control()).collect();
+            Ok(CellValue::Text(cleaned))
+        }
+        "CHAR" => {
+            // CHAR(number) — character from code point
+            let a = require_args(&args, 1, "CHAR")?;
+            let n = coerce_to_number(&a[0])? as u32;
+            match char::from_u32(n) {
+                Some(c) => Ok(CellValue::Text(c.to_string())),
+                None => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "CODE" => {
+            // CODE(text) — code point of first character
+            let a = require_args(&args, 1, "CODE")?;
+            let s = coerce_to_string(&a[0]);
+            match s.chars().next() {
+                Some(c) => Ok(CellValue::Number(c as u32 as f64)),
+                None => Ok(CellValue::Error(CellError::Value)),
+            }
+        }
+        "FIXED" => {
+            // FIXED(number, [decimals], [no_commas])
+            // decimals defaults to 2, no_commas defaults to false
+            if args.is_empty() || args.len() > 3 {
+                return Err(LatticeError::FormulaError(
+                    "FIXED requires 1 to 3 arguments".into(),
+                ));
+            }
+            let vals = require_min_args(&args, 1, "FIXED")?;
+            let n = coerce_to_number(&vals[0])?;
+            let decimals = if vals.len() > 1 {
+                coerce_to_number(&vals[1])? as usize
+            } else {
+                2
+            };
+            let no_commas = if vals.len() > 2 {
+                coerce_to_bool(&vals[2])?
+            } else {
+                false
+            };
+            if no_commas {
+                Ok(CellValue::Text(format!("{:.prec$}", n, prec = decimals)))
+            } else {
+                Ok(CellValue::Text(format_with_commas(n, decimals)))
+            }
+        }
+        "SPLIT" => {
+            // SPLIT(text, delimiter) — split text and return array
+            let a = require_args(&args, 2, "SPLIT")?;
+            let text = coerce_to_string(&a[0]);
+            let delimiter = coerce_to_string(&a[1]);
+            if delimiter.is_empty() {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            let parts: Vec<CellValue> = text
+                .split(&delimiter)
+                .map(|s| CellValue::Text(s.to_string()))
+                .collect();
+            // Return as a single-row array
+            Ok(CellValue::Array(vec![parts]))
+        }
+        "JOIN" => {
+            // JOIN(delimiter, range_or_values...)
+            if args.len() < 2 {
+                return Err(LatticeError::FormulaError(
+                    "JOIN requires at least 2 arguments".into(),
+                ));
+            }
+            let delimiter = match &args[0] {
+                FuncArg::Value(v) => coerce_to_string(v),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "JOIN: first argument must be a delimiter string".into(),
+                    ));
+                }
+            };
+            let rest_args = &args[1..];
+            let values = collect_values(rest_args, ctx)?;
+            let parts: Vec<String> = values.iter().map(|v| coerce_to_string(v)).collect();
+            Ok(CellValue::Text(parts.join(&delimiter)))
+        }
+        "TEXTJOIN" => {
+            // TEXTJOIN(delimiter, ignore_empty, range_or_values...)
+            if args.len() < 3 {
+                return Err(LatticeError::FormulaError(
+                    "TEXTJOIN requires at least 3 arguments".into(),
+                ));
+            }
+            let delimiter = match &args[0] {
+                FuncArg::Value(v) => coerce_to_string(v),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "TEXTJOIN: first argument must be a delimiter string".into(),
+                    ));
+                }
+            };
+            let ignore_empty = match &args[1] {
+                FuncArg::Value(v) => coerce_to_bool(v)?,
+                _ => false,
+            };
+            let rest_args = &args[2..];
+            let values = collect_values(rest_args, ctx)?;
+            let parts: Vec<String> = values
+                .iter()
+                .filter(|v| {
+                    if ignore_empty {
+                        !matches!(v, CellValue::Empty)
+                            && !matches!(v, CellValue::Text(s) if s.is_empty())
+                    } else {
+                        true
+                    }
+                })
+                .map(|v| coerce_to_string(v))
+                .collect();
+            Ok(CellValue::Text(parts.join(&delimiter)))
+        }
 
         // ===== LOOKUP =====
         "VLOOKUP" => {
@@ -1748,6 +1869,196 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             Ok(CellValue::Text(unique_strs.join(",")))
         }
 
+        // ===== LOOKUP HELPERS =====
+        "ROW" => {
+            // ROW([reference]) — return the 1-based row number of a reference
+            if args.is_empty() {
+                return Ok(CellValue::Number(1.0));
+            }
+            match &args[0] {
+                FuncArg::Value(CellValue::Text(s)) => {
+                    if s.is_empty() {
+                        Ok(CellValue::Number(1.0))
+                    } else {
+                        match parse_cell_ref(s) {
+                            Ok(cr) => Ok(CellValue::Number((cr.row + 1) as f64)),
+                            Err(_) => Ok(CellValue::Error(CellError::Value)),
+                        }
+                    }
+                }
+                FuncArg::Value(CellValue::Empty) => Ok(CellValue::Number(1.0)),
+                FuncArg::Range(start, _end) => {
+                    let cr = parse_cell_ref(start)?;
+                    Ok(CellValue::Number((cr.row + 1) as f64))
+                }
+                FuncArg::SheetRange(_, start, _) => {
+                    let cr = parse_cell_ref(start)?;
+                    Ok(CellValue::Number((cr.row + 1) as f64))
+                }
+                _ => Ok(CellValue::Number(1.0)),
+            }
+        }
+        "COLUMN" => {
+            // COLUMN([reference]) — return the 1-based column number
+            if args.is_empty() {
+                return Ok(CellValue::Number(1.0));
+            }
+            match &args[0] {
+                FuncArg::Value(CellValue::Text(s)) => match parse_cell_ref(s) {
+                    Ok(cr) => Ok(CellValue::Number((cr.col + 1) as f64)),
+                    Err(_) => Ok(CellValue::Error(CellError::Value)),
+                },
+                FuncArg::Range(start, _end) => {
+                    let cr = parse_cell_ref(start)?;
+                    Ok(CellValue::Number((cr.col + 1) as f64))
+                }
+                FuncArg::SheetRange(_, start, _) => {
+                    let cr = parse_cell_ref(start)?;
+                    Ok(CellValue::Number((cr.col + 1) as f64))
+                }
+                _ => Ok(CellValue::Number(1.0)),
+            }
+        }
+        "ROWS" => {
+            // ROWS(range) — count rows in a range
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "ROWS requires exactly 1 argument".into(),
+                ));
+            }
+            match &args[0] {
+                FuncArg::Range(start, end) | FuncArg::SheetRange(_, start, end) => {
+                    let s = parse_cell_ref(start)?;
+                    let e = parse_cell_ref(end)?;
+                    let rows = (s.row.max(e.row) - s.row.min(e.row)) + 1;
+                    Ok(CellValue::Number(rows as f64))
+                }
+                _ => Ok(CellValue::Number(1.0)),
+            }
+        }
+        "COLUMNS" => {
+            // COLUMNS(range) — count columns in a range
+            if args.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "COLUMNS requires exactly 1 argument".into(),
+                ));
+            }
+            match &args[0] {
+                FuncArg::Range(start, end) | FuncArg::SheetRange(_, start, end) => {
+                    let s = parse_cell_ref(start)?;
+                    let e = parse_cell_ref(end)?;
+                    let cols = (s.col.max(e.col) - s.col.min(e.col)) + 1;
+                    Ok(CellValue::Number(cols as f64))
+                }
+                _ => Ok(CellValue::Number(1.0)),
+            }
+        }
+        "INDIRECT" => {
+            // INDIRECT(ref_string) — resolve a string as a cell reference
+            let a = require_args(&args, 1, "INDIRECT")?;
+            let ref_str = coerce_to_string(&a[0]);
+            if ref_str.is_empty() {
+                return Ok(CellValue::Error(CellError::Ref));
+            }
+            // Check for cross-sheet reference (Sheet1!A1)
+            if let Some(idx) = ref_str.find('!') {
+                let sheet_name = ref_str[..idx].trim_matches('\'').to_string();
+                let cell_ref_str = &ref_str[idx + 1..];
+                match parse_cell_ref(cell_ref_str) {
+                    Ok(cr) => ctx.resolve_cross_sheet(&sheet_name, cr.row, cr.col),
+                    Err(_) => Ok(CellValue::Error(CellError::Ref)),
+                }
+            } else {
+                match parse_cell_ref(&ref_str) {
+                    Ok(cr) => match ctx.sheet.get_cell(cr.row, cr.col) {
+                        Some(cell) => Ok(cell.value.clone()),
+                        None => Ok(CellValue::Empty),
+                    },
+                    Err(_) => Ok(CellValue::Error(CellError::Ref)),
+                }
+            }
+        }
+        "OFFSET" => {
+            // OFFSET(ref, rows, cols, [height], [width])
+            // Returns the value at the offset reference (or array if height/width > 1).
+            if args.len() < 3 || args.len() > 5 {
+                return Err(LatticeError::FormulaError(
+                    "OFFSET requires 3 to 5 arguments".into(),
+                ));
+            }
+            let (base_row, base_col) = match &args[0] {
+                FuncArg::Range(start, _) | FuncArg::SheetRange(_, start, _) => {
+                    let cr = parse_cell_ref(start)?;
+                    (cr.row as i64, cr.col as i64)
+                }
+                FuncArg::Value(_) => {
+                    // Single cell ref was already resolved to a value;
+                    // we cannot recover original ref, so default to (0,0).
+                    (0i64, 0i64)
+                }
+            };
+            let row_offset = match &args[1] {
+                FuncArg::Value(v) => coerce_to_number(v)? as i64,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "OFFSET: rows argument must be a number".into(),
+                    ));
+                }
+            };
+            let col_offset = match &args[2] {
+                FuncArg::Value(v) => coerce_to_number(v)? as i64,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "OFFSET: cols argument must be a number".into(),
+                    ));
+                }
+            };
+            let target_row = base_row + row_offset;
+            let target_col = base_col + col_offset;
+            if target_row < 0 || target_col < 0 {
+                return Ok(CellValue::Error(CellError::Ref));
+            }
+            let r = target_row as u32;
+            let c = target_col as u32;
+
+            let height = if args.len() > 3 {
+                match &args[3] {
+                    FuncArg::Value(v) => coerce_to_number(v)? as u32,
+                    _ => 1,
+                }
+            } else {
+                1
+            };
+            let width = if args.len() > 4 {
+                match &args[4] {
+                    FuncArg::Value(v) => coerce_to_number(v)? as u32,
+                    _ => 1,
+                }
+            } else {
+                1
+            };
+
+            if height == 1 && width == 1 {
+                match ctx.sheet.get_cell(r, c) {
+                    Some(cell) => Ok(cell.value.clone()),
+                    None => Ok(CellValue::Empty),
+                }
+            } else {
+                let mut rows = Vec::new();
+                for ri in 0..height {
+                    let mut row = Vec::new();
+                    for ci in 0..width {
+                        match ctx.sheet.get_cell(r + ri, c + ci) {
+                            Some(cell) => row.push(cell.value.clone()),
+                            None => row.push(CellValue::Empty),
+                        }
+                    }
+                    rows.push(row);
+                }
+                Ok(CellValue::Array(rows))
+            }
+        }
+
         // ===== DATE =====
         "TODAY" => {
             // Return a date string in YYYY-MM-DD format
@@ -1967,6 +2278,43 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             // Excel serial date: days since 1900-01-01 (simplified)
             let days = (parts[0] - 1900) * 365 + (parts[1] - 1) * 30 + parts[2];
             Ok(CellValue::Number(days as f64))
+        }
+        "WEEKNUM" => {
+            // WEEKNUM(date, [type]) — week number of the year
+            // Simplified: uses ISO-like week calculation (type 1: Sunday start)
+            let a = require_min_args(&args, 1, "WEEKNUM")?;
+            let s = coerce_to_string(&a[0]);
+            let parts: Vec<i32> = s
+                .split(|c: char| c == '-' || c == '/')
+                .filter_map(|p| p.parse().ok())
+                .collect();
+            if parts.len() < 3 {
+                return Ok(CellValue::Error(CellError::Value));
+            }
+            // Calculate day-of-year
+            let year = parts[0];
+            let month = parts[1] as u32;
+            let day = parts[2] as u32;
+            let mut day_of_year = day;
+            for m in 1..month {
+                day_of_year += days_in_month(year, m);
+            }
+            // Day of week for Jan 1 of this year
+            let jan1_dow = day_of_week(year, 1, 1); // 1=Sun..7=Sat
+            // Week number = ceil((day_of_year + jan1_dow - 1) / 7)
+            let week_num = ((day_of_year + jan1_dow - 1) as f64 / 7.0).ceil() as i32;
+            Ok(CellValue::Number(week_num as f64))
+        }
+        "TIME" => {
+            // TIME(hour, minute, second) — create a time serial number
+            // In spreadsheets, time is represented as a fraction of a day.
+            let a = require_args(&args, 3, "TIME")?;
+            let hour = coerce_to_number(&a[0])?;
+            let minute = coerce_to_number(&a[1])?;
+            let second = coerce_to_number(&a[2])?;
+            let total_seconds = hour * 3600.0 + minute * 60.0 + second;
+            let fraction = total_seconds / 86400.0; // 86400 seconds in a day
+            Ok(CellValue::Number(fraction))
         }
 
         // ===== INFO =====
@@ -2528,6 +2876,68 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             };
             let parsed = query::parse_query(&query_str)?;
             query_exec::execute_query(&data, &parsed, headers)
+        }
+
+        // ===== SPARKLINE =====
+        "SPARKLINE" => {
+            // SPARKLINE(range) or SPARKLINE(range, "type")
+            // Returns a CellValue::Text in the format "sparkline:type:v1,v2,..."
+            // that the frontend can detect and render as a mini chart.
+            if args.is_empty() || args.len() > 2 {
+                return Err(LatticeError::FormulaError(
+                    "SPARKLINE requires 1 or 2 arguments".into(),
+                ));
+            }
+
+            // Determine chart type from optional second argument.
+            let chart_type = if args.len() == 2 {
+                match &args[1] {
+                    FuncArg::Value(v) => {
+                        let t = coerce_to_string(v).to_lowercase();
+                        match t.as_str() {
+                            "bar" | "column" | "winloss" => t,
+                            "line" => "line".to_string(),
+                            _ => "line".to_string(),
+                        }
+                    }
+                    _ => "line".to_string(),
+                }
+            } else {
+                "line".to_string()
+            };
+
+            // Collect numeric values from the first argument (range).
+            let values: Vec<f64> = match &args[0] {
+                FuncArg::Range(start, end) => {
+                    resolve_range_numbers(start, end, ctx.sheet)?
+                }
+                FuncArg::SheetRange(sheet_name, start, end) => {
+                    let vals = resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?;
+                    vals.iter()
+                        .filter_map(|v| match v {
+                            CellValue::Number(n) => Some(*n),
+                            _ => None,
+                        })
+                        .collect()
+                }
+                FuncArg::Value(v) => {
+                    let n = coerce_to_number(v)?;
+                    vec![n]
+                }
+            };
+
+            let vals_str: Vec<String> = values.iter().map(|n| {
+                if *n == n.floor() && n.abs() < 1e15 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{n}")
+                }
+            }).collect();
+            Ok(CellValue::Text(format!(
+                "sparkline:{}:{}",
+                chart_type,
+                vals_str.join(",")
+            )))
         }
 
         _ => Err(LatticeError::FormulaError(format!(
@@ -4041,5 +4451,376 @@ mod tests {
         // Too many arguments
         let result = evaluator.evaluate(r#"IMPORTRANGE("a", "b", "c")"#, &sheet);
         assert!(result.is_err());
+    }
+
+    // ===== SPARKLINE =====
+
+    #[test]
+    fn test_sparkline_default_line() {
+        let sheet = make_sheet_with_column(&[1.0, 2.0, 3.0, 4.0, 5.0]);
+        let result = eval("SPARKLINE(A1:A5)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:line:1,2,3,4,5".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_bar_type() {
+        let sheet = make_sheet_with_column(&[10.0, 20.0, 30.0]);
+        let result = eval(r#"SPARKLINE(A1:A3, "bar")"#, &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:bar:10,20,30".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_column_type() {
+        let sheet = make_sheet_with_column(&[5.0, 15.0]);
+        let result = eval(r#"SPARKLINE(A1:A2, "column")"#, &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:column:5,15".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_winloss_type() {
+        let sheet = make_sheet_with_column(&[1.0, -1.0, 1.0]);
+        let result = eval(r#"SPARKLINE(A1:A3, "winloss")"#, &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:winloss:1,-1,1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_unknown_type_defaults_to_line() {
+        let sheet = make_sheet_with_column(&[1.0, 2.0]);
+        let result = eval(r#"SPARKLINE(A1:A2, "unknown")"#, &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:line:1,2".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_single_value() {
+        let sheet = make_sheet_with_column(&[42.0]);
+        let result = eval("SPARKLINE(A1:A1)", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Text("sparkline:line:42".to_string())
+        );
+    }
+
+    #[test]
+    fn test_sparkline_wrong_arg_count() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("SPARKLINE()", &sheet);
+        assert!(result.is_err());
+    }
+
+    // ===== CLEAN, CHAR, CODE =====
+
+    #[test]
+    fn test_clean() {
+        let mut sheet = Sheet::new("T");
+        // Put text with control characters into a cell
+        sheet.set_value(0, 0, CellValue::Text("hello\x07\x00world".to_string()));
+        let result = eval("CLEAN(A1)", &sheet);
+        assert_eq!(result, CellValue::Text("helloworld".to_string()));
+    }
+
+    #[test]
+    fn test_clean_no_control_chars() {
+        let sheet = Sheet::new("T");
+        let result = eval(r#"CLEAN("normal text")"#, &sheet);
+        assert_eq!(result, CellValue::Text("normal text".to_string()));
+    }
+
+    #[test]
+    fn test_char() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("CHAR(65)", &sheet), CellValue::Text("A".to_string()));
+        assert_eq!(eval("CHAR(97)", &sheet), CellValue::Text("a".to_string()));
+        assert_eq!(eval("CHAR(49)", &sheet), CellValue::Text("1".to_string()));
+    }
+
+    #[test]
+    fn test_code() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval(r#"CODE("A")"#, &sheet), CellValue::Number(65.0));
+        assert_eq!(eval(r#"CODE("abc")"#, &sheet), CellValue::Number(97.0));
+    }
+
+    #[test]
+    fn test_code_empty_string() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval(r#"CODE("")"#, &sheet), CellValue::Error(CellError::Value));
+    }
+
+    // ===== FIXED =====
+
+    #[test]
+    fn test_fixed_default() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("FIXED(1234.567)", &sheet),
+            CellValue::Text("1,234.57".to_string())
+        );
+    }
+
+    #[test]
+    fn test_fixed_custom_decimals() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("FIXED(1234.567, 1)", &sheet),
+            CellValue::Text("1,234.6".to_string())
+        );
+    }
+
+    #[test]
+    fn test_fixed_no_commas() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval("FIXED(1234.567, 2, TRUE)", &sheet),
+            CellValue::Text("1234.57".to_string())
+        );
+    }
+
+    // ===== SPLIT =====
+
+    #[test]
+    fn test_split() {
+        let sheet = Sheet::new("T");
+        let result = eval(r#"SPLIT("a,b,c", ",")"#, &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].len(), 3);
+            assert_eq!(rows[0][0], CellValue::Text("a".to_string()));
+            assert_eq!(rows[0][1], CellValue::Text("b".to_string()));
+            assert_eq!(rows[0][2], CellValue::Text("c".to_string()));
+        } else {
+            panic!("expected Array from SPLIT");
+        }
+    }
+
+    #[test]
+    fn test_split_empty_delimiter() {
+        let sheet = Sheet::new("T");
+        let result = eval(r#"SPLIT("abc", "")"#, &sheet);
+        assert_eq!(result, CellValue::Error(CellError::Value));
+    }
+
+    // ===== JOIN =====
+
+    #[test]
+    fn test_join() {
+        let sheet = make_sheet_with_column(&[1.0, 2.0, 3.0]);
+        let result = eval(r#"JOIN("-", A1:A3)"#, &sheet);
+        assert_eq!(result, CellValue::Text("1-2-3".to_string()));
+    }
+
+    // ===== TEXTJOIN =====
+
+    #[test]
+    fn test_textjoin() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("a".into()));
+        sheet.set_value(1, 0, CellValue::Empty);
+        sheet.set_value(2, 0, CellValue::Text("c".into()));
+        // ignore_empty = TRUE
+        let result = eval(r#"TEXTJOIN(",", TRUE, A1:A3)"#, &sheet);
+        assert_eq!(result, CellValue::Text("a,c".to_string()));
+    }
+
+    #[test]
+    fn test_textjoin_keep_empty() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Text("a".into()));
+        sheet.set_value(1, 0, CellValue::Empty);
+        sheet.set_value(2, 0, CellValue::Text("c".into()));
+        // ignore_empty = FALSE
+        let result = eval(r#"TEXTJOIN(",", FALSE, A1:A3)"#, &sheet);
+        assert_eq!(result, CellValue::Text("a,,c".to_string()));
+    }
+
+    // ===== WEEKNUM =====
+
+    #[test]
+    fn test_weeknum() {
+        let sheet = Sheet::new("T");
+        // January 1, 2024 is a Monday => week 1
+        let result = eval(r#"WEEKNUM("2024-01-01")"#, &sheet);
+        if let CellValue::Number(n) = result {
+            assert!(n >= 1.0);
+        } else {
+            panic!("expected Number from WEEKNUM");
+        }
+    }
+
+    #[test]
+    fn test_weeknum_mid_year() {
+        let sheet = Sheet::new("T");
+        let result = eval(r#"WEEKNUM("2024-06-15")"#, &sheet);
+        if let CellValue::Number(n) = result {
+            assert!(n > 20.0 && n < 30.0);
+        } else {
+            panic!("expected Number from WEEKNUM");
+        }
+    }
+
+    #[test]
+    fn test_weeknum_invalid() {
+        let sheet = Sheet::new("T");
+        let result = eval(r#"WEEKNUM("invalid")"#, &sheet);
+        assert_eq!(result, CellValue::Error(CellError::Value));
+    }
+
+    // ===== TIME =====
+
+    #[test]
+    fn test_time() {
+        let sheet = Sheet::new("T");
+        let result = eval("TIME(12, 0, 0)", &sheet);
+        assert_eq!(result, CellValue::Number(0.5));
+    }
+
+    #[test]
+    fn test_time_midnight() {
+        let sheet = Sheet::new("T");
+        let result = eval("TIME(0, 0, 0)", &sheet);
+        assert_eq!(result, CellValue::Number(0.0));
+    }
+
+    #[test]
+    fn test_time_6am() {
+        let sheet = Sheet::new("T");
+        let result = eval("TIME(6, 0, 0)", &sheet);
+        assert_eq!(result, CellValue::Number(0.25));
+    }
+
+    // ===== ROW / COLUMN =====
+
+    #[test]
+    fn test_row_with_range() {
+        let sheet = make_sheet_with_column(&[1.0, 2.0, 3.0]);
+        let result = eval("ROW(A3:A3)", &sheet);
+        assert_eq!(result, CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn test_row_no_args() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("ROW()", &sheet), CellValue::Number(1.0));
+    }
+
+    #[test]
+    fn test_column_with_range() {
+        let sheet = Sheet::new("T");
+        let result = eval("COLUMN(C1:C1)", &sheet);
+        assert_eq!(result, CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn test_column_no_args() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("COLUMN()", &sheet), CellValue::Number(1.0));
+    }
+
+    // ===== ROWS / COLUMNS =====
+
+    #[test]
+    fn test_rows() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("ROWS(A1:A5)", &sheet), CellValue::Number(5.0));
+    }
+
+    #[test]
+    fn test_columns() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("COLUMNS(A1:D1)", &sheet), CellValue::Number(4.0));
+    }
+
+    #[test]
+    fn test_rows_single_cell() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("ROWS(B3:B3)", &sheet), CellValue::Number(1.0));
+    }
+
+    #[test]
+    fn test_columns_rect() {
+        let sheet = Sheet::new("T");
+        assert_eq!(eval("COLUMNS(A1:C5)", &sheet), CellValue::Number(3.0));
+    }
+
+    // ===== INDIRECT =====
+
+    #[test]
+    fn test_indirect() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(42.0));
+        let result = eval(r#"INDIRECT("A1")"#, &sheet);
+        assert_eq!(result, CellValue::Number(42.0));
+    }
+
+    #[test]
+    fn test_indirect_empty_ref() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"INDIRECT("")"#, &sheet),
+            CellValue::Error(CellError::Ref)
+        );
+    }
+
+    #[test]
+    fn test_indirect_invalid_ref() {
+        let sheet = Sheet::new("T");
+        assert_eq!(
+            eval(r#"INDIRECT("not a ref")"#, &sheet),
+            CellValue::Error(CellError::Ref)
+        );
+    }
+
+    // ===== OFFSET =====
+
+    #[test]
+    fn test_offset() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        let result = eval("OFFSET(A1:A1, 2, 0)", &sheet);
+        assert_eq!(result, CellValue::Number(3.0));
+    }
+
+    #[test]
+    fn test_offset_negative() {
+        let sheet = Sheet::new("T");
+        let result = eval("OFFSET(A1:A1, -1, 0)", &sheet);
+        assert_eq!(result, CellValue::Error(CellError::Ref));
+    }
+
+    #[test]
+    fn test_offset_with_dimensions() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+        let result = eval("OFFSET(A1:A1, 0, 0, 2, 2)", &sheet);
+        if let CellValue::Array(rows) = result {
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].len(), 2);
+            assert_eq!(rows[0][0], CellValue::Number(1.0));
+            assert_eq!(rows[0][1], CellValue::Number(2.0));
+            assert_eq!(rows[1][0], CellValue::Number(3.0));
+            assert_eq!(rows[1][1], CellValue::Number(4.0));
+        } else {
+            panic!("expected Array from OFFSET with dimensions");
+        }
     }
 }
