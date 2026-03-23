@@ -1462,6 +1462,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const y = HEADER_HEIGHT + getRowY(row) - sy;
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
+        // Skip hidden columns
+        if (hiddenCols.has(col)) continue;
         const cell = cellCache.get(`${row}:${col}`);
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
@@ -1759,6 +1761,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let c = 0; c < colCount; c++) {
       const col = startCol + c;
+      // Skip hidden columns
+      if (hiddenCols.has(col)) continue;
       const cw = getColWidth(col);
       const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
       const cellRight = x + cw;
@@ -1797,6 +1801,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.lineTo(arrowX + 3.5, arrowY + 4);
         ctx.closePath();
         ctx.fill();
+      }
+
+      // Draw hidden-column indicator: double line at left edge if previous col is hidden
+      if (col > 0 && hiddenCols.has(col - 1) && !hiddenCols.has(col)) {
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) - 1, 0);
+        ctx.lineTo(Math.round(x) - 1, HEADER_HEIGHT);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) + 2, 0);
+        ctx.lineTo(Math.round(x) + 2, HEADER_HEIGHT);
+        ctx.stroke();
+        ctx.lineWidth = 1;
       }
     }
   }
@@ -1845,6 +1864,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.fillStyle = COLORS.headerText;
       }
       ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + rh / 2);
+
+      // Draw hidden-row indicator: double line at top edge if previous row is hidden
+      if (row > 0 && hiddenRows.has(row - 1) && !hiddenRows.has(row)) {
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(y) - 1);
+        ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(y) - 1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(y) + 2);
+        ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(y) + 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
     }
   }
 
