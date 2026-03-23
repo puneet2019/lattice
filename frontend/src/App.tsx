@@ -17,6 +17,7 @@ import FormatCellsDialog from './components/FormatCellsDialog';
 import DataValidationDialog from './components/DataValidationDialog';
 import FilterDropdown from './components/FilterDropdown';
 import ConditionalFormatDialog from './components/ConditionalFormatDialog';
+import SortDialog from './components/SortDialog';
 import {
   listSheets,
   addSheet,
@@ -646,6 +647,7 @@ const App: Component = () => {
   const [showFormatCells, setShowFormatCells] = createSignal(false);
   const [showDataValidation, setShowDataValidation] = createSignal(false);
   const [showConditionalFormat, setShowConditionalFormat] = createSignal(false);
+  const [showSortDialog, setShowSortDialog] = createSignal(false);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
 
@@ -777,6 +779,7 @@ const App: Component = () => {
           filterStartCol={filterInfo()?.start_col}
           filterEndCol={filterInfo()?.end_col}
           onFilterColumnClick={handleFilterColumnClick}
+          onSortDialogOpen={() => setShowSortDialog(true)}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -840,6 +843,16 @@ const App: Component = () => {
           onClose={() => setShowConditionalFormat(false)}
           onStatusChange={setStatusMessage}
           onRefresh={() => setRefreshTrigger((n) => n + 1)}
+        />
+      </Show>
+      <Show when={showSortDialog()}>
+        <SortDialog
+          activeSheet={activeSheetName()}
+          defaultCol={selectedCell()[1]}
+          maxCol={25}
+          onClose={() => setShowSortDialog(false)}
+          onSorted={() => setRefreshTrigger((n) => n + 1)}
+          onStatusChange={setStatusMessage}
         />
       </Show>
       <Show when={showPasteSpecial()}>
