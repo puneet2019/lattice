@@ -20,6 +20,7 @@ import FilterDropdown from './components/FilterDropdown';
 import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import SortDialog from './components/SortDialog';
 import NamedRangesDialog from './components/NamedRangesDialog';
+import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -524,6 +525,22 @@ const App: Component = () => {
     // Refresh merged regions and banded rows for the new sheet
     void refreshMergedRegions();
     void refreshBandedRows();
+  };
+
+  const handleNextSheet = () => {
+    const list = sheets();
+    const idx = list.indexOf(activeSheetName());
+    if (idx < list.length - 1) {
+      void handleSelectSheet(list[idx + 1]);
+    }
+  };
+
+  const handlePrevSheet = () => {
+    const list = sheets();
+    const idx = list.indexOf(activeSheetName());
+    if (idx > 0) {
+      void handleSelectSheet(list[idx - 1]);
+    }
   };
 
   const handleAddSheet = async () => {
@@ -1106,6 +1123,7 @@ const App: Component = () => {
   const [namedRanges, setNamedRanges] = createSignal<NamedRangeInfo[]>([]);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1249,6 +1267,9 @@ const App: Component = () => {
           showGridlines={showGridlines()}
           mergedRegions={mergedRegions()}
           bandedRows={bandedRows()}
+          onNextSheet={handleNextSheet}
+          onPrevSheet={handlePrevSheet}
+          onKeyboardShortcutsOpen={() => setShowKeyboardShortcuts(true)}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -1347,6 +1368,9 @@ const App: Component = () => {
           onPaste={handlePasteSpecialPaste}
           onClose={handlePasteSpecialClose}
         />
+      </Show>
+      <Show when={showKeyboardShortcuts()}>
+        <KeyboardShortcutsDialog onClose={() => setShowKeyboardShortcuts(false)} />
       </Show>
       <SheetTabs
         sheets={sheets()}

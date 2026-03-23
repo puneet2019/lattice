@@ -150,13 +150,14 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
 
   return (
     <div class={`formula-bar ${expanded() ? 'formula-bar-expanded' : ''}`}>
-      <div class="formula-bar-cell-ref" onClick={handleNameBoxClick} style={{ position: 'relative' }}>
+      <div class="formula-bar-cell-ref" onClick={handleNameBoxClick} style={{ position: 'relative' }} aria-label="Cell reference">
         {nameBoxEditing() ? (
           <>
             <input
               ref={nameBoxRef}
               class="formula-bar-name-input"
               type="text"
+              aria-label="Cell reference"
               value={nameBoxValue()}
               onInput={(e) => handleNameBoxInput(e.currentTarget.value)}
               onKeyDown={handleNameBoxKeyDown}
@@ -220,6 +221,7 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
       <textarea
         ref={textareaRef}
         class="formula-bar-input"
+        aria-label="Formula bar"
         rows={1}
         value={localValue()}
         onInput={(e) => handleInput(e.currentTarget.value)}

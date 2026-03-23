@@ -22,7 +22,7 @@ const StatusBar: Component<StatusBarProps> = (props) => {
   const zoomPercent = () => Math.round(props.zoom * 100);
 
   return (
-    <div class="status-bar">
+    <div class="status-bar" role="status" aria-label="Status bar">
       <div class="status-bar-left">
         <span class={`status-mode ${props.mode === 'Edit' ? 'editing' : ''}`}>
           {props.mode}

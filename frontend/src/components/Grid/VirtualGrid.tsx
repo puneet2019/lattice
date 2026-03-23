@@ -175,6 +175,12 @@ export interface VirtualGridProps {
   mergedRegions?: MergedRegionData[];
   /** Banded (alternating) row configuration for the active sheet. */
   bandedRows?: BandedRowsData | null;
+  /** Called when the user presses Option+Down to switch to the next sheet tab. */
+  onNextSheet?: () => void;
+  /** Called when the user presses Option+Up to switch to the previous sheet tab. */
+  onPrevSheet?: () => void;
+  /** Called when the user presses Cmd+/ to open the keyboard shortcuts help dialog. */
+  onKeyboardShortcutsOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,10 +215,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [selectedCol, setSelectedCol] = createSignal(0);
   const [rangeAnchor, setRangeAnchor] = createSignal<[number, number] | null>(null);
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
-
-  // Multi-range selection (Cmd+Click): additional non-contiguous ranges
-  type SelectionRange = { minRow: number; minCol: number; maxRow: number; maxCol: number };
-  const [multiRanges, setMultiRanges] = createSignal<SelectionRange[]>([]);
 
   // Marching ants (copy indicator) state
   let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
@@ -952,6 +954,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // Alt+Enter (Option+Enter): insert newline in cell and enable text wrap
+    if (e.key === 'Enter' && e.altKey) {
+      e.preventDefault();
+      if (editorRef) {
+        const pos = editorRef.selectionStart ?? editValue().length;
+        const val = editValue();
+        const newVal = val.slice(0, pos) + '\n' + val.slice(pos);
+        setEditValue(newVal);
+        props.onContentChange(newVal);
+        // Enable text wrap for this cell
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { text_wrap: 'Wrap' })
+          .catch(() => {});
+        // Restore cursor position after the inserted newline
+        requestAnimationFrame(() => {
+          if (editorRef) {
+            editorRef.setSelectionRange(pos + 1, pos + 1);
+          }
+        });
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       // Cmd+Enter: fill ALL cells in the current selection with edited value
       e.preventDefault();
@@ -1468,17 +1493,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     };
   }
 
-  /** Compute selection summary (Sum, Average, Count) and notify parent.
-   *  Aggregates across all multi-ranges plus the active range. */
+  /** Compute selection summary (Sum, Average, Count) and notify parent. */
   function updateSelectionSummary() {
     if (!props.onSelectionSummary) return;
     const range = getSelectionRange();
-    const extras = multiRanges();
-    const allRanges = [...extras, range];
-    const hasMultiCell = allRanges.some(
-      r => r.minRow !== r.maxRow || r.minCol !== r.maxCol
-    ) || extras.length > 0;
-    if (!hasMultiCell) {
+    const isMulti = range.minRow !== range.maxRow || range.minCol !== range.maxCol;
+    if (!isMulti) {
       props.onSelectionSummary('');
       return;
     }
@@ -1489,24 +1509,17 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     let minVal = Infinity;
     let maxVal = -Infinity;
 
-    // Use a set to avoid double-counting cells that appear in overlapping ranges
-    const visited = new Set<string>();
-    for (const rng of allRanges) {
-      for (let r = rng.minRow; r <= rng.maxRow; r++) {
-        for (let c = rng.minCol; c <= rng.maxCol; c++) {
-          const key = `${r}:${c}`;
-          if (visited.has(key)) continue;
-          visited.add(key);
-          const cell = cellCache.get(key);
-          if (cell && cell.value && cell.value.trim() !== '') {
-            count++;
-            const num = Number(cell.value);
-            if (!isNaN(num)) {
-              sum += num;
-              numericCount++;
-              if (num < minVal) minVal = num;
-              if (num > maxVal) maxVal = num;
-            }
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        const cell = cellCache.get(`${r}:${c}`);
+        if (cell && cell.value && cell.value.trim() !== '') {
+          count++;
+          const num = Number(cell.value);
+          if (!isNaN(num)) {
+            sum += num;
+            numericCount++;
+            if (num < minVal) minVal = num;
+            if (num > maxVal) maxVal = num;
           }
         }
       }
@@ -1525,14 +1538,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function isColInSelection(col: number): boolean {
     const { minCol, maxCol } = getSelectionRange();
-    if (col >= minCol && col <= maxCol) return true;
-    return multiRanges().some(r => col >= r.minCol && col <= r.maxCol);
+    return col >= minCol && col <= maxCol;
   }
 
   function isRowInSelection(row: number): boolean {
     const { minRow, maxRow } = getSelectionRange();
-    if (row >= minRow && row <= maxRow) return true;
-    return multiRanges().some(r => row >= r.minRow && row <= r.maxRow);
+    return row >= minRow && row <= maxRow;
   }
 
   // Fill handle constants
@@ -1559,21 +1570,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.setLineDash([]);
         ctx.lineWidth = 1;
       }
-    }
-
-    // Draw multi-range selections (Cmd+Click additional ranges)
-    const extraRanges = multiRanges();
-    for (const mr of extraRanges) {
-      const mrx = ROW_NUMBER_WIDTH + getColX(mr.minCol) - sx;
-      const mry = HEADER_HEIGHT + getRowY(mr.minRow) - sy;
-      const mrw = getColX(mr.maxCol + 1) - getColX(mr.minCol);
-      const mrh = getRowY(mr.maxRow + 1) - getRowY(mr.minRow);
-      ctx.fillStyle = COLORS.selectionBg;
-      ctx.fillRect(mrx, mry, mrw, mrh);
-      ctx.strokeStyle = COLORS.selectionBorder;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(mrx, mry, mrw, mrh);
-      ctx.lineWidth = 1;
     }
 
     // Draw range fill if multi-cell selection
@@ -2883,7 +2879,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Click on corner (top-left intersection): select all cells
     if (localX < ROW_NUMBER_WIDTH && localY < HEADER_HEIGHT) {
-      setMultiRanges([]);
       setSelectedRow(0);
       setSelectedCol(0);
       setRangeAnchor([0, 0]);
@@ -2925,7 +2920,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         setRangeEnd([TOTAL_ROWS - 1, col]);
         propagateSelectionRange();
       } else {
-        setMultiRanges([]);
         setSelectedRow(0);
         setSelectedCol(col);
         setRangeAnchor([0, col]);
@@ -2955,7 +2949,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         setRangeEnd([row, TOTAL_COLS - 1]);
         propagateSelectionRange();
       } else {
-        setMultiRanges([]);
         setSelectedRow(row);
         setSelectedCol(0);
         setRangeAnchor([row, 0]);
@@ -2994,24 +2987,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       }
       setRangeEnd([hit.row, hit.col]);
       propagateSelectionRange();
-    } else if (e.metaKey) {
-      // Cmd+Click: add current range to multiRanges, start new range
-      const currentRange = getSelectionRange();
-      setMultiRanges([...multiRanges(), currentRange]);
-      setSelectedRow(hit.row);
-      setSelectedCol(hit.col);
-      setRangeAnchor([hit.row, hit.col]);
-      setRangeEnd([hit.row, hit.col]);
-      selectCell(hit.row, hit.col);
-
-      // Start drag-to-select for the new range
-      headerDragKind = null;
-      isDragging = true;
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleDragMouseUp);
     } else {
-      // Normal click: clear multiRanges
-      setMultiRanges([]);
       setSelectedRow(hit.row);
       setSelectedCol(hit.col);
       setRangeAnchor(null);
@@ -3586,52 +3562,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
-  async function ctxSetRowHeight() {
-    dismissContextMenu();
-    const row = selectedRow();
-    const current = getRowHeight(row);
-    const input = window.prompt('Set row height (pixels):', String(current));
-    if (input === null) return;
-    const h = parseInt(input, 10);
-    if (isNaN(h) || h < MIN_ROW_HEIGHT) {
-      props.onStatusChange(`Invalid row height (minimum ${MIN_ROW_HEIGHT}px)`);
-      return;
-    }
-    try {
-      await tauriSetRowHeight(props.activeSheet, row, h);
-      rowHeights.set(row, h);
-      lastFetchKey = '';
-      fetchVisibleData();
-      draw();
-      props.onStatusChange(`Row ${row + 1} height set to ${h}px`);
-    } catch {
-      props.onStatusChange('Set row height failed');
-    }
-  }
-
-  async function ctxSetColWidth() {
-    dismissContextMenu();
-    const col = selectedCol();
-    const current = getColWidth(col);
-    const input = window.prompt('Set column width (pixels):', String(current));
-    if (input === null) return;
-    const w = parseInt(input, 10);
-    if (isNaN(w) || w < MIN_COL_WIDTH) {
-      props.onStatusChange(`Invalid column width (minimum ${MIN_COL_WIDTH}px)`);
-      return;
-    }
-    try {
-      await tauriSetColWidth(props.activeSheet, col, w);
-      colWidths.set(col, w);
-      lastFetchKey = '';
-      fetchVisibleData();
-      draw();
-      props.onStatusChange(`Column ${col_to_letter(col)} width set to ${w}px`);
-    } catch {
-      props.onStatusChange('Set column width failed');
-    }
-  }
-
   // -----------------------------------------------------------------------
   // Undo / Redo
   // -----------------------------------------------------------------------
@@ -3696,11 +3626,44 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Delete/Backspace clears selected cell(s)
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Delete/Backspace clears selected cell(s) (but NOT Cmd+Backspace which scrolls)
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       clearSelectedCells();
       return;
+    }
+
+    // Cmd+Backspace: scroll to active cell (center if possible) without changing selection
+    if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      const row = selectedRow();
+      const col = selectedCol();
+      const viewW = canvasWidth() - ROW_NUMBER_WIDTH;
+      const viewH = canvasHeight() - HEADER_HEIGHT;
+      const cellLeft = getColX(col);
+      const cellTop = getRowY(row);
+      const cellW = getColWidth(col);
+      const cellH = getRowHeight(row);
+      // Center the active cell in the viewport
+      setScrollX(Math.max(0, cellLeft + cellW / 2 - viewW / 2));
+      setScrollY(Math.max(0, cellTop + cellH / 2 - viewH / 2));
+      draw();
+      props.onStatusChange('Scrolled to active cell');
+      return;
+    }
+
+    // Option+Down / Option+Up: switch sheet tabs
+    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        props.onNextSheet?.();
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        props.onPrevSheet?.();
+        return;
+      }
     }
 
     // Typing a printable character starts edit mode (clearing old content)
@@ -4120,6 +4083,43 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onStatusChange(`Font size: ${newSize}`);
         return;
       }
+      // Cmd+/: open keyboard shortcuts help dialog
+      if (e.key === '/') {
+        e.preventDefault();
+        props.onKeyboardShortcutsOpen?.();
+        return;
+      }
+      // Cmd+Shift+Home: extend selection from anchor to A1
+      if (e.key === 'Home' && e.shiftKey) {
+        e.preventDefault();
+        if (!rangeAnchor()) {
+          setRangeAnchor([selectedRow(), selectedCol()]);
+        }
+        setRangeEnd([0, 0]);
+        propagateSelectionRange();
+        ensureCellVisible(0, 0);
+        draw();
+        return;
+      }
+      // Cmd+Shift+End: extend selection from anchor to last used cell
+      if (e.key === 'End' && e.shiftKey) {
+        e.preventDefault();
+        let maxR = 0;
+        let maxC = 0;
+        cellCache.forEach((_v, key) => {
+          const [r, c] = key.split(':').map(Number);
+          if (r > maxR) maxR = r;
+          if (c > maxC) maxC = c;
+        });
+        if (!rangeAnchor()) {
+          setRangeAnchor([selectedRow(), selectedCol()]);
+        }
+        setRangeEnd([maxR, maxC]);
+        propagateSelectionRange();
+        ensureCellVisible(maxR, maxC);
+        draw();
+        return;
+      }
       // Cmd+Home: go to cell A1
       if (e.key === 'Home') {
         e.preventDefault();
@@ -4205,8 +4205,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           setRangeEnd([targetRow, targetCol]);
           propagateSelectionRange();
         } else {
-          // Cmd+Arrow: jump without selection, clear multi-ranges
-          setMultiRanges([]);
+          // Cmd+Arrow: jump without selection
           setSelectedRow(targetRow);
           setSelectedCol(targetCol);
           setRangeAnchor(null);
@@ -4338,8 +4337,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         setRangeEnd([row, col]);
         propagateSelectionRange();
       } else {
-        // Plain arrow: move active cell, clear selection and multi-ranges
-        setMultiRanges([]);
+        // Plain arrow: move active cell, clear selection
         setSelectedRow(row);
         setSelectedCol(col);
         setRangeAnchor(null);
@@ -4387,7 +4385,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     if (handled) {
       e.preventDefault();
-      setMultiRanges([]);
       setSelectedRow(row);
       setSelectedCol(col);
       setRangeAnchor(null);
@@ -4585,6 +4582,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       ref={containerRef}
       class="virtual-grid-container"
       tabIndex={0}
+      role="grid"
+      aria-label="Spreadsheet grid"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onKeyDown={handleKeyDown}
@@ -4592,7 +4591,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       onContextMenu={handleContextMenu}
       style={{ outline: 'none' }}
     >
-      <canvas ref={canvasRef} class="virtual-grid-canvas" />
+      <canvas ref={canvasRef} class="virtual-grid-canvas" aria-hidden="true" />
       <Show when={editing()}>
         <textarea
           ref={editorRef}
@@ -4687,19 +4686,95 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handleCut(); }}
+          >
+            <span>Cut</span><span class="context-menu-shortcut">{'\u2318'}X</span>
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handleCopy(); }}
+          >
+            <span>Copy</span><span class="context-menu-shortcut">{'\u2318'}C</span>
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); handlePaste(); }}
+          >
+            <span>Paste</span><span class="context-menu-shortcut">{'\u2318'}V</span>
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => { dismissContextMenu(); props.onPasteSpecialOpen?.(); }}
+          >
+            Paste special...
+          </div>
+          <div class="context-menu-separator" />
+          <div
+            class="context-menu-item"
+            onClick={() => {
+              dismissContextMenu();
+              const url = window.prompt('Enter URL:');
+              if (url) {
+                const row = selectedRow();
+                const col = selectedCol();
+                setCell(props.activeSheet, row, col, url, undefined).catch(() => {});
+                lastFetchKey = '';
+                fetchVisibleData();
+                props.onContentChange(url);
+                props.onStatusChange(`Link: ${url}`);
+              }
+            }}
+          >
+            <span>Insert link</span><span class="context-menu-shortcut">{'\u2318'}K</span>
+          </div>
+          <div
+            class="context-menu-item"
+            onClick={() => {
+              dismissContextMenu();
+              const note = window.prompt('Enter note:');
+              if (note !== null) {
+                const row = selectedRow();
+                const col = selectedCol();
+                const cell = cellCache.get(`${row}:${col}`);
+                const currentVal = cell?.value ?? '';
+                // Store note as a cell comment (append to value if needed, or just set)
+                // For now, set the note text as the cell value if cell is empty, otherwise just status
+                if (!currentVal) {
+                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
+                  lastFetchKey = '';
+                  fetchVisibleData();
+                  props.onContentChange(note);
+                }
+                props.onStatusChange(`Note: ${note}`);
+              }
+            }}
+          >
+            Insert note
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={ctxInsertRowAbove}>
+            Insert row above
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertRowBelow}>
+            Insert row below
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertColLeft}>
+            Insert column left
+          </div>
+          <div class="context-menu-item" onClick={ctxInsertColRight}>
+            Insert column right
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item destructive" onClick={ctxDeleteRow}>
+            Delete row
+          </div>
+          <div class="context-menu-item destructive" onClick={ctxDeleteCol}>
+            Delete column
+          </div>
+          <div class="context-menu-separator" />
           <Show when={ctxMenuTarget() === 'row-header'}>
-            {/* Row header context menu */}
-            <div class="context-menu-item" onClick={ctxInsertRowAbove}>
-              Insert 1 row above
-            </div>
-            <div class="context-menu-item" onClick={ctxInsertRowBelow}>
-              Insert 1 row below
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item destructive" onClick={ctxDeleteRow}>
-              Delete row
-            </div>
-            <div class="context-menu-separator" />
             <div class="context-menu-item" onClick={ctxHideRow}>
               Hide row
             </div>
@@ -4707,23 +4782,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               Unhide row
             </div>
             <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxSetRowHeight}>
-              Set row height...
-            </div>
           </Show>
           <Show when={ctxMenuTarget() === 'col-header'}>
-            {/* Column header context menu */}
-            <div class="context-menu-item" onClick={ctxInsertColLeft}>
-              Insert 1 column left
-            </div>
-            <div class="context-menu-item" onClick={ctxInsertColRight}>
-              Insert 1 column right
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item destructive" onClick={ctxDeleteCol}>
-              Delete column
-            </div>
-            <div class="context-menu-separator" />
             <div class="context-menu-item" onClick={ctxHideCol}>
               Hide column
             </div>
@@ -4731,128 +4791,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               Unhide column
             </div>
             <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxSetColWidth}>
-              Set column width...
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxSortAsc}>
-              Sort A &rarr; Z
-            </div>
-            <div class="context-menu-item" onClick={ctxSortDesc}>
-              Sort Z &rarr; A
+          </Show>
+          <div class="context-menu-item" onClick={ctxSortAsc}>
+            Sort sheet A &rarr; Z
+          </div>
+          <div class="context-menu-item" onClick={ctxSortDesc}>
+            Sort sheet Z &rarr; A
+          </div>
+          <Show when={props.onSortDialogOpen}>
+            <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onSortDialogOpen?.(); }}>
+              Custom sort...
             </div>
           </Show>
-          <Show when={ctxMenuTarget() === 'cell'}>
-            {/* Cell area context menu */}
-            <div
-              class="context-menu-item"
-              onClick={() => { dismissContextMenu(); handleCut(); }}
-            >
-              <span>Cut</span><span class="context-menu-shortcut">{'\u2318'}X</span>
-            </div>
-            <div
-              class="context-menu-item"
-              onClick={() => { dismissContextMenu(); handleCopy(); }}
-            >
-              <span>Copy</span><span class="context-menu-shortcut">{'\u2318'}C</span>
-            </div>
-            <div
-              class="context-menu-item"
-              onClick={() => { dismissContextMenu(); handlePaste(); }}
-            >
-              <span>Paste</span><span class="context-menu-shortcut">{'\u2318'}V</span>
-            </div>
-            <div
-              class="context-menu-item"
-              onClick={() => { dismissContextMenu(); props.onPasteSpecialOpen?.(); }}
-            >
-              Paste special...
-            </div>
-            <div class="context-menu-separator" />
-            <div
-              class="context-menu-item"
-              onClick={() => {
-                dismissContextMenu();
-                const url = window.prompt('Enter URL:');
-                if (url) {
-                  const row = selectedRow();
-                  const col = selectedCol();
-                  setCell(props.activeSheet, row, col, url, undefined).catch(() => {});
-                  lastFetchKey = '';
-                  fetchVisibleData();
-                  props.onContentChange(url);
-                  props.onStatusChange(`Link: ${url}`);
-                }
-              }}
-            >
-              <span>Insert link</span><span class="context-menu-shortcut">{'\u2318'}K</span>
-            </div>
-            <div
-              class="context-menu-item"
-              onClick={() => {
-                dismissContextMenu();
-                const note = window.prompt('Enter note:');
-                if (note !== null) {
-                  const row = selectedRow();
-                  const col = selectedCol();
-                  const cell = cellCache.get(`${row}:${col}`);
-                  const currentVal = cell?.value ?? '';
-                  if (!currentVal) {
-                    setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
-                    lastFetchKey = '';
-                    fetchVisibleData();
-                    props.onContentChange(note);
-                  }
-                  props.onStatusChange(`Note: ${note}`);
-                }
-              }}
-            >
-              Insert note
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxInsertRowAbove}>
-              Insert row above
-            </div>
-            <div class="context-menu-item" onClick={ctxInsertRowBelow}>
-              Insert row below
-            </div>
-            <div class="context-menu-item" onClick={ctxInsertColLeft}>
-              Insert column left
-            </div>
-            <div class="context-menu-item" onClick={ctxInsertColRight}>
-              Insert column right
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item destructive" onClick={ctxDeleteRow}>
-              Delete row
-            </div>
-            <div class="context-menu-item destructive" onClick={ctxDeleteCol}>
-              Delete column
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxSortAsc}>
-              Sort sheet A &rarr; Z
-            </div>
-            <div class="context-menu-item" onClick={ctxSortDesc}>
-              Sort sheet Z &rarr; A
-            </div>
-            <Show when={props.onSortDialogOpen}>
-              <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onSortDialogOpen?.(); }}>
-                Custom sort...
-              </div>
-            </Show>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={ctxClearContents}>
-              Clear contents
-            </div>
-            <div class="context-menu-separator" />
-            <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>
-              Format cells...
-            </div>
-            <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onDataValidationOpen?.(); }}>
-              Data validation...
-            </div>
-          </Show>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={ctxClearContents}>
+            Clear contents
+          </div>
+          <div class="context-menu-separator" />
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>
+            Format cells...
+          </div>
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onDataValidationOpen?.(); }}>
+            Data validation...
+          </div>
         </div>
       </Show>
       <Show when={validationDropdownVisible()}>

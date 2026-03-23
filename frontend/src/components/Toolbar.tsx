@@ -194,15 +194,15 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   };
 
   return (
-    <div class="toolbar" ref={toolbarRef}>
+    <div class="toolbar" ref={toolbarRef} role="toolbar" aria-label="Formatting toolbar">
       {/* Undo / Redo */}
-      <button class="toolbar-btn" title="Undo (Cmd+Z)" onClick={props.onUndo}>
+      <button class="toolbar-btn" title="Undo (Cmd+Z)" aria-label="Undo" onClick={props.onUndo}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M3 8h8a3 3 0 0 1 0 6H9" />
           <path d="M5 5L3 8l2 3" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Redo (Cmd+Shift+Z)" onClick={props.onRedo}>
+      <button class="toolbar-btn" title="Redo (Cmd+Shift+Z)" aria-label="Redo" onClick={props.onRedo}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M13 8H5a3 3 0 0 0 0 6h2" />
           <path d="M11 5l2 3-2 3" />
@@ -216,6 +216,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn toolbar-font-family-btn"
           title="Font family"
+          aria-label="Font family"
           onClick={() => { const wasOpen = showFontFamilyDropdown(); closeAllDropdowns(); if (!wasOpen) setShowFontFamilyDropdown(true); }}
         >
           {currentFamily()}
@@ -242,6 +243,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn toolbar-btn-wide"
           title="Font size"
+          aria-label="Font size"
           onClick={() => { const wasOpen = showFontSizeDropdown(); closeAllDropdowns(); if (!wasOpen) setShowFontSizeDropdown(true); }}
         >
           {currentFontSize()}
@@ -268,6 +270,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn ${props.boldActive ? 'active' : ''}`}
         title="Bold (Cmd+B)"
+        aria-label="Bold"
+        aria-pressed={props.boldActive}
         onClick={props.onBold}
       >
         <strong>B</strong>
@@ -275,6 +279,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn ${props.italicActive ? 'active' : ''}`}
         title="Italic (Cmd+I)"
+        aria-label="Italic"
+        aria-pressed={props.italicActive}
         onClick={props.onItalic}
       >
         <em>I</em>
@@ -282,6 +288,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn ${props.underlineActive ? 'active' : ''}`}
         title="Underline (Cmd+U)"
+        aria-label="Underline"
+        aria-pressed={props.underlineActive}
         onClick={props.onUnderline}
       >
         <span style={{ "text-decoration": "underline" }}>U</span>
@@ -289,6 +297,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn ${props.strikethroughActive ? 'active' : ''}`}
         title="Strikethrough (Cmd+Shift+K)"
+        aria-label="Strikethrough"
+        aria-pressed={props.strikethroughActive}
         onClick={props.onStrikethrough}
       >
         <span style={{ "text-decoration": "line-through" }}>S</span>
@@ -300,6 +310,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn ${props.paintFormatActive ? 'active' : ''}`}
         title="Paint format"
+        aria-label="Paint format"
+        aria-pressed={props.paintFormatActive}
         onClick={props.onPaintFormat}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -317,6 +329,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Text color"
+          aria-label="Text color"
           onClick={() => { const wasOpen = showFontColorPicker(); closeAllDropdowns(); if (!wasOpen) setShowFontColorPicker(true); }}
         >
           <span style={{ "border-bottom": `3px solid ${lastFontColor()}`, "line-height": "1" }}>A</span>
@@ -366,6 +379,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Fill color"
+          aria-label="Fill color"
           onClick={() => { const wasOpen = showBgColorPicker(); closeAllDropdowns(); if (!wasOpen) setShowBgColorPicker(true); }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -425,6 +439,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Borders"
+          aria-label="Borders"
           onClick={() => { const wasOpen = showBordersDropdown(); closeAllDropdowns(); if (!wasOpen) setShowBordersDropdown(true); }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -452,21 +467,21 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <div class="toolbar-separator" />
 
       {/* Alignment */}
-      <button class="toolbar-btn" title="Align left" onClick={() => props.onAlign('left')}>
+      <button class="toolbar-btn" title="Align left" aria-label="Align left" onClick={() => props.onAlign('left')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="2" y1="8" x2="10" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align center" onClick={() => props.onAlign('center')}>
+      <button class="toolbar-btn" title="Align center" aria-label="Align center" onClick={() => props.onAlign('center')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="4" y1="8" x2="12" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align right" onClick={() => props.onAlign('right')}>
+      <button class="toolbar-btn" title="Align right" aria-label="Align right" onClick={() => props.onAlign('right')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="6" y1="8" x2="14" y2="8" />
@@ -479,6 +494,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Text wrapping"
+          aria-label="Text wrapping"
           onClick={() => { const wasOpen = showTextWrapDropdown(); closeAllDropdowns(); if (!wasOpen) setShowTextWrapDropdown(true); }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -507,6 +523,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Merge cells"
+          aria-label="Merge cells"
           onClick={() => { const wasOpen = showMergeDropdown(); closeAllDropdowns(); if (!wasOpen) setShowMergeDropdown(true); }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -532,6 +549,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn"
         title="Format as currency"
+        aria-label="Format as currency"
         onClick={(e) => handleNumberFormat(e.currentTarget, '$#,##0.00')}
       >
         $
@@ -539,6 +557,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn"
         title="Format as percent"
+        aria-label="Format as percent"
         onClick={(e) => handleNumberFormat(e.currentTarget, '0%')}
       >
         %
@@ -546,6 +565,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Increase decimal places"
+        aria-label="Increase decimal places"
         onClick={(e) => handleNumberFormat(e.currentTarget, '.0+')}
         style={{ "font-size": "11px" }}
       >
@@ -554,6 +574,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Decrease decimal places"
+        aria-label="Decrease decimal places"
         onClick={(e) => handleNumberFormat(e.currentTarget, '.0-')}
         style={{ "font-size": "11px" }}
       >
@@ -566,6 +587,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn toolbar-btn-wide ${props.freezeActive ? 'active' : ''}`}
         title="Freeze panes at selection"
+        aria-label="Freeze panes"
+        aria-pressed={props.freezeActive}
         onClick={props.onFreezeToggle}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -579,6 +602,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn toolbar-btn-wide ${props.splitActive ? 'active' : ''}`}
         title="Split panes at selection"
+        aria-label="Split panes"
+        aria-pressed={props.splitActive}
         onClick={props.onSplitToggle}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -594,6 +619,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Insert chart"
+        aria-label="Insert chart"
         onClick={props.onInsertChart}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -607,6 +633,8 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class={`toolbar-btn toolbar-btn-wide ${props.filterActive ? 'active' : ''}`}
         title={props.filterActive ? 'Remove filter' : 'Create filter'}
+        aria-label={props.filterActive ? 'Remove filter' : 'Create filter'}
+        aria-pressed={props.filterActive}
         onClick={props.onFilterToggle}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -621,6 +649,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <button
         class="toolbar-btn toolbar-btn-wide"
         title="Conditional formatting"
+        aria-label="Conditional formatting"
         onClick={props.onConditionalFormat}
         style={{ "font-size": "11px" }}
       >
@@ -639,6 +668,7 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         <button
           class="toolbar-btn"
           title="Insert function"
+          aria-label="Insert function"
           onClick={() => props.onInsertFunction('SUM')}
         >
           <span style={{ "font-size": "16px", "font-weight": "bold" }}>&Sigma;</span>

@@ -147,8 +147,8 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
   });
 
   return (
-    <div class="sheet-tabs" onClick={closeContextMenu}>
-      <button class="sheet-tab-add" title="Add sheet" onClick={props.onAddSheet}>
+    <div class="sheet-tabs" onClick={closeContextMenu} role="tablist" aria-label="Sheet tabs">
+      <button class="sheet-tab-add" title="Add sheet" aria-label="Add sheet" onClick={props.onAddSheet}>
         +
       </button>
       <div class="sheet-tabs-list">
@@ -158,6 +158,9 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
             return (
               <div
                 class={`sheet-tab ${name === props.activeSheet ? 'active' : ''}`}
+                role="tab"
+                aria-selected={name === props.activeSheet}
+                aria-label={name}
                 onClick={() => {
                   if (renamingSheet() !== name) {
                     props.onSelectSheet(name);
