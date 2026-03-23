@@ -3,6 +3,7 @@
 pub mod analysis;
 pub mod cell_ops;
 pub mod chart_ops;
+pub mod conditional_format_ops;
 pub mod data_ops;
 pub mod file_ops;
 pub mod find_replace_ops;
@@ -10,6 +11,7 @@ pub mod format_ops;
 pub mod formula_ops;
 pub mod named_range_ops;
 pub mod sheet_ops;
+pub mod sparkline_ops;
 pub mod validation_ops;
 
 use serde::{Deserialize, Serialize};
@@ -113,6 +115,16 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Conditional format operations
+        for tool in conditional_format_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
+        // Sparkline operations
+        for tool in sparkline_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         reg
     }
 }
@@ -134,5 +146,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(formula_ops::tool_definitions());
     all.extend(validation_ops::tool_definitions());
     all.extend(file_ops::tool_definitions());
+    all.extend(conditional_format_ops::tool_definitions());
+    all.extend(sparkline_ops::tool_definitions());
     all
 }

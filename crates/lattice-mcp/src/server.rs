@@ -5,12 +5,12 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use tokio::sync::RwLock;
 
-use lattice_core::Workbook;
+use lattice_core::{ConditionalFormatStore, Workbook};
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, data_ops, file_ops, find_replace_ops, format_ops, formula_ops,
-    named_range_ops, sheet_ops, validation_ops,
+    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops, find_replace_ops,
+    format_ops, formula_ops, named_range_ops, sheet_ops, sparkline_ops, validation_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -26,6 +26,8 @@ const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct McpServer {
     /// The workbook being operated on, shared with potential GUI.
     workbook: Arc<RwLock<Workbook>>,
+    /// Conditional formatting store (kept separate from workbook, same as Tauri).
+    conditional_formats: Arc<RwLock<ConditionalFormatStore>>,
     /// Registry of available tools.
     tool_registry: ToolRegistry,
     /// Whether the server has been initialized.
@@ -37,6 +39,7 @@ impl McpServer {
     pub fn new(workbook: Arc<RwLock<Workbook>>) -> Self {
         Self {
             workbook,
+            conditional_formats: Arc::new(RwLock::new(ConditionalFormatStore::new())),
             tool_registry: ToolRegistry::default_registry(),
             initialized: false,
         }
@@ -254,6 +257,34 @@ impl McpServer {
                 let mut wb = self.workbook.write().await;
                 sheet_ops::handle_delete_sheet(&mut wb, arguments)
             }
+            "hide_rows" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_hide_rows(&mut wb, arguments)
+            }
+            "unhide_rows" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_unhide_rows(&mut wb, arguments)
+            }
+            "hide_cols" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_hide_cols(&mut wb, arguments)
+            }
+            "unhide_cols" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_unhide_cols(&mut wb, arguments)
+            }
+            "protect_sheet" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_protect_sheet(&mut wb, arguments)
+            }
+            "unprotect_sheet" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_unprotect_sheet(&mut wb, arguments)
+            }
+            "set_sheet_tab_color" => {
+                let mut wb = self.workbook.write().await;
+                sheet_ops::handle_set_sheet_tab_color(&mut wb, arguments)
+            }
 
             // ── Data operations ──────────────────────────────────────────
             "clear_range" => {
@@ -275,6 +306,22 @@ impl McpServer {
             "transpose" => {
                 let mut wb = self.workbook.write().await;
                 data_ops::handle_transpose(&mut wb, arguments)
+            }
+            "auto_fill" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_auto_fill(&mut wb, arguments)
+            }
+            "generate_pivot" => {
+                let wb = self.workbook.read().await;
+                data_ops::handle_generate_pivot(&wb, arguments)
+            }
+            "remove_duplicates" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_remove_duplicates(&mut wb, arguments)
+            }
+            "text_to_columns" => {
+                let mut wb = self.workbook.write().await;
+                data_ops::handle_text_to_columns(&mut wb, arguments)
             }
 
             // ── Find/replace operations (core-backed) ───────────────────
@@ -382,6 +429,34 @@ impl McpServer {
             "list_charts" => chart_ops::handle_list_charts(arguments),
             "delete_chart" => chart_ops::handle_delete_chart(arguments),
 
+            // ── Conditional format operations ─────────────────────────────
+            "add_conditional_format" => {
+                let mut cf = self.conditional_formats.write().await;
+                conditional_format_ops::handle_add_conditional_format(&mut cf, arguments)
+            }
+            "list_conditional_formats" => {
+                let cf = self.conditional_formats.read().await;
+                conditional_format_ops::handle_list_conditional_formats(&cf, arguments)
+            }
+            "remove_conditional_format" => {
+                let mut cf = self.conditional_formats.write().await;
+                conditional_format_ops::handle_remove_conditional_format(&mut cf, arguments)
+            }
+
+            // ── Sparkline operations ──────────────────────────────────────
+            "add_sparkline" => {
+                let mut wb = self.workbook.write().await;
+                sparkline_ops::handle_add_sparkline(&mut wb, arguments)
+            }
+            "remove_sparkline" => {
+                let mut wb = self.workbook.write().await;
+                sparkline_ops::handle_remove_sparkline(&mut wb, arguments)
+            }
+            "list_sparklines" => {
+                let wb = self.workbook.read().await;
+                sparkline_ops::handle_list_sparklines(&wb, arguments)
+            }
+
             // ── File operations ──────────────────────────────────────────
             "get_workbook_info" => {
                 let wb = self.workbook.read().await;
@@ -451,10 +526,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 38+ tools (all tool modules implemented).
+        // We should have 58+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 38,
-            "Expected at least 38 tools, got {}",
+            tools.len() >= 58,
+            "Expected at least 58 tools, got {}",
             tools.len()
         );
 
@@ -499,7 +574,27 @@ mod tests {
         assert!(tool_names.contains(&"get_workbook_info"));
         assert!(tool_names.contains(&"export_json"));
         assert!(tool_names.contains(&"export_csv"));
-        // merge_cells and unmerge_cells are in format_ops (not yet implemented)
+        // Data tools added for MCP coverage audit
+        assert!(tool_names.contains(&"remove_duplicates"));
+        assert!(tool_names.contains(&"text_to_columns"));
+        assert!(tool_names.contains(&"auto_fill"));
+        assert!(tool_names.contains(&"generate_pivot"));
+        // Sheet management tools
+        assert!(tool_names.contains(&"hide_rows"));
+        assert!(tool_names.contains(&"unhide_rows"));
+        assert!(tool_names.contains(&"hide_cols"));
+        assert!(tool_names.contains(&"unhide_cols"));
+        assert!(tool_names.contains(&"protect_sheet"));
+        assert!(tool_names.contains(&"unprotect_sheet"));
+        assert!(tool_names.contains(&"set_sheet_tab_color"));
+        // Conditional format tools
+        assert!(tool_names.contains(&"add_conditional_format"));
+        assert!(tool_names.contains(&"list_conditional_formats"));
+        assert!(tool_names.contains(&"remove_conditional_format"));
+        // Sparkline tools
+        assert!(tool_names.contains(&"add_sparkline"));
+        assert!(tool_names.contains(&"remove_sparkline"));
+        assert!(tool_names.contains(&"list_sparklines"));
     }
 
     #[tokio::test]

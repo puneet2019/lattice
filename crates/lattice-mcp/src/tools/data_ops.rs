@@ -5,7 +5,10 @@ use std::collections::HashSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use lattice_core::{CellRef, CellValue, Workbook, col_to_letter};
+use lattice_core::{
+    CellRef, CellValue, FillDirection, PivotAggregation, PivotConfig, PivotValue, Range, Workbook,
+    col_to_letter, fill_range, generate_pivot,
+};
 
 use super::ToolDef;
 use crate::schema::{bool_prop, object_schema, string_prop};
@@ -115,6 +118,90 @@ pub fn tool_definitions() -> Vec<ToolDef> {
                     ),
                 ],
                 &["sheet", "source_range", "target_cell"],
+            ),
+        },
+        ToolDef {
+            name: "auto_fill".to_string(),
+            description: "Detect a pattern in a source range and fill a target range with the continuation of that pattern (numeric sequences, text with numbers, repeating cycles)".to_string(),
+            input_schema: object_schema(
+                &[
+                    ("sheet", string_prop("Sheet name")),
+                    ("source_range", string_prop("Source range in A1:B2 notation containing the pattern")),
+                    ("target_range", string_prop("Target range in A1:B2 notation to fill")),
+                    ("direction", string_prop("Fill direction: 'down', 'right', 'up', or 'left'")),
+                ],
+                &["sheet", "source_range", "target_range", "direction"],
+            ),
+        },
+        ToolDef {
+            name: "generate_pivot".to_string(),
+            description: "Generate a pivot table from sheet data. Groups rows by specified fields and applies aggregation functions (sum, count, average, min, max, count_distinct) to value fields.".to_string(),
+            input_schema: object_schema(
+                &[
+                    ("sheet", string_prop("Sheet name containing the source data")),
+                    ("source_range", string_prop("Source data range in A1:B2 notation")),
+                    (
+                        "row_fields",
+                        json!({
+                            "type": "array",
+                            "description": "Column letters to group by (e.g. ['A', 'B'])",
+                            "items": {"type": "string"}
+                        }),
+                    ),
+                    (
+                        "value_fields",
+                        json!({
+                            "type": "array",
+                            "description": "Value fields with aggregation functions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "col": {"type": "string", "description": "Column letter (e.g. 'C')"},
+                                    "aggregation": {
+                                        "type": "string",
+                                        "description": "Aggregation function: 'sum', 'count', 'average', 'min', 'max', or 'count_distinct'"
+                                    }
+                                },
+                                "required": ["col", "aggregation"]
+                            }
+                        }),
+                    ),
+                ],
+                &["sheet", "source_range", "row_fields", "value_fields"],
+            ),
+        },
+        ToolDef {
+            name: "remove_duplicates".to_string(),
+            description: "Remove duplicate rows from a range based on specified columns (uses the core engine's Sheet::remove_duplicates)".to_string(),
+            input_schema: object_schema(
+                &[
+                    ("sheet", string_prop("Sheet name")),
+                    ("start_row", json!({"type": "integer", "description": "Start row (1-based, e.g. 1 for row 1)"})),
+                    ("end_row", json!({"type": "integer", "description": "End row (1-based, inclusive)"})),
+                    (
+                        "columns",
+                        json!({
+                            "type": "array",
+                            "description": "Column letters to check for duplicates (e.g. ['A', 'B'])",
+                            "items": {"type": "string"}
+                        }),
+                    ),
+                ],
+                &["sheet", "start_row", "end_row", "columns"],
+            ),
+        },
+        ToolDef {
+            name: "text_to_columns".to_string(),
+            description: "Split text in a column by a delimiter into adjacent columns (uses the core engine's Sheet::text_to_columns)".to_string(),
+            input_schema: object_schema(
+                &[
+                    ("sheet", string_prop("Sheet name")),
+                    ("col", string_prop("Column letter to split (e.g. 'A')")),
+                    ("delimiter", string_prop("Delimiter to split by (e.g. ',', '\\t', '|')")),
+                    ("start_row", json!({"type": "integer", "description": "Start row (1-based, e.g. 1 for row 1)"})),
+                    ("end_row", json!({"type": "integer", "description": "End row (1-based, inclusive)"})),
+                ],
+                &["sheet", "col", "delimiter", "start_row", "end_row"],
             ),
         },
     ]
@@ -521,6 +608,305 @@ pub fn handle_transpose(workbook: &mut Workbook, args: Value) -> Result<Value, S
     }))
 }
 
+// ── auto_fill ─────────────────────────────────────────────────────────────────
+
+/// Arguments for auto_fill.
+#[derive(Debug, Deserialize)]
+pub struct AutoFillArgs {
+    pub sheet: String,
+    pub source_range: String,
+    pub target_range: String,
+    pub direction: String,
+}
+
+/// Handle the `auto_fill` tool call.
+///
+/// Delegates to the core engine's `fill_range` function.
+pub fn handle_auto_fill(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
+    let args: AutoFillArgs =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    let (src_start, src_end) = parse_range(&args.source_range)?;
+    let (tgt_start, tgt_end) = parse_range(&args.target_range)?;
+
+    let direction = match args.direction.to_lowercase().as_str() {
+        "down" => FillDirection::Down,
+        "right" => FillDirection::Right,
+        "up" => FillDirection::Up,
+        "left" => FillDirection::Left,
+        _ => {
+            return Err(format!(
+                "Invalid direction '{}': expected 'down', 'right', 'up', or 'left'",
+                args.direction
+            ));
+        }
+    };
+
+    let source = Range {
+        start: lattice_core::CellRef {
+            row: src_start.row,
+            col: src_start.col,
+        },
+        end: lattice_core::CellRef {
+            row: src_end.row,
+            col: src_end.col,
+        },
+    };
+    let target = Range {
+        start: lattice_core::CellRef {
+            row: tgt_start.row,
+            col: tgt_start.col,
+        },
+        end: lattice_core::CellRef {
+            row: tgt_end.row,
+            col: tgt_end.col,
+        },
+    };
+
+    let sheet = workbook
+        .get_sheet_mut(&args.sheet)
+        .map_err(|e| e.to_string())?;
+
+    fill_range(sheet, &source, &target, direction);
+
+    // Count filled cells.
+    let target_rows = (tgt_end.row - tgt_start.row + 1) as u32;
+    let target_cols = (tgt_end.col - tgt_start.col + 1) as u32;
+    let cells_filled = target_rows * target_cols;
+
+    Ok(json!({
+        "success": true,
+        "source_range": args.source_range,
+        "target_range": args.target_range,
+        "direction": args.direction,
+        "cells_filled": cells_filled,
+    }))
+}
+
+// ── generate_pivot ────────────────────────────────────────────────────────────
+
+/// Arguments for generate_pivot.
+#[derive(Debug, Deserialize)]
+pub struct GeneratePivotArgs {
+    pub sheet: String,
+    pub source_range: String,
+    pub row_fields: Vec<String>,
+    pub value_fields: Vec<PivotValueArg>,
+}
+
+/// A value field spec from the MCP caller.
+#[derive(Debug, Deserialize)]
+pub struct PivotValueArg {
+    pub col: String,
+    pub aggregation: String,
+}
+
+/// Handle the `generate_pivot` tool call.
+///
+/// Delegates to the core engine's `generate_pivot` function.
+pub fn handle_generate_pivot(workbook: &Workbook, args: Value) -> Result<Value, String> {
+    let args: GeneratePivotArgs =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    let (start, end) = parse_range(&args.source_range)?;
+
+    // Convert column letters to 0-based indices relative to the source range start.
+    let row_fields: Vec<u32> = args
+        .row_fields
+        .iter()
+        .map(|letter| {
+            let cr = CellRef::parse(&format!("{}1", letter))
+                .map_err(|e| format!("Invalid row_field column '{}': {}", letter, e))?;
+            if cr.col < start.col || cr.col > end.col {
+                return Err(format!(
+                    "Row field column '{}' is outside the source range",
+                    letter
+                ));
+            }
+            Ok(cr.col - start.col)
+        })
+        .collect::<Result<Vec<u32>, String>>()?;
+
+    let value_fields: Vec<PivotValue> = args
+        .value_fields
+        .iter()
+        .map(|vf| {
+            let cr = CellRef::parse(&format!("{}1", vf.col))
+                .map_err(|e| format!("Invalid value_field column '{}': {}", vf.col, e))?;
+            if cr.col < start.col || cr.col > end.col {
+                return Err(format!(
+                    "Value field column '{}' is outside the source range",
+                    vf.col
+                ));
+            }
+            let aggregation = match vf.aggregation.to_lowercase().as_str() {
+                "sum" => PivotAggregation::Sum,
+                "count" => PivotAggregation::Count,
+                "average" | "avg" => PivotAggregation::Average,
+                "min" => PivotAggregation::Min,
+                "max" => PivotAggregation::Max,
+                "count_distinct" | "countdistinct" => PivotAggregation::CountDistinct,
+                _ => {
+                    return Err(format!(
+                        "Invalid aggregation '{}': expected sum, count, average, min, max, or count_distinct",
+                        vf.aggregation
+                    ));
+                }
+            };
+            Ok(PivotValue {
+                source_col: cr.col - start.col,
+                aggregation,
+                label: None,
+            })
+        })
+        .collect::<Result<Vec<PivotValue>, String>>()?;
+
+    let config = PivotConfig {
+        source_sheet: args.sheet.clone(),
+        source_range: Range {
+            start: lattice_core::CellRef {
+                row: start.row,
+                col: start.col,
+            },
+            end: lattice_core::CellRef {
+                row: end.row,
+                col: end.col,
+            },
+        },
+        row_fields,
+        col_fields: vec![],
+        value_fields,
+    };
+
+    let result = generate_pivot(workbook, &config).map_err(|e| e.to_string())?;
+
+    // Convert PivotResult to JSON.
+    let rows_json: Vec<Vec<Value>> = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(cell_value_to_json).collect())
+        .collect();
+
+    Ok(json!({
+        "headers": result.headers,
+        "rows": rows_json,
+        "row_count": result.rows.len(),
+    }))
+}
+
+/// Convert a CellValue to a JSON Value for output.
+fn cell_value_to_json(cv: &CellValue) -> Value {
+    match cv {
+        CellValue::Empty => Value::Null,
+        CellValue::Text(s) => json!(s),
+        CellValue::Number(n) => json!(n),
+        CellValue::Boolean(b) | CellValue::Checkbox(b) => json!(b),
+        CellValue::Error(e) => json!(e.to_string()),
+        CellValue::Date(s) => json!(s),
+        CellValue::Array(arr) => {
+            let rows: Vec<Vec<Value>> = arr
+                .iter()
+                .map(|row| row.iter().map(cell_value_to_json).collect())
+                .collect();
+            json!(rows)
+        }
+    }
+}
+
+// ── remove_duplicates ─────────────────────────────────────────────────────────
+
+/// Arguments for remove_duplicates.
+#[derive(Debug, Deserialize)]
+pub struct RemoveDuplicatesArgs {
+    pub sheet: String,
+    pub start_row: u32,
+    pub end_row: u32,
+    pub columns: Vec<String>,
+}
+
+/// Handle the `remove_duplicates` tool call.
+///
+/// Delegates to the core engine's `Sheet::remove_duplicates` method.
+pub fn handle_remove_duplicates(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
+    let args: RemoveDuplicatesArgs =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    if args.start_row == 0 || args.end_row == 0 {
+        return Err("start_row and end_row must be 1-based (minimum 1)".to_string());
+    }
+
+    // Convert 1-based user input to 0-based internal representation.
+    let start_row = args.start_row - 1;
+    let end_row = args.end_row - 1;
+
+    // Convert column letters to 0-based indices.
+    let col_indices: Vec<u32> = args
+        .columns
+        .iter()
+        .map(|letter| {
+            CellRef::parse(&format!("{}1", letter))
+                .map(|cr| cr.col)
+                .map_err(|e| format!("Invalid column '{}': {}", letter, e))
+        })
+        .collect::<Result<Vec<u32>, String>>()?;
+
+    let sheet = workbook
+        .get_sheet_mut(&args.sheet)
+        .map_err(|e| e.to_string())?;
+
+    let removed = sheet.remove_duplicates(start_row, end_row, &col_indices);
+
+    Ok(json!({
+        "success": true,
+        "rows_removed": removed,
+        "rows_remaining": (end_row - start_row + 1) - removed,
+    }))
+}
+
+// ── text_to_columns ──────────────────────────────────────────────────────────
+
+/// Arguments for text_to_columns.
+#[derive(Debug, Deserialize)]
+pub struct TextToColumnsArgs {
+    pub sheet: String,
+    pub col: String,
+    pub delimiter: String,
+    pub start_row: u32,
+    pub end_row: u32,
+}
+
+/// Handle the `text_to_columns` tool call.
+///
+/// Delegates to the core engine's `Sheet::text_to_columns` method.
+pub fn handle_text_to_columns(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
+    let args: TextToColumnsArgs =
+        serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
+
+    if args.start_row == 0 || args.end_row == 0 {
+        return Err("start_row and end_row must be 1-based (minimum 1)".to_string());
+    }
+
+    let col_ref = CellRef::parse(&format!("{}1", args.col))
+        .map_err(|e| format!("Invalid column '{}': {}", args.col, e))?;
+
+    // Convert 1-based user input to 0-based internal representation.
+    let start_row = args.start_row - 1;
+    let end_row = args.end_row - 1;
+
+    let sheet = workbook
+        .get_sheet_mut(&args.sheet)
+        .map_err(|e| e.to_string())?;
+
+    let max_columns = sheet.text_to_columns(col_ref.col, &args.delimiter, start_row, end_row);
+
+    Ok(json!({
+        "success": true,
+        "max_columns_created": max_columns,
+        "column": args.col,
+        "delimiter": args.delimiter,
+    }))
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Parse a range string like "A1:C3" into two CellRefs.
@@ -914,6 +1300,207 @@ mod tests {
             wb.get_cell("Sheet1", 2, 5).unwrap().unwrap().value,
             CellValue::Number(6.0)
         );
+    }
+
+    #[test]
+    fn test_auto_fill_numeric_sequence() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(1.0)).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Number(2.0)).unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Number(3.0)).unwrap();
+
+        let result = handle_auto_fill(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "source_range": "A1:A3",
+                "target_range": "A4:A6",
+                "direction": "down"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["success"], true);
+        assert_eq!(result["cells_filled"], 3);
+
+        // Should continue: 4, 5, 6
+        assert_eq!(
+            wb.get_cell("Sheet1", 3, 0).unwrap().unwrap().value,
+            CellValue::Number(4.0)
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 4, 0).unwrap().unwrap().value,
+            CellValue::Number(5.0)
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 5, 0).unwrap().unwrap().value,
+            CellValue::Number(6.0)
+        );
+    }
+
+    #[test]
+    fn test_auto_fill_invalid_direction() {
+        let mut wb = Workbook::new();
+        let result = handle_auto_fill(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "source_range": "A1:A1",
+                "target_range": "A2:A2",
+                "direction": "diagonal"
+            }),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_generate_pivot_basic() {
+        let mut wb = Workbook::new();
+        // Category | Amount
+        // A        | 10
+        // B        | 20
+        // A        | 30
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Category".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Text("Amount".into())).unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("A".into())).unwrap();
+        wb.set_cell("Sheet1", 1, 1, CellValue::Number(10.0)).unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Text("B".into())).unwrap();
+        wb.set_cell("Sheet1", 2, 1, CellValue::Number(20.0)).unwrap();
+        wb.set_cell("Sheet1", 3, 0, CellValue::Text("A".into())).unwrap();
+        wb.set_cell("Sheet1", 3, 1, CellValue::Number(30.0)).unwrap();
+
+        let result = handle_generate_pivot(
+            &wb,
+            json!({
+                "sheet": "Sheet1",
+                "source_range": "A1:B4",
+                "row_fields": ["A"],
+                "value_fields": [{"col": "B", "aggregation": "sum"}]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["row_count"], 2);
+        assert!(result["headers"].as_array().unwrap().len() >= 2);
+    }
+
+    #[test]
+    fn test_generate_pivot_invalid_aggregation() {
+        let wb = Workbook::new();
+        let result = handle_generate_pivot(
+            &wb,
+            json!({
+                "sheet": "Sheet1",
+                "source_range": "A1:B2",
+                "row_fields": ["A"],
+                "value_fields": [{"col": "B", "aggregation": "invalid"}]
+            }),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_duplicates_basic() {
+        let mut wb = Workbook::new();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Alice".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("Bob".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Text("Alice".into()))
+            .unwrap();
+
+        let result = handle_remove_duplicates(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "start_row": 1,
+                "end_row": 3,
+                "columns": ["A"]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["rows_removed"], 1);
+        assert_eq!(result["rows_remaining"], 2);
+    }
+
+    #[test]
+    fn test_remove_duplicates_invalid_row() {
+        let mut wb = Workbook::new();
+        let result = handle_remove_duplicates(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "start_row": 0,
+                "end_row": 3,
+                "columns": ["A"]
+            }),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_text_to_columns_basic() {
+        let mut wb = Workbook::new();
+        wb.set_cell(
+            "Sheet1",
+            0,
+            0,
+            CellValue::Text("a,b,c".into()),
+        )
+        .unwrap();
+        wb.set_cell(
+            "Sheet1",
+            1,
+            0,
+            CellValue::Text("x,y".into()),
+        )
+        .unwrap();
+
+        let result = handle_text_to_columns(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "col": "A",
+                "delimiter": ",",
+                "start_row": 1,
+                "end_row": 2
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(result["max_columns_created"], 3);
+        assert_eq!(result["success"], true);
+
+        // Row 0: A="a", B="b", C="c"
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 0).unwrap().unwrap().value,
+            CellValue::Text("a".into())
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 1).unwrap().unwrap().value,
+            CellValue::Text("b".into())
+        );
+        assert_eq!(
+            wb.get_cell("Sheet1", 0, 2).unwrap().unwrap().value,
+            CellValue::Text("c".into())
+        );
+    }
+
+    #[test]
+    fn test_text_to_columns_invalid_row() {
+        let mut wb = Workbook::new();
+        let result = handle_text_to_columns(
+            &mut wb,
+            json!({
+                "sheet": "Sheet1",
+                "col": "A",
+                "delimiter": ",",
+                "start_row": 0,
+                "end_row": 1
+            }),
+        );
+        assert!(result.is_err());
     }
 
     #[test]
