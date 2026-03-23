@@ -5,6 +5,7 @@ pub mod cloud;
 pub mod conditional_format;
 pub mod data;
 pub mod edit;
+pub mod export;
 pub mod file;
 pub mod filter;
 pub mod format;

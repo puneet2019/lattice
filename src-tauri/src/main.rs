@@ -41,6 +41,12 @@ fn main() {
             let file_save_as = MenuItemBuilder::with_id("file_save_as", "Save As...")
                 .accelerator("CmdOrCtrl+Shift+S")
                 .build(app)?;
+            let file_export_csv = MenuItemBuilder::with_id("file_export_csv", "Download as CSV")
+                .build(app)?;
+            let file_export_tsv = MenuItemBuilder::with_id("file_export_tsv", "Download as TSV")
+                .build(app)?;
+            let file_export_pdf = MenuItemBuilder::with_id("file_export_pdf", "Download as PDF")
+                .build(app)?;
             let file_quit = MenuItemBuilder::with_id("file_quit", "Quit Lattice")
                 .accelerator("CmdOrCtrl+Q")
                 .build(app)?;
@@ -51,6 +57,10 @@ fn main() {
                 .separator()
                 .item(&file_save)
                 .item(&file_save_as)
+                .separator()
+                .item(&file_export_csv)
+                .item(&file_export_tsv)
+                .item(&file_export_pdf)
                 .separator()
                 .item(&file_quit)
                 .build()?;
@@ -407,6 +417,14 @@ fn main() {
             commands::filter::clear_filter,
             commands::filter::get_filter_info,
             commands::filter::get_hidden_rows,
+            // Export / import commands
+            commands::export::export_csv,
+            commands::export::export_tsv,
+            commands::export::export_html,
+            commands::export::open_csv,
+            commands::export::open_tsv,
+            commands::export::get_recent_files,
+            commands::export::add_recent_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");

@@ -294,12 +294,51 @@ export async function openFile(path: string): Promise<WorkbookInfo> {
   return invoke('open_file', { path });
 }
 
+export async function openCsv(path: string): Promise<WorkbookInfo> {
+  return invoke('open_csv', { path });
+}
+
+export async function openTsv(path: string): Promise<WorkbookInfo> {
+  return invoke('open_tsv', { path });
+}
+
 export async function saveFile(path: string): Promise<void> {
   return invoke('save_file', { path });
 }
 
+export async function exportCsv(sheet: string, path: string): Promise<void> {
+  return invoke('export_csv', { sheet, path });
+}
+
+export async function exportTsv(sheet: string, path: string): Promise<void> {
+  return invoke('export_tsv', { sheet, path });
+}
+
+export async function exportHtml(sheet: string): Promise<string> {
+  return invoke('export_html', { sheet });
+}
+
 export async function newWorkbook(): Promise<WorkbookInfo> {
   return invoke('new_workbook');
+}
+
+// ---------------------------------------------------------------------------
+// Recent files
+// ---------------------------------------------------------------------------
+
+/** A recently opened file entry. */
+export interface RecentFile {
+  path: string;
+  name: string;
+  last_opened: string;
+}
+
+export async function getRecentFiles(): Promise<RecentFile[]> {
+  return invoke('get_recent_files');
+}
+
+export async function addRecentFile(path: string, name: string): Promise<void> {
+  return invoke('add_recent_file', { path, name });
 }
 
 // ---------------------------------------------------------------------------

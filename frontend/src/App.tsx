@@ -19,6 +19,7 @@ import FilterDropdown from './components/FilterDropdown';
 import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import SortDialog from './components/SortDialog';
 import NamedRangesDialog from './components/NamedRangesDialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
   addSheet,
@@ -30,7 +31,12 @@ import {
   duplicateSheet,
   formatCells,
   openFile,
+  openCsv,
+  openTsv,
   saveFile,
+  exportCsv,
+  exportTsv,
+  exportHtml,
   newWorkbook,
   undo as tauriUndo,
   redo as tauriRedo,
@@ -43,8 +49,10 @@ import {
   insertRows,
   insertCols,
   sortRange,
+  getRecentFiles,
+  addRecentFile,
 } from './bridge/tauri';
-import type { FilterInfo, NamedRangeInfo } from './bridge/tauri';
+import type { FilterInfo, NamedRangeInfo, RecentFile } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
@@ -92,15 +100,33 @@ const App: Component = () => {
   const [filterDropdownX, setFilterDropdownX] = createSignal(0);
   const [filterDropdownY, setFilterDropdownY] = createSignal(0);
 
+  const [isDirty, setIsDirty] = createSignal(false);
+  const [recentFiles, setRecentFilesState] = createSignal<RecentFile[]>([]);
+
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
-    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice'] },
+    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'csv', 'tsv'] },
     { name: 'All Files', extensions: ['*'] },
   ];
 
   // -------------------------------------------------------------------
   // File operations (triggered by menu events)
   // -------------------------------------------------------------------
+
+  /** Update the Tauri window title based on current file and dirty state. */
+  function updateWindowTitle(filePath: string | null, dirty: boolean) {
+    let name = 'Untitled';
+    if (filePath) {
+      const parts = filePath.split('/');
+      name = parts[parts.length - 1] || filePath;
+    }
+    const title = dirty ? `${name}* \u2014 Lattice` : `${name} \u2014 Lattice`;
+    try {
+      void getCurrentWindow().setTitle(title);
+    } catch {
+      // Tauri not available in browser dev mode
+    }
+  }
 
   /** Apply workbook info from open/new result to local state. */
   function applyWorkbookInfo(info: { sheets: string[]; active_sheet: string }) {
@@ -110,6 +136,7 @@ const App: Component = () => {
     setSelectedCell([0, 0]);
     setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
+    setIsDirty(false);
   }
 
   const handleFileNew = async () => {
@@ -117,6 +144,7 @@ const App: Component = () => {
       const info = await newWorkbook();
       applyWorkbookInfo(info);
       setCurrentFilePath(null);
+      updateWindowTitle(null, false);
       setStatusMessage('New workbook created');
     } catch (e) {
       setStatusMessage(`New workbook failed: ${e}`);
@@ -134,9 +162,22 @@ const App: Component = () => {
       if (!selected) return; // user cancelled
       const path = typeof selected === 'string' ? selected : selected[0];
       if (!path) return;
-      const info = await openFile(path);
+      // Determine format by extension and call the right open command
+      const lower = path.toLowerCase();
+      let info;
+      if (lower.endsWith('.csv')) {
+        info = await openCsv(path);
+      } else if (lower.endsWith('.tsv') || lower.endsWith('.tab')) {
+        info = await openTsv(path);
+      } else {
+        info = await openFile(path);
+      }
       applyWorkbookInfo(info);
       setCurrentFilePath(path);
+      updateWindowTitle(path, false);
+      // Track in recent files
+      const fileName = path.split('/').pop() || path;
+      void addRecentFile(path, fileName).catch(() => {});
       setStatusMessage(`Opened: ${path}`);
     } catch (e) {
       setStatusMessage(`Open failed: ${e}`);
@@ -152,6 +193,8 @@ const App: Component = () => {
     }
     try {
       await saveFile(path);
+      setIsDirty(false);
+      updateWindowTitle(path, false);
       setStatusMessage(`Saved: ${path}`);
     } catch (e) {
       setStatusMessage(`Save failed: ${e}`);
@@ -167,9 +210,58 @@ const App: Component = () => {
       if (!path) return; // user cancelled
       await saveFile(path);
       setCurrentFilePath(path);
+      setIsDirty(false);
+      updateWindowTitle(path, false);
       setStatusMessage(`Saved: ${path}`);
     } catch (e) {
       setStatusMessage(`Save As failed: ${e}`);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      const path = await dialogSave({
+        title: 'Download as CSV',
+        filters: [
+          { name: 'CSV', extensions: ['csv'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (!path) return;
+      await exportCsv(activeSheetName(), path);
+      setStatusMessage(`Exported CSV: ${path}`);
+    } catch (e) {
+      setStatusMessage(`CSV export failed: ${e}`);
+    }
+  };
+
+  const handleExportTsv = async () => {
+    try {
+      const path = await dialogSave({
+        title: 'Download as TSV',
+        filters: [
+          { name: 'TSV', extensions: ['tsv'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (!path) return;
+      await exportTsv(activeSheetName(), path);
+      setStatusMessage(`Exported TSV: ${path}`);
+    } catch (e) {
+      setStatusMessage(`TSV export failed: ${e}`);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      const html = await exportHtml(activeSheetName());
+      // Write HTML to a temp file and open in browser for print-to-PDF
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setStatusMessage('PDF export: print from browser window');
+    } catch (e) {
+      setStatusMessage(`PDF export failed: ${e}`);
     }
   };
 
@@ -183,6 +275,9 @@ const App: Component = () => {
     file_open: handleFileOpen,
     file_save: handleFileSave,
     file_save_as: handleFileSaveAs,
+    file_export_csv: handleExportCsv,
+    file_export_tsv: handleExportTsv,
+    file_export_pdf: handleExportPdf,
 
     // -- Edit ---------------------------------------------------------------
     edit_undo: () => {
@@ -336,6 +431,17 @@ const App: Component = () => {
     } catch {
       // Named ranges not available
     }
+
+    // Load recent files
+    try {
+      const recent = await getRecentFiles();
+      setRecentFilesState(recent);
+    } catch {
+      // Recent files not available
+    }
+
+    // Set initial window title
+    updateWindowTitle(currentFilePath(), false);
 
     // Listen for macOS menu bar events emitted by the Tauri backend.
     let unlisten: (() => void) | undefined;
@@ -491,6 +597,10 @@ const App: Component = () => {
     }
     setFormulaContent(value);
     setRefreshTrigger((n) => n + 1);
+    if (!isDirty()) {
+      setIsDirty(true);
+      updateWindowTitle(currentFilePath(), true);
+    }
   };
 
   const handleFormulaCancel = () => {
@@ -529,6 +639,10 @@ const App: Component = () => {
       await formatCells(activeSheetName(), minR, minC, maxR, maxC, format);
       // Refresh the grid so the canvas re-fetches and renders the new format.
       setRefreshTrigger((n) => n + 1);
+      if (!isDirty()) {
+        setIsDirty(true);
+        updateWindowTitle(currentFilePath(), true);
+      }
     } catch (e) {
       setStatusMessage(`Format failed: ${e}`);
     }
