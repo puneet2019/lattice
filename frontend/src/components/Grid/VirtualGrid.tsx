@@ -273,6 +273,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Track where the right-click originated: 'cell' | 'row-header' | 'col-header'
   const [ctxMenuTarget, setCtxMenuTarget] = createSignal<'cell' | 'row-header' | 'col-header'>('cell');
 
+  // Formula view: show raw formulas instead of computed values
+  const [showFormulas, setShowFormulas] = createSignal(false);
+
   // Validation dropdown state (for cells with List validation)
   const [validationDropdownVisible, setValidationDropdownVisible] = createSignal(false);
   const [validationDropdownItems, setValidationDropdownItems] = createSignal<string[]>([]);
@@ -1679,7 +1682,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const userSetAlign = cell.h_align && cell.h_align !== 'left';
         const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
         const maxTextW = cw - PADDING * 2;
-        let displayText = cell.value;
+        // In formula view, show raw formula instead of computed value
+        let displayText = showFormulas() && cell.formula ? `=${cell.formula}` : cell.value;
 
         // Helper to draw underline and strikethrough decorations on a text segment
         const drawTextDecorations = (textX: number, textY: number, text: string, textAlign: CanvasTextAlign) => {
@@ -3712,6 +3716,54 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         props.onStatusChange('Align: right');
         return;
       }
+      // Cmd+K: insert hyperlink
+      if (e.key === 'k' && !e.shiftKey) {
+        e.preventDefault();
+        const url = window.prompt('Enter URL:');
+        if (url) {
+          const row = selectedRow();
+          const col = selectedCol();
+          setCell(props.activeSheet, row, col, url, undefined)
+            .catch(() => {});
+          lastFetchKey = '';
+          fetchVisibleData();
+          props.onContentChange(url);
+          props.onStatusChange(`Link: ${url}`);
+        }
+        return;
+      }
+      // Cmd+Shift+.: increase font size
+      if (e.key === '>' || (e.key === '.' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        const cell = cellCache.get(`${row}:${col}`);
+        const currentSize = cell?.font_size ?? 11;
+        const newSize = Math.min(72, currentSize + 1);
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { font_size: newSize })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange(`Font size: ${newSize}`);
+        return;
+      }
+      // Cmd+Shift+,: decrease font size
+      if (e.key === '<' || (e.key === ',' && e.shiftKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const col = selectedCol();
+        const cell = cellCache.get(`${row}:${col}`);
+        const currentSize = cell?.font_size ?? 11;
+        const newSize = Math.max(1, currentSize - 1);
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { font_size: newSize })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange(`Font size: ${newSize}`);
+        return;
+      }
       // Cmd+Home: go to cell A1
       if (e.key === 'Home') {
         e.preventDefault();
@@ -3806,6 +3858,63 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         }
         ensureCellVisible(targetRow, targetCol);
         draw();
+        return;
+      }
+    }
+
+    // Ctrl-only shortcuts (Ctrl key, not Cmd on macOS)
+    if (e.ctrlKey && !e.metaKey) {
+      // Ctrl+Shift+1: apply number format
+      if (e.key === '!' || (e.key === '1' && e.shiftKey)) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { number_format: '#,##0.00' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Number format applied');
+        return;
+      }
+      // Ctrl+Shift+3: apply date format
+      if (e.key === '#' || (e.key === '3' && e.shiftKey)) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { number_format: 'MM/DD/YYYY' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Date format applied');
+        return;
+      }
+      // Ctrl+Shift+4: apply currency format
+      if (e.key === '$' || (e.key === '4' && e.shiftKey)) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { number_format: '$#,##0.00' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Currency format applied');
+        return;
+      }
+      // Ctrl+Shift+5: apply percentage format
+      if (e.key === '%' || (e.key === '5' && e.shiftKey)) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        formatCells(props.activeSheet, range.minRow, range.minCol, range.maxRow, range.maxCol, { number_format: '0%' })
+          .catch(() => {});
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange('Percentage format applied');
+        return;
+      }
+      // Ctrl+`: toggle formula view
+      if (e.key === '`') {
+        e.preventDefault();
+        setShowFormulas(!showFormulas());
+        lastFetchKey = '';
+        fetchVisibleData();
+        props.onStatusChange(showFormulas() ? 'Formula view on' : 'Formula view off');
         return;
       }
     }
