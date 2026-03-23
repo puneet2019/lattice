@@ -3141,6 +3141,12 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         handleCut();
         return;
       }
+      // Cmd+P: print the current view
+      if (e.key === 'p' && !e.shiftKey) {
+        e.preventDefault();
+        window.print();
+        return;
+      }
       // Cmd+Shift+P: open paste special dialog
       if ((e.key === 'p' || e.key === 'P') && e.shiftKey) {
         e.preventDefault();

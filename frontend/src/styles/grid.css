@@ -1608,3 +1608,88 @@ body,
   color: var(--selection-border, #1a73e8);
   margin-right: 12px;
 }
+
+/* -----------------------------------------------------------------------
+   Print Styles
+   Hide all chrome (toolbar, formula bar, sheet tabs, status bar) and
+   show only the grid canvas area when printing via Cmd+P.
+   ----------------------------------------------------------------------- */
+
+@media print {
+  /* Hide UI chrome */
+  .toolbar,
+  .formula-bar,
+  .find-bar,
+  .sheet-tabs,
+  .status-bar,
+  .chart-overlay,
+  .cell-editor-textarea,
+  .autocomplete-dropdown,
+  .sheet-tab-context-menu,
+  .validation-dropdown,
+  .filter-dropdown {
+    display: none !important;
+  }
+
+  /* Remove layout constraints so the grid fills the page */
+  html, body, #root {
+    height: auto !important;
+    width: auto !important;
+    overflow: visible !important;
+  }
+
+  .app-container {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .virtual-grid-container {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .virtual-grid-canvas {
+    width: 100% !important;
+    height: auto !important;
+    max-width: 100%;
+  }
+
+  /* Reset colours for print readability */
+  :root {
+    --cell-bg: #ffffff;
+    --cell-text: #000000;
+    --grid-border: #cccccc;
+    --header-bg: #f0f0f0;
+    --header-text: #333333;
+  }
+}
+
+/* -----------------------------------------------------------------------
+   Formula Argument Hint Tooltip
+   ----------------------------------------------------------------------- */
+
+.formula-hint-tooltip {
+  position: absolute;
+  z-index: 30;
+  background: var(--cell-bg, #ffffff);
+  border: 1px solid var(--grid-border, #e0e0e0);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  color: var(--cell-text, #202124);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.formula-hint-tooltip .formula-hint-name {
+  font-weight: 600;
+  color: var(--selection-border, #1a73e8);
+}
+
+.formula-hint-tooltip .formula-hint-active-arg {
+  font-weight: 700;
+  text-decoration: underline;
+}
