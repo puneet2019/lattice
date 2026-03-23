@@ -20,6 +20,12 @@ import {
   getRowHeights,
   listValidations,
   getHiddenRows,
+  hideRows,
+  unhideRows,
+  hideCols,
+  unhideCols,
+  getHiddenCols,
+  sortRange,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -159,6 +165,10 @@ export interface VirtualGridProps {
   filterEndCol?: number;
   /** Called when user clicks a filter arrow on a column header. */
   onFilterColumnClick?: (col: number, x: number, y: number) => void;
+  /** Called when user selects "Custom sort..." from context menu. */
+  onSortDialogOpen?: () => void;
+  /** Called when the user opens the named ranges dialog (Ctrl+F3). */
+  onNamedRangesOpen?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,8 +244,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const validationCache = new Map<string, ValidationData>();
   let validationsFetched = false;
 
-  // Hidden rows set for the current sheet (from auto-filter).
+  // Hidden rows set for the current sheet (from auto-filter and manual hide).
   const hiddenRows = new Set<number>();
+  // Hidden cols set for the current sheet (from manual hide).
+  const hiddenCols = new Set<number>();
 
   // Editing state
   const [editing, setEditing] = createSignal(false);
@@ -258,6 +270,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
   const [ctxMenuX, setCtxMenuX] = createSignal(0);
   const [ctxMenuY, setCtxMenuY] = createSignal(0);
+  // Track where the right-click originated: 'cell' | 'row-header' | 'col-header'
+  const [ctxMenuTarget, setCtxMenuTarget] = createSignal<'cell' | 'row-header' | 'col-header'>('cell');
 
   // Validation dropdown state (for cells with List validation)
   const [validationDropdownVisible, setValidationDropdownVisible] = createSignal(false);
@@ -431,13 +445,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
-  /** Load hidden rows from the backend (auto-filter). */
+  /** Load hidden rows from the backend (auto-filter and manual hide). */
   async function fetchHiddenRows() {
     try {
       const rows = await getHiddenRows(props.activeSheet);
       hiddenRows.clear();
       for (const r of rows) {
         hiddenRows.add(r);
+      }
+    } catch {
+      // Backend may not support this yet
+    }
+  }
+
+  /** Load hidden cols from the backend. */
+  async function fetchHiddenCols() {
+    try {
+      const cols = await getHiddenCols(props.activeSheet);
+      hiddenCols.clear();
+      for (const c of cols) {
+        hiddenCols.add(c);
       }
     } catch {
       // Backend may not support this yet
@@ -1533,6 +1560,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       const y = HEADER_HEIGHT + getRowY(row) - sy;
       for (let c = 0; c < colCount; c++) {
         const col = startCol + c;
+        // Skip hidden columns
+        if (hiddenCols.has(col)) continue;
         const cell = cellCache.get(`${row}:${col}`);
         const cw = getColWidth(col);
         const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
@@ -1830,6 +1859,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let c = 0; c < colCount; c++) {
       const col = startCol + c;
+      // Skip hidden columns
+      if (hiddenCols.has(col)) continue;
       const cw = getColWidth(col);
       const x = ROW_NUMBER_WIDTH + getColX(col) - sx;
       const cellRight = x + cw;
@@ -1868,6 +1899,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.lineTo(arrowX + 3.5, arrowY + 4);
         ctx.closePath();
         ctx.fill();
+      }
+
+      // Draw hidden-column indicator: double line at left edge if previous col is hidden
+      if (col > 0 && hiddenCols.has(col - 1) && !hiddenCols.has(col)) {
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) - 1, 0);
+        ctx.lineTo(Math.round(x) - 1, HEADER_HEIGHT);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) + 2, 0);
+        ctx.lineTo(Math.round(x) + 2, HEADER_HEIGHT);
+        ctx.stroke();
+        ctx.lineWidth = 1;
       }
     }
   }
@@ -1916,6 +1962,21 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.fillStyle = COLORS.headerText;
       }
       ctx.fillText(String(row + 1), ROW_NUMBER_WIDTH / 2, y + rh / 2);
+
+      // Draw hidden-row indicator: double line at top edge if previous row is hidden
+      if (row > 0 && hiddenRows.has(row - 1) && !hiddenRows.has(row)) {
+        ctx.strokeStyle = COLORS.selectionBorder;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(y) - 1);
+        ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(y) - 1);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(y) + 2);
+        ctx.lineTo(ROW_NUMBER_WIDTH, Math.round(y) + 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
     }
   }
 
@@ -2954,24 +3015,59 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
-    // If right-clicking on a cell that's outside the current selection,
-    // move the selection to that cell first
-    const hit = hitTest(e.clientX, e.clientY);
-    if (hit) {
-      const range = getSelectionRange();
-      const inRange =
-        hit.row >= range.minRow &&
-        hit.row <= range.maxRow &&
-        hit.col >= range.minCol &&
-        hit.col <= range.maxCol;
-      if (!inRange) {
-        setSelectedRow(hit.row);
-        setSelectedCol(hit.col);
-        setRangeAnchor(null);
-        setRangeEnd(null);
-        selectCell(hit.row, hit.col);
+    if (!containerRef) return;
+    const rect = containerRef.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    // Determine click target: row header, column header, or cell area
+    const onRowHeader = localX < ROW_NUMBER_WIDTH && localY >= HEADER_HEIGHT;
+    const onColHeader = localY < HEADER_HEIGHT && localX >= ROW_NUMBER_WIDTH;
+
+    if (onRowHeader) {
+      // Clicked on row number area — identify which row
+      const contentY = localY - HEADER_HEIGHT + effectiveScrollY(localY);
+      const row = rowAtY(contentY);
+      if (row >= 0 && row < TOTAL_ROWS) {
+        setSelectedRow(row);
+        setRangeAnchor([row, 0]);
+        setRangeEnd([row, TOTAL_COLS - 1]);
+        propagateSelectionRange();
         draw();
       }
+      setCtxMenuTarget('row-header');
+    } else if (onColHeader) {
+      // Clicked on column header area — identify which column
+      const contentX = localX - ROW_NUMBER_WIDTH + effectiveScrollX(localX);
+      const col = colAtX(contentX);
+      if (col >= 0 && col < TOTAL_COLS) {
+        setSelectedCol(col);
+        setRangeAnchor([0, col]);
+        setRangeEnd([TOTAL_ROWS - 1, col]);
+        propagateSelectionRange();
+        draw();
+      }
+      setCtxMenuTarget('col-header');
+    } else {
+      // Cell area
+      const hit = hitTest(e.clientX, e.clientY);
+      if (hit) {
+        const range = getSelectionRange();
+        const inRange =
+          hit.row >= range.minRow &&
+          hit.row <= range.maxRow &&
+          hit.col >= range.minCol &&
+          hit.col <= range.maxCol;
+        if (!inRange) {
+          setSelectedRow(hit.row);
+          setSelectedCol(hit.col);
+          setRangeAnchor(null);
+          setRangeEnd(null);
+          selectCell(hit.row, hit.col);
+          draw();
+        }
+      }
+      setCtxMenuTarget('cell');
     }
     setCtxMenuX(e.clientX);
     setCtxMenuY(e.clientY);
@@ -3082,6 +3178,100 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     props.onStatusChange('Cleared contents');
   }
 
+  async function ctxHideRow() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    const count = range.maxRow - range.minRow + 1;
+    try {
+      await hideRows(props.activeSheet, range.minRow, count);
+      await fetchHiddenRows();
+      lastFetchKey = '';
+      fetchVisibleData();
+      draw();
+      props.onStatusChange(`Hid ${count} row(s)`);
+    } catch {
+      props.onStatusChange('Hide row failed');
+    }
+  }
+
+  async function ctxUnhideRow() {
+    dismissContextMenu();
+    const row = selectedRow();
+    // Unhide rows adjacent to the selected row (one above and one below)
+    const start = Math.max(0, row - 1);
+    const count = 3;
+    try {
+      await unhideRows(props.activeSheet, start, count);
+      await fetchHiddenRows();
+      lastFetchKey = '';
+      fetchVisibleData();
+      draw();
+      props.onStatusChange('Unhid row(s)');
+    } catch {
+      props.onStatusChange('Unhide row failed');
+    }
+  }
+
+  async function ctxHideCol() {
+    dismissContextMenu();
+    const range = getSelectionRange();
+    const count = range.maxCol - range.minCol + 1;
+    try {
+      await hideCols(props.activeSheet, range.minCol, count);
+      await fetchHiddenCols();
+      lastFetchKey = '';
+      fetchVisibleData();
+      draw();
+      props.onStatusChange(`Hid ${count} column(s)`);
+    } catch {
+      props.onStatusChange('Hide column failed');
+    }
+  }
+
+  async function ctxUnhideCol() {
+    dismissContextMenu();
+    const col = selectedCol();
+    // Unhide cols adjacent to the selected col
+    const start = Math.max(0, col - 1);
+    const count = 3;
+    try {
+      await unhideCols(props.activeSheet, start, count);
+      await fetchHiddenCols();
+      lastFetchKey = '';
+      fetchVisibleData();
+      draw();
+      props.onStatusChange('Unhid column(s)');
+    } catch {
+      props.onStatusChange('Unhide column failed');
+    }
+  }
+
+  async function ctxSortAsc() {
+    dismissContextMenu();
+    const col = selectedCol();
+    try {
+      await sortRange(props.activeSheet, null, [{ col, direction: 'asc' }]);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Sorted by column ${col_to_letter(col)} A\u2192Z`);
+    } catch {
+      props.onStatusChange('Sort failed');
+    }
+  }
+
+  async function ctxSortDesc() {
+    dismissContextMenu();
+    const col = selectedCol();
+    try {
+      await sortRange(props.activeSheet, null, [{ col, direction: 'desc' }]);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onStatusChange(`Sorted by column ${col_to_letter(col)} Z\u2192A`);
+    } catch {
+      props.onStatusChange('Sort failed');
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Undo / Redo
   // -----------------------------------------------------------------------
@@ -3139,6 +3329,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
+    // Ctrl+F3: open named ranges manager
+    if (e.key === 'F3' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      props.onNamedRangesOpen?.();
+      return;
+    }
+
     // Delete/Backspace clears selected cell(s)
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
@@ -3181,6 +3378,62 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Keyboard shortcuts (Cmd/Ctrl + key)
     if (e.metaKey || e.ctrlKey) {
+      // Cmd+Option+9: hide selected rows
+      if (e.key === '9' && e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        const count = range.maxRow - range.minRow + 1;
+        void hideRows(props.activeSheet, range.minRow, count).then(() => {
+          fetchHiddenRows();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange(`Hid ${count} row(s)`);
+        }).catch(() => props.onStatusChange('Hide row failed'));
+        return;
+      }
+      // Cmd+Shift+9: unhide rows
+      if (e.key === '(' || (e.key === '9' && e.shiftKey && !e.altKey)) {
+        e.preventDefault();
+        const row = selectedRow();
+        const start = Math.max(0, row - 1);
+        void unhideRows(props.activeSheet, start, 3).then(() => {
+          fetchHiddenRows();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange('Unhid row(s)');
+        }).catch(() => props.onStatusChange('Unhide row failed'));
+        return;
+      }
+      // Cmd+Option+0: hide selected columns
+      if (e.key === '0' && e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const range = getSelectionRange();
+        const count = range.maxCol - range.minCol + 1;
+        void hideCols(props.activeSheet, range.minCol, count).then(() => {
+          fetchHiddenCols();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange(`Hid ${count} column(s)`);
+        }).catch(() => props.onStatusChange('Hide column failed'));
+        return;
+      }
+      // Cmd+Shift+0: unhide columns
+      if (e.key === ')' || (e.key === '0' && e.shiftKey && !e.altKey)) {
+        e.preventDefault();
+        const col = selectedCol();
+        const start = Math.max(0, col - 1);
+        void unhideCols(props.activeSheet, start, 3).then(() => {
+          fetchHiddenCols();
+          lastFetchKey = '';
+          fetchVisibleData();
+          draw();
+          props.onStatusChange('Unhid column(s)');
+        }).catch(() => props.onStatusChange('Unhide column failed'));
+        return;
+      }
       if (e.key === 'b') {
         e.preventDefault();
         props.onBoldToggle();
@@ -3785,9 +4038,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
-    // Load validation rules and hidden rows
+    // Load validation rules, hidden rows, and hidden cols
     fetchValidations();
     fetchHiddenRows();
+    fetchHiddenCols();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -3807,6 +4061,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     validationsFetched = false;
     fetchValidations();
     fetchHiddenRows();
+    fetchHiddenCols();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -4002,6 +4257,36 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           <div class="context-menu-item destructive" onClick={ctxDeleteCol}>
             Delete column
           </div>
+          <div class="context-menu-separator" />
+          <Show when={ctxMenuTarget() === 'row-header'}>
+            <div class="context-menu-item" onClick={ctxHideRow}>
+              Hide row
+            </div>
+            <div class="context-menu-item" onClick={ctxUnhideRow}>
+              Unhide row
+            </div>
+            <div class="context-menu-separator" />
+          </Show>
+          <Show when={ctxMenuTarget() === 'col-header'}>
+            <div class="context-menu-item" onClick={ctxHideCol}>
+              Hide column
+            </div>
+            <div class="context-menu-item" onClick={ctxUnhideCol}>
+              Unhide column
+            </div>
+            <div class="context-menu-separator" />
+          </Show>
+          <div class="context-menu-item" onClick={ctxSortAsc}>
+            Sort sheet A &rarr; Z
+          </div>
+          <div class="context-menu-item" onClick={ctxSortDesc}>
+            Sort sheet Z &rarr; A
+          </div>
+          <Show when={props.onSortDialogOpen}>
+            <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onSortDialogOpen?.(); }}>
+              Custom sort...
+            </div>
+          </Show>
           <div class="context-menu-separator" />
           <div class="context-menu-item" onClick={ctxClearContents}>
             Clear contents

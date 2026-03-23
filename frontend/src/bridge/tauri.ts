@@ -491,6 +491,95 @@ export async function getHiddenRows(
   return invoke('get_hidden_rows', { sheet });
 }
 
+export async function hideRows(
+  sheet: string,
+  startRow: number,
+  count: number,
+): Promise<void> {
+  return invoke('hide_rows', { sheet, startRow, count });
+}
+
+export async function unhideRows(
+  sheet: string,
+  startRow: number,
+  count: number,
+): Promise<void> {
+  return invoke('unhide_rows', { sheet, startRow, count });
+}
+
+export async function hideCols(
+  sheet: string,
+  startCol: number,
+  count: number,
+): Promise<void> {
+  return invoke('hide_cols', { sheet, startCol, count });
+}
+
+export async function unhideCols(
+  sheet: string,
+  startCol: number,
+  count: number,
+): Promise<void> {
+  return invoke('unhide_cols', { sheet, startCol, count });
+}
+
+export async function getHiddenCols(
+  sheet: string,
+): Promise<number[]> {
+  return invoke('get_hidden_cols', { sheet });
+}
+
+// ---------------------------------------------------------------------------
+// Sort commands
+// ---------------------------------------------------------------------------
+
+/** A sort key specifying column and direction. */
+export interface SortKeyInput {
+  col: number;
+  direction: 'asc' | 'desc';
+}
+
+export async function sortRange(
+  sheet: string,
+  range: string | null,
+  sortKeys: SortKeyInput[],
+): Promise<void> {
+  return invoke('sort_range', { sheet, range, sortKeys });
+}
+
+// ---------------------------------------------------------------------------
+// Named range commands
+// ---------------------------------------------------------------------------
+
+/** Named range info returned from the backend. */
+export interface NamedRangeInfo {
+  name: string;
+  sheet: string | null;
+  range: string;
+}
+
+export async function addNamedRange(
+  name: string,
+  range: string,
+  sheet?: string,
+): Promise<void> {
+  return invoke('add_named_range', { name, range, sheet: sheet ?? null });
+}
+
+export async function listNamedRanges(): Promise<NamedRangeInfo[]> {
+  return invoke('list_named_ranges');
+}
+
+export async function removeNamedRange(name: string): Promise<void> {
+  return invoke('remove_named_range', { name });
+}
+
+export async function resolveNamedRange(
+  name: string,
+): Promise<NamedRangeInfo> {
+  return invoke('resolve_named_range', { name });
+}
+
 // ---------------------------------------------------------------------------
 // Conditional format commands
 // ---------------------------------------------------------------------------
