@@ -388,34 +388,6 @@ export async function exportHtml(sheet: string): Promise<string> {
   return invoke('export_html', { sheet });
 }
 
-/** Print settings passed to the export_html command for print preview. */
-export interface PrintSettingsParams {
-  paperSize?: string;
-  orientation?: string;
-  showGridlines?: boolean;
-  showHeaders?: boolean;
-  scale?: number;
-  margins?: string;
-  customMargins?: [number, number, number, number];
-}
-
-/** Export print-ready HTML with optional print settings. */
-export async function exportPrintHtml(
-  sheet: string,
-  settings?: PrintSettingsParams,
-): Promise<string> {
-  return invoke('export_html', {
-    sheet,
-    paperSize: settings?.paperSize,
-    orientation: settings?.orientation,
-    showGridlines: settings?.showGridlines,
-    showHeaders: settings?.showHeaders,
-    scale: settings?.scale,
-    margins: settings?.margins,
-    customMargins: settings?.customMargins,
-  });
-}
-
 export async function newWorkbook(): Promise<WorkbookInfo> {
   return invoke('new_workbook');
 }
@@ -475,7 +447,12 @@ export type ChartTypeStr =
   | 'area'
   | 'combo'
   | 'histogram'
-  | 'candlestick';
+  | 'candlestick'
+  | 'treemap'
+  | 'waterfall'
+  | 'radar'
+  | 'bubble'
+  | 'gauge';
 
 export async function createChart(
   sheet: string,

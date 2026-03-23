@@ -43,7 +43,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
                     (
                         "chart_type",
                         string_prop(
-                            "Chart type: bar, line, pie, scatter, area, combo, histogram, candlestick",
+                            "Chart type: bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge",
                         ),
                     ),
                     ("data_range", string_prop("Data range in A1:B2 notation")),
@@ -117,6 +117,10 @@ pub fn handle_create_chart(args: Value) -> Result<Value, String> {
         "histogram",
         "candlestick",
         "treemap",
+        "waterfall",
+        "radar",
+        "bubble",
+        "gauge",
     ];
     if !valid_types.contains(&args.chart_type.as_str()) {
         return Err(format!(

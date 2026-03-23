@@ -25,6 +25,10 @@ pub fn render_chart(chart_type: &ChartType, data: &ChartData, options: &ChartOpt
         ChartType::Histogram => types::histogram::render(data, options),
         ChartType::Candlestick => types::candlestick::render(data, options),
         ChartType::Treemap => types::treemap::render(data, options),
+        ChartType::Waterfall => types::waterfall::render(data, options),
+        ChartType::Radar => types::radar::render(data, options),
+        ChartType::Bubble => types::bubble::render(data, options),
+        ChartType::Gauge => types::gauge::render(data, options),
     }
 }
 

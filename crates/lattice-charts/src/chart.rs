@@ -28,6 +28,14 @@ pub enum ChartType {
     Candlestick,
     /// Treemap chart (hierarchical area chart).
     Treemap,
+    /// Waterfall chart (cumulative positive/negative values).
+    Waterfall,
+    /// Radar / spider chart (multi-axis polygon).
+    Radar,
+    /// Bubble chart (scatter with size dimension).
+    Bubble,
+    /// Gauge / speedometer chart (single value on arc).
+    Gauge,
 }
 
 impl std::fmt::Display for ChartType {
@@ -42,6 +50,10 @@ impl std::fmt::Display for ChartType {
             ChartType::Histogram => write!(f, "histogram"),
             ChartType::Candlestick => write!(f, "candlestick"),
             ChartType::Treemap => write!(f, "treemap"),
+            ChartType::Waterfall => write!(f, "waterfall"),
+            ChartType::Radar => write!(f, "radar"),
+            ChartType::Bubble => write!(f, "bubble"),
+            ChartType::Gauge => write!(f, "gauge"),
         }
     }
 }
@@ -73,6 +85,8 @@ pub struct DataSeries {
 pub struct ChartOptions {
     /// Chart title displayed at the top.
     pub title: Option<String>,
+    /// Chart subtitle displayed below the title.
+    pub subtitle: Option<String>,
     /// SVG width in pixels (default 600).
     pub width: u32,
     /// SVG height in pixels (default 400).
@@ -81,22 +95,32 @@ pub struct ChartOptions {
     pub show_legend: bool,
     /// Whether to show grid lines.
     pub show_grid: bool,
+    /// Whether to show data labels on data points/bars.
+    pub show_data_labels: bool,
     /// Label for the x-axis.
     pub x_axis_label: Option<String>,
     /// Label for the y-axis.
     pub y_axis_label: Option<String>,
+    /// Custom color palette (CSS hex strings, e.g. "#ff0000").
+    pub color_palette: Option<Vec<String>>,
+    /// Background color for the chart (CSS hex, default "#ffffff").
+    pub background_color: Option<String>,
 }
 
 impl Default for ChartOptions {
     fn default() -> Self {
         Self {
             title: None,
+            subtitle: None,
             width: 600,
             height: 400,
             show_legend: true,
             show_grid: true,
+            show_data_labels: false,
             x_axis_label: None,
             y_axis_label: None,
+            color_palette: None,
+            background_color: None,
         }
     }
 }
@@ -155,12 +179,16 @@ impl Chart {
     pub fn to_options(&self) -> ChartOptions {
         ChartOptions {
             title: self.title.clone(),
+            subtitle: None,
             width: self.width,
             height: self.height,
             show_legend: true,
             show_grid: true,
+            show_data_labels: false,
             x_axis_label: self.x_axis_label.clone(),
             y_axis_label: self.y_axis_label.clone(),
+            color_palette: None,
+            background_color: None,
         }
     }
 }
@@ -220,6 +248,10 @@ mod tests {
         assert!(opts.show_legend);
         assert!(opts.show_grid);
         assert!(opts.title.is_none());
+        assert!(opts.subtitle.is_none());
+        assert!(!opts.show_data_labels);
+        assert!(opts.color_palette.is_none());
+        assert!(opts.background_color.is_none());
     }
 
     #[test]

@@ -29,6 +29,17 @@ pub fn series_color(index: usize) -> &'static str {
     PALETTE[index % PALETTE.len()]
 }
 
+/// Return a color from a custom palette (if provided) or fall back to the default palette.
+///
+/// This lets callers pass `options.color_palette.as_ref()` and get the right color
+/// regardless of whether a custom palette was provided.
+pub fn palette_color<'a>(index: usize, custom: Option<&'a [String]>) -> &'a str {
+    match custom {
+        Some(p) if !p.is_empty() => &p[index % p.len()],
+        _ => series_color(index),
+    }
+}
+
 // ── Axis scale calculation ──────────────────────────────────────────────
 
 /// Computed axis scale with nice round numbers.
@@ -151,11 +162,14 @@ impl Default for Margins {
 }
 
 impl Margins {
-    /// Widen margins when legend or axis labels are present.
+    /// Widen margins when legend, title, subtitle, or axis labels are present.
     pub fn for_options(options: &ChartOptions) -> Self {
         let mut m = Self::default();
         if options.title.is_some() {
             m.top = 55.0;
+        }
+        if options.subtitle.is_some() {
+            m.top += 18.0;
         }
         if options.y_axis_label.is_some() {
             m.left = 75.0;
@@ -183,10 +197,16 @@ impl Margins {
 // ── Reusable SVG structure builders ─────────────────────────────────────
 
 /// Build the opening `<svg>` tag and background rect.
+///
+/// Uses `options.background_color` if set, otherwise defaults to white.
 pub fn svg_open(options: &ChartOptions) -> String {
+    let bg = options
+        .background_color
+        .as_deref()
+        .unwrap_or("#ffffff");
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">
-<rect width="100%" height="100%" fill="#ffffff" rx="4"/>"##,
+<rect width="100%" height="100%" fill="{bg}" rx="4"/>"##,
         w = options.width,
         h = options.height,
     )
@@ -197,12 +217,33 @@ pub fn svg_close() -> &'static str {
     "</svg>"
 }
 
-/// Render the chart title.
+/// Render the chart title and optional subtitle.
 pub fn svg_title(options: &ChartOptions) -> String {
-    match &options.title {
-        Some(t) => svg_text(options.width as f64 / 2.0, 28.0, "middle", 16, "#333333", t),
-        None => String::new(),
+    let mut out = String::new();
+    if let Some(t) = &options.title {
+        out.push_str(&svg_text(
+            options.width as f64 / 2.0,
+            28.0,
+            "middle",
+            16,
+            "#333333",
+            t,
+        ));
+        out.push('\n');
     }
+    if let Some(sub) = &options.subtitle {
+        let y = if options.title.is_some() { 46.0 } else { 28.0 };
+        out.push_str(&svg_text(
+            options.width as f64 / 2.0,
+            y,
+            "middle",
+            12,
+            "#666666",
+            sub,
+        ));
+        out.push('\n');
+    }
+    out
 }
 
 /// Render axis labels (x and y).
@@ -419,6 +460,71 @@ mod tests {
         let open = svg_open(&opts);
         assert!(open.starts_with("<svg"));
         assert!(open.contains("width=\"600\""));
+        assert!(open.contains("fill=\"#ffffff\""));
         assert_eq!(svg_close(), "</svg>");
+    }
+
+    #[test]
+    fn test_svg_open_custom_background() {
+        let opts = ChartOptions {
+            background_color: Some("#f0f0f0".into()),
+            ..ChartOptions::default()
+        };
+        let open = svg_open(&opts);
+        assert!(open.contains("fill=\"#f0f0f0\""));
+    }
+
+    #[test]
+    fn test_svg_title_with_subtitle() {
+        let opts = ChartOptions {
+            title: Some("Main Title".into()),
+            subtitle: Some("Sub Title".into()),
+            ..ChartOptions::default()
+        };
+        let title_svg = svg_title(&opts);
+        assert!(title_svg.contains("Main Title"));
+        assert!(title_svg.contains("Sub Title"));
+    }
+
+    #[test]
+    fn test_svg_subtitle_only() {
+        let opts = ChartOptions {
+            subtitle: Some("Just Subtitle".into()),
+            ..ChartOptions::default()
+        };
+        let title_svg = svg_title(&opts);
+        assert!(title_svg.contains("Just Subtitle"));
+        assert!(!title_svg.contains("font-size=\"16\""));
+    }
+
+    #[test]
+    fn test_palette_color_default() {
+        assert_eq!(palette_color(0, None), "#4e79a7");
+        assert_eq!(palette_color(1, None), "#f28e2b");
+    }
+
+    #[test]
+    fn test_palette_color_custom() {
+        let custom = vec!["#aaa".to_string(), "#bbb".to_string()];
+        assert_eq!(palette_color(0, Some(&custom)), "#aaa");
+        assert_eq!(palette_color(1, Some(&custom)), "#bbb");
+        assert_eq!(palette_color(2, Some(&custom)), "#aaa"); // wraps
+    }
+
+    #[test]
+    fn test_palette_color_empty_custom_falls_back() {
+        let custom: Vec<String> = vec![];
+        assert_eq!(palette_color(0, Some(&custom)), "#4e79a7");
+    }
+
+    #[test]
+    fn test_margins_with_subtitle() {
+        let opts = ChartOptions {
+            title: Some("Title".into()),
+            subtitle: Some("Subtitle".into()),
+            ..ChartOptions::default()
+        };
+        let m = Margins::for_options(&opts);
+        assert_eq!(m.top, 55.0 + 18.0); // title + subtitle
     }
 }
