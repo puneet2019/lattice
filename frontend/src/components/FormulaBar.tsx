@@ -1,5 +1,7 @@
 import type { Component } from 'solid-js';
-import { createEffect, createSignal } from 'solid-js';
+import { createEffect, createSignal, Show, For } from 'solid-js';
+import { resolveNamedRange } from '../bridge/tauri';
+import type { NamedRangeInfo } from '../bridge/tauri';
 
 export interface FormulaBarProps {
   /** The A1-style reference of the active cell, e.g. "A1". */
@@ -14,6 +16,8 @@ export interface FormulaBarProps {
   onNavigate: (cellRef: string) => void;
   /** Called when formula bar content changes (syncs with cell editor). */
   onContentChange?: (value: string) => void;
+  /** Named ranges for name box suggestions. */
+  namedRanges?: NamedRangeInfo[];
 }
 
 const FormulaBar: Component<FormulaBarProps> = (props) => {
@@ -22,6 +26,8 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
   const [nameBoxEditing, setNameBoxEditing] = createSignal(false);
   const [nameBoxValue, setNameBoxValue] = createSignal('');
   const [expanded, setExpanded] = createSignal(false);
+  const [nameBoxSuggestions, setNameBoxSuggestions] = createSignal<NamedRangeInfo[]>([]);
+  const [showNameSuggestions, setShowNameSuggestions] = createSignal(false);
 
   let nameBoxRef: HTMLInputElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
@@ -80,10 +86,11 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
     // Shift+Enter inserts a newline (default textarea behavior)
   };
 
-  // Name box: click to edit, type a cell ref, press Enter to navigate.
+  // Name box: click to edit, type a cell ref or named range name, press Enter to navigate.
   const handleNameBoxClick = () => {
     setNameBoxEditing(true);
     setNameBoxValue(props.cellRef);
+    setShowNameSuggestions(false);
     requestAnimationFrame(() => {
       if (nameBoxRef) {
         nameBoxRef.focus();
@@ -92,33 +99,117 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
     });
   };
 
+  const handleNameBoxInput = (value: string) => {
+    setNameBoxValue(value);
+    // Filter named ranges for suggestions
+    const ranges = props.namedRanges ?? [];
+    if (value.trim().length > 0 && ranges.length > 0) {
+      const lower = value.trim().toLowerCase();
+      const matches = ranges.filter((nr) =>
+        nr.name.toLowerCase().startsWith(lower),
+      );
+      setNameBoxSuggestions(matches);
+      setShowNameSuggestions(matches.length > 0);
+    } else {
+      setShowNameSuggestions(false);
+    }
+  };
+
   const handleNameBoxKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const ref = nameBoxValue().trim().toUpperCase();
+      const ref = nameBoxValue().trim();
       if (ref) {
-        props.onNavigate(ref);
+        // Try to resolve as a named range first
+        void resolveNamedRange(ref)
+          .then((nr) => {
+            // Navigate to the resolved range
+            props.onNavigate(nr.range);
+          })
+          .catch(() => {
+            // Not a named range — treat as a cell ref
+            props.onNavigate(ref.toUpperCase());
+          });
       }
       setNameBoxEditing(false);
+      setShowNameSuggestions(false);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setNameBoxEditing(false);
+      setShowNameSuggestions(false);
     }
+  };
+
+  const acceptNameSuggestion = (nr: NamedRangeInfo) => {
+    setNameBoxValue(nr.name);
+    setShowNameSuggestions(false);
+    // Navigate immediately
+    props.onNavigate(nr.range);
+    setNameBoxEditing(false);
   };
 
   return (
     <div class={`formula-bar ${expanded() ? 'formula-bar-expanded' : ''}`}>
-      <div class="formula-bar-cell-ref" onClick={handleNameBoxClick}>
+      <div class="formula-bar-cell-ref" onClick={handleNameBoxClick} style={{ position: 'relative' }}>
         {nameBoxEditing() ? (
-          <input
-            ref={nameBoxRef}
-            class="formula-bar-name-input"
-            type="text"
-            value={nameBoxValue()}
-            onInput={(e) => setNameBoxValue(e.currentTarget.value)}
-            onKeyDown={handleNameBoxKeyDown}
-            onBlur={() => setNameBoxEditing(false)}
-          />
+          <>
+            <input
+              ref={nameBoxRef}
+              class="formula-bar-name-input"
+              type="text"
+              value={nameBoxValue()}
+              onInput={(e) => handleNameBoxInput(e.currentTarget.value)}
+              onKeyDown={handleNameBoxKeyDown}
+              onBlur={() => {
+                // Delay to allow suggestion click to fire
+                setTimeout(() => {
+                  setNameBoxEditing(false);
+                  setShowNameSuggestions(false);
+                }, 150);
+              }}
+            />
+            <Show when={showNameSuggestions()}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '0',
+                  width: '100%',
+                  "max-height": '150px',
+                  "overflow-y": 'auto',
+                  background: 'var(--cell-bg, #fff)',
+                  border: '1px solid var(--grid-border, #e0e0e0)',
+                  "border-radius": '0 0 4px 4px',
+                  "box-shadow": '0 2px 8px rgba(0,0,0,0.15)',
+                  "z-index": '100',
+                }}
+              >
+                <For each={nameBoxSuggestions()}>
+                  {(nr) => (
+                    <div
+                      style={{
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        "font-size": '12px',
+                        "border-bottom": '1px solid var(--grid-border, #e0e0e0)',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        acceptNameSuggestion(nr);
+                      }}
+                    >
+                      <div style={{ "font-weight": '600', color: 'var(--cell-text, #202124)' }}>
+                        {nr.name}
+                      </div>
+                      <div style={{ color: 'var(--header-text, #5f6368)', "font-size": '11px' }}>
+                        {nr.sheet ? `${nr.sheet}!${nr.range}` : nr.range}
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </>
         ) : (
           <span>{props.cellRef}</span>
         )}
