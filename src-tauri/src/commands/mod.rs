@@ -6,5 +6,7 @@ pub mod conditional_format;
 pub mod data;
 pub mod edit;
 pub mod file;
+pub mod filter;
 pub mod format;
 pub mod sheet;
+pub mod validation;

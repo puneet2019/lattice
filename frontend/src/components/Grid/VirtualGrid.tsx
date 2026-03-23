@@ -18,7 +18,10 @@ import {
   setRowHeight as tauriSetRowHeight,
   getColWidths,
   getRowHeights,
+  listValidations,
+  getHiddenRows,
 } from '../../bridge/tauri';
+import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import {
@@ -146,6 +149,15 @@ export interface VirtualGridProps {
   findActiveIndex?: number;
   /** Called when the user selects "Format cells..." from context menu. */
   onFormatCellsOpen?: () => void;
+  /** Called when the user selects "Data validation..." from context menu. */
+  onDataValidationOpen?: () => void;
+  /** Whether auto-filter is active on this sheet. */
+  filterActive?: boolean;
+  /** Start and end columns of the filter range (for drawing filter arrows). */
+  filterStartCol?: number;
+  filterEndCol?: number;
+  /** Called when user clicks a filter arrow on a column header. */
+  onFilterColumnClick?: (col: number, x: number, y: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +229,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Image cache: maps data URL to loaded HTMLImageElement (or null if loading).
   const imageCache = new Map<string, HTMLImageElement | null>();
 
+  // Validation cache: maps "row:col" to ValidationData for the current sheet.
+  const validationCache = new Map<string, ValidationData>();
+  let validationsFetched = false;
+
+  // Hidden rows set for the current sheet (from auto-filter).
+  const hiddenRows = new Set<number>();
+
   // Editing state
   const [editing, setEditing] = createSignal(false);
   const [editValue, setEditValue] = createSignal('');
@@ -235,6 +254,14 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [ctxMenuVisible, setCtxMenuVisible] = createSignal(false);
   const [ctxMenuX, setCtxMenuX] = createSignal(0);
   const [ctxMenuY, setCtxMenuY] = createSignal(0);
+
+  // Validation dropdown state (for cells with List validation)
+  const [validationDropdownVisible, setValidationDropdownVisible] = createSignal(false);
+  const [validationDropdownItems, setValidationDropdownItems] = createSignal<string[]>([]);
+  const [validationDropdownX, setValidationDropdownX] = createSignal(0);
+  const [validationDropdownY, setValidationDropdownY] = createSignal(0);
+  const [validationDropdownRow, setValidationDropdownRow] = createSignal(0);
+  const [validationDropdownCol, setValidationDropdownCol] = createSignal(0);
 
   // Custom column widths / row heights (col/row index -> px).
   // Columns/rows not in the map use the default sizes.
@@ -395,6 +422,33 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           rowHeights.set(r, h);
         }
       }
+    } catch {
+      // Backend may not support this yet
+    }
+  }
+
+  /** Load hidden rows from the backend (auto-filter). */
+  async function fetchHiddenRows() {
+    try {
+      const rows = await getHiddenRows(props.activeSheet);
+      hiddenRows.clear();
+      for (const r of rows) {
+        hiddenRows.add(r);
+      }
+    } catch {
+      // Backend may not support this yet
+    }
+  }
+
+  /** Load validation rules for the active sheet. */
+  async function fetchValidations() {
+    try {
+      const rules = await listValidations(props.activeSheet);
+      validationCache.clear();
+      for (const [r, c, data] of rules) {
+        validationCache.set(`${r}:${c}`, data);
+      }
+      validationsFetched = true;
     } catch {
       // Backend may not support this yet
     }
@@ -1375,6 +1429,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
+      // Skip hidden rows (e.g. from auto-filter)
+      if (hiddenRows.has(row)) continue;
       const rh = getRowHeight(row);
       const y = HEADER_HEIGHT + getRowY(row) - sy;
       for (let c = 0; c < colCount; c++) {
@@ -1432,6 +1488,32 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           const isActive = findActiveRow === row && findActiveCol === col;
           ctx.fillStyle = isActive ? 'rgba(0, 180, 80, 0.25)' : 'rgba(255, 235, 59, 0.35)';
           ctx.fillRect(x, y, cw, rh);
+        }
+
+        // Draw validation indicators
+        const validation = validationCache.get(`${row}:${col}`);
+        if (validation) {
+          // Small green triangle in top-right corner (like Google Sheets)
+          ctx.fillStyle = '#34a853';
+          ctx.beginPath();
+          ctx.moveTo(x + cw - 7, y + 1);
+          ctx.lineTo(x + cw - 1, y + 1);
+          ctx.lineTo(x + cw - 1, y + 7);
+          ctx.closePath();
+          ctx.fill();
+
+          // For list validation, draw a small dropdown arrow on the right
+          if (validation.rule_type === 'list') {
+            ctx.fillStyle = COLORS.headerText;
+            const arrowX = x + cw - 14;
+            const arrowY = y + rh / 2 - 2;
+            ctx.beginPath();
+            ctx.moveTo(arrowX, arrowY);
+            ctx.lineTo(arrowX + 8, arrowY);
+            ctx.lineTo(arrowX + 4, arrowY + 5);
+            ctx.closePath();
+            ctx.fill();
+          }
         }
 
         // Skip text rendering for cells with no value
@@ -1670,6 +1752,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.fillStyle = COLORS.headerText;
       }
       ctx.fillText(col_to_letter(col), x + cw / 2, HEADER_HEIGHT / 2);
+
+      // Draw filter dropdown arrow on header row columns in the filter range
+      if (
+        props.filterActive &&
+        props.filterStartCol !== undefined &&
+        props.filterEndCol !== undefined &&
+        col >= props.filterStartCol &&
+        col <= props.filterEndCol
+      ) {
+        ctx.fillStyle = COLORS.headerText;
+        const arrowX = x + cw - 12;
+        const arrowY = HEADER_HEIGHT / 2 - 2;
+        ctx.beginPath();
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(arrowX + 7, arrowY);
+        ctx.lineTo(arrowX + 3.5, arrowY + 4);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
   }
 
@@ -1695,6 +1796,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     for (let r = 0; r < rowCount; r++) {
       const row = startRow + r;
+      // Skip hidden rows (e.g. from auto-filter)
+      if (hiddenRows.has(row)) continue;
       const rh = getRowHeight(row);
       const y = HEADER_HEIGHT + getRowY(row) - sy;
       const cellBottom = y + rh;
@@ -2209,6 +2312,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     if (ctxMenuVisible()) {
       dismissContextMenu();
     }
+    // Dismiss validation dropdown on any click outside it
+    if (validationDropdownVisible()) {
+      setValidationDropdownVisible(false);
+    }
 
     if (editing()) return; // let the editor handle clicks
     if (!containerRef) return;
@@ -2216,6 +2323,36 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const rect = containerRef.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
+
+    // Check if click is on a list validation dropdown arrow
+    if (localX >= ROW_NUMBER_WIDTH && localY >= HEADER_HEIGHT) {
+      const contentX = localX - ROW_NUMBER_WIDTH + effectiveScrollX(localX);
+      const contentY = localY - HEADER_HEIGHT + effectiveScrollY(localY);
+      const col = colAtX(contentX);
+      const row = rowAtY(contentY);
+      const validation = validationCache.get(`${row}:${col}`);
+      if (validation && validation.rule_type === 'list') {
+        // Check if click is near the right edge (dropdown arrow area)
+        const cellRight = getColX(col) + getColWidth(col);
+        const clickOffsetFromRight = cellRight - contentX;
+        if (clickOffsetFromRight <= 16) {
+          // Show the validation dropdown
+          const items = (validation.list_items ?? '').split(',').map(s => s.trim()).filter(s => s.length > 0);
+          if (items.length > 0) {
+            const cellScreenX = ROW_NUMBER_WIDTH + getColX(col) - effectiveScrollX(localX);
+            const cellScreenY = HEADER_HEIGHT + getRowY(row) - effectiveScrollY(localY) + getRowHeight(row);
+            setValidationDropdownItems(items);
+            setValidationDropdownX(cellScreenX);
+            setValidationDropdownY(cellScreenY);
+            setValidationDropdownRow(row);
+            setValidationDropdownCol(col);
+            setValidationDropdownVisible(true);
+            e.preventDefault();
+            return;
+          }
+        }
+      }
+    }
 
     // Check for column header border resize drag.
     const resizeCol = hitColHeaderBorder(localX, localY);
@@ -2302,11 +2439,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       return;
     }
 
-    // Click on column header: select entire column
+    // Click on column header: check for filter arrow click first
     if (localY < HEADER_HEIGHT && localX >= ROW_NUMBER_WIDTH) {
       const effSx = effectiveScrollX(localX);
       const contentX = localX - ROW_NUMBER_WIDTH + effSx;
       const col = colAtX(contentX);
+
+      // Check if clicking on filter arrow area
+      if (
+        props.filterActive &&
+        props.filterStartCol !== undefined &&
+        props.filterEndCol !== undefined &&
+        col >= props.filterStartCol &&
+        col <= props.filterEndCol &&
+        props.onFilterColumnClick
+      ) {
+        const cellRight = ROW_NUMBER_WIDTH + getColX(col) + getColWidth(col) - effSx;
+        if (localX >= cellRight - 16) {
+          // Clicked on the filter arrow -- get screen coordinates
+          const rect = containerRef!.getBoundingClientRect();
+          props.onFilterColumnClick(col, rect.left + cellRight - getColWidth(col), rect.top + HEADER_HEIGHT);
+          e.preventDefault();
+          return;
+        }
+      }
       if (e.shiftKey) {
         // Extend selection from current column to clicked column
         const anchor = rangeAnchor();
@@ -2726,6 +2882,22 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   function dismissContextMenu() {
     setCtxMenuVisible(false);
+  }
+
+  /** Handle selecting a value from the validation dropdown list. */
+  async function handleValidationDropdownSelect(value: string) {
+    setValidationDropdownVisible(false);
+    const row = validationDropdownRow();
+    const col = validationDropdownCol();
+    try {
+      await setCell(props.activeSheet, row, col, value, undefined);
+      lastFetchKey = '';
+      fetchVisibleData();
+      props.onContentChange(value);
+      props.onStatusChange(`Set ${value}`);
+    } catch {
+      props.onStatusChange('Failed to set value');
+    }
   }
 
   async function ctxInsertRowAbove() {
@@ -3446,6 +3618,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
     // Load persisted col/row sizes from backend
     loadPersistedSizes();
+    // Load validation rules and hidden rows
+    fetchValidations();
+    fetchHiddenRows();
 
     // Initial data fetch + formula bar sync
     fetchVisibleData();
@@ -3460,8 +3635,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Invalidate and refetch
     lastFetchKey = '';
     fetchVisibleData();
-    // Reload persisted sizes for new sheet
+    // Reload persisted sizes and validations for new sheet
     loadPersistedSizes();
+    validationsFetched = false;
+    fetchValidations();
+    fetchHiddenRows();
   });
 
   // Sync find match highlights from props to canvas-accessible state
@@ -3642,6 +3820,29 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onFormatCellsOpen?.(); }}>
             Format cells...
           </div>
+          <div class="context-menu-item" onClick={() => { dismissContextMenu(); props.onDataValidationOpen?.(); }}>
+            Data validation...
+          </div>
+        </div>
+      </Show>
+      <Show when={validationDropdownVisible()}>
+        <div
+          class="validation-dropdown"
+          style={{
+            left: `${validationDropdownX()}px`,
+            top: `${validationDropdownY()}px`,
+            "min-width": `${getColWidth(validationDropdownCol())}px`,
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {validationDropdownItems().map((item) => (
+            <div
+              class="validation-dropdown-item"
+              onClick={() => handleValidationDropdownSelect(item)}
+            >
+              {item}
+            </div>
+          ))}
         </div>
       </Show>
     </div>

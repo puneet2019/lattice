@@ -149,6 +149,18 @@ fn main() {
             commands::cloud::list_cloud_files,
             commands::cloud::open_cloud_file,
             commands::cloud::save_to_cloud,
+            // Validation commands
+            commands::validation::set_validation,
+            commands::validation::get_validation,
+            commands::validation::remove_validation,
+            commands::validation::list_validations,
+            // Filter commands
+            commands::filter::set_auto_filter,
+            commands::filter::get_column_values,
+            commands::filter::apply_column_filter,
+            commands::filter::clear_filter,
+            commands::filter::get_filter_info,
+            commands::filter::get_hidden_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lattice");

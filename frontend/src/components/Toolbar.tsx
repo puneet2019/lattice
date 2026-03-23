@@ -18,12 +18,14 @@ export interface ToolbarProps {
   onFreezeToggle: () => void;
   onSplitToggle: () => void;
   onInsertChart: () => void;
+  onFilterToggle: () => void;
   onConditionalFormat: () => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
   freezeActive: boolean;
   splitActive: boolean;
+  filterActive: boolean;
   currentFontFamily?: string;
 }
 
@@ -445,6 +447,20 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           <rect x="2" y="8" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.3" />
           <rect x="6.5" y="4" width="3" height="10" rx="0.5" fill="currentColor" opacity="0.5" />
           <rect x="11" y="6" width="3" height="8" rx="0.5" fill="currentColor" opacity="0.7" />
+        </svg>
+      </button>
+
+      {/* Filter toggle */}
+      <button
+        class={`toolbar-btn toolbar-btn-wide ${props.filterActive ? 'active' : ''}`}
+        title={props.filterActive ? 'Remove filter' : 'Create filter'}
+        onClick={props.onFilterToggle}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M2 3h12L9 8.5V12l-2 1.5V8.5L2 3z" />
+          {props.filterActive && (
+            <circle cx="12" cy="12" r="3" fill="var(--selection-border)" stroke="none" />
+          )}
         </svg>
       </button>
 

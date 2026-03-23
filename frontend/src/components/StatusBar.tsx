@@ -7,6 +7,7 @@ export interface StatusBarProps {
   selectionSummary: string;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  filterSummary?: string;
 }
 
 const StatusBar: Component<StatusBarProps> = (props) => {
@@ -26,6 +27,9 @@ const StatusBar: Component<StatusBarProps> = (props) => {
         <span class="status-message">{props.message}</span>
       </div>
       <div class="status-bar-center">
+        <Show when={props.filterSummary}>
+          <span class="status-filter-summary">{props.filterSummary}</span>
+        </Show>
         <Show when={props.selectionSummary}>
           <span class="status-selection-summary">{props.selectionSummary}</span>
         </Show>

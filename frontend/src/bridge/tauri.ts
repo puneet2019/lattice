@@ -369,6 +369,129 @@ export async function deleteChart(chartId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Validation commands
+// ---------------------------------------------------------------------------
+
+/** Validation rule data returned from the backend. */
+export interface ValidationData {
+  rule_type: string;
+  list_items: string | null;
+  min: number | null;
+  max: number | null;
+  min_date: string | null;
+  max_date: string | null;
+  formula: string | null;
+  allow_blank: boolean;
+  error_message: string | null;
+}
+
+export async function setValidation(
+  sheet: string,
+  row: number,
+  col: number,
+  ruleType: string,
+  listItems?: string,
+  min?: number,
+  max?: number,
+  minDate?: string,
+  maxDate?: string,
+  formula?: string,
+  allowBlank?: boolean,
+  errorMessage?: string,
+): Promise<void> {
+  return invoke('set_validation', {
+    sheet,
+    row,
+    col,
+    ruleType,
+    listItems: listItems ?? null,
+    min: min ?? null,
+    max: max ?? null,
+    minDate: minDate ?? null,
+    maxDate: maxDate ?? null,
+    formula: formula ?? null,
+    allowBlank: allowBlank ?? true,
+    errorMessage: errorMessage ?? null,
+  });
+}
+
+export async function getValidation(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<ValidationData | null> {
+  return invoke('get_validation', { sheet, row, col });
+}
+
+export async function removeValidation(
+  sheet: string,
+  row: number,
+  col: number,
+): Promise<void> {
+  return invoke('remove_validation', { sheet, row, col });
+}
+
+export async function listValidations(
+  sheet: string,
+): Promise<[number, number, ValidationData][]> {
+  return invoke('list_validations', { sheet });
+}
+
+// ---------------------------------------------------------------------------
+// Filter commands
+// ---------------------------------------------------------------------------
+
+/** Filter state information returned from the backend. */
+export interface FilterInfo {
+  active: boolean;
+  start_col: number;
+  end_col: number;
+  header_row: number;
+  filtered_cols: number[];
+  total_rows: number;
+  visible_rows: number;
+}
+
+export async function setAutoFilter(
+  sheet: string,
+): Promise<FilterInfo> {
+  return invoke('set_auto_filter', { sheet });
+}
+
+export async function getColumnValues(
+  sheet: string,
+  col: number,
+): Promise<string[]> {
+  return invoke('get_column_values', { sheet, col });
+}
+
+export async function applyColumnFilter(
+  sheet: string,
+  col: number,
+  values: string[],
+): Promise<FilterInfo> {
+  return invoke('apply_column_filter', { sheet, col, values });
+}
+
+export async function clearFilter(
+  sheet: string,
+): Promise<void> {
+  return invoke('clear_filter', { sheet });
+}
+
+export async function getFilterInfo(
+  sheet: string,
+): Promise<FilterInfo> {
+  return invoke('get_filter_info', { sheet });
+}
+
+export async function getHiddenRows(
+  sheet: string,
+): Promise<number[]> {
+  return invoke('get_hidden_rows', { sheet });
+}
+
+// ---------------------------------------------------------------------------
 // Conditional format commands
 // ---------------------------------------------------------------------------
 

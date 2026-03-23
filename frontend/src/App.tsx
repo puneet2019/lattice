@@ -14,6 +14,8 @@ import ChartDialog from './components/Charts/ChartDialog';
 import PasteSpecialDialog from './components/PasteSpecialDialog';
 import type { PasteMode } from './components/PasteSpecialDialog';
 import FormatCellsDialog from './components/FormatCellsDialog';
+import DataValidationDialog from './components/DataValidationDialog';
+import FilterDropdown from './components/FilterDropdown';
 import ConditionalFormatDialog from './components/ConditionalFormatDialog';
 import {
   listSheets,
@@ -33,7 +35,10 @@ import {
   listCharts,
   setSheetTabColor,
   moveSheet,
+  setAutoFilter,
+  clearFilter,
 } from './bridge/tauri';
+import type { FilterInfo } from './bridge/tauri';
 import type { ChartInfo } from './bridge/tauri';
 import { parse_cell_ref } from './bridge/tauri_helpers';
 import './styles/grid.css';
@@ -71,6 +76,12 @@ const App: Component = () => {
   const [frozenCols, setFrozenCols] = createSignal(0);
   const [splitRow, setSplitRow] = createSignal(0);
   const [splitCol, setSplitCol] = createSignal(0);
+  const [filterActive, setFilterActive] = createSignal(false);
+  const [filterInfo, setFilterInfo] = createSignal<FilterInfo | null>(null);
+  const [showFilterDropdown, setShowFilterDropdown] = createSignal(false);
+  const [filterDropdownCol, setFilterDropdownCol] = createSignal(0);
+  const [filterDropdownX, setFilterDropdownX] = createSignal(0);
+  const [filterDropdownY, setFilterDropdownY] = createSignal(0);
 
   // Spreadsheet file filter for open/save dialogs.
   const fileFilters = [
@@ -486,6 +497,46 @@ const App: Component = () => {
     }
   };
 
+  const handleFilterToggle = async () => {
+    if (filterActive()) {
+      // Remove filter
+      try {
+        await clearFilter(activeSheetName());
+        setFilterActive(false);
+        setFilterInfo(null);
+        setRefreshTrigger((n) => n + 1);
+        setStatusMessage('Filter removed');
+      } catch (e) {
+        setStatusMessage(`Failed to clear filter: ${e}`);
+      }
+    } else {
+      // Create filter
+      try {
+        const info = await setAutoFilter(activeSheetName());
+        setFilterActive(true);
+        setFilterInfo(info);
+        setRefreshTrigger((n) => n + 1);
+        setStatusMessage('Filter created');
+      } catch (e) {
+        setStatusMessage(`Failed to create filter: ${e}`);
+      }
+    }
+  };
+
+  const handleFilterColumnClick = (col: number, x: number, y: number) => {
+    setFilterDropdownCol(col);
+    setFilterDropdownX(x);
+    setFilterDropdownY(y);
+    setShowFilterDropdown(true);
+  };
+
+  const handleFilterApply = (info: FilterInfo) => {
+    setFilterInfo(info);
+    setShowFilterDropdown(false);
+    setRefreshTrigger((n) => n + 1);
+    setStatusMessage(`Filter applied: ${info.visible_rows} of ${info.total_rows} rows`);
+  };
+
   const handleZoomChange = (z: number) => {
     setZoom(Math.max(0.25, Math.min(2.0, z)));
   };
@@ -593,6 +644,7 @@ const App: Component = () => {
   // -------------------------------------------------------------------
 
   const [showFormatCells, setShowFormatCells] = createSignal(false);
+  const [showDataValidation, setShowDataValidation] = createSignal(false);
   const [showConditionalFormat, setShowConditionalFormat] = createSignal(false);
   const [showPasteSpecial, setShowPasteSpecial] = createSignal(false);
   const [pasteSpecialMode, setPasteSpecialMode] = createSignal<PasteMode | null>(null);
@@ -649,12 +701,14 @@ const App: Component = () => {
         onFreezeToggle={handleFreezeToggle}
         onSplitToggle={handleSplitToggle}
         onInsertChart={handleInsertChart}
+        onFilterToggle={handleFilterToggle}
         onConditionalFormat={() => setShowConditionalFormat(true)}
         boldActive={boldActive()}
         italicActive={italicActive()}
         underlineActive={underlineActive()}
         freezeActive={frozenRows() > 0 || frozenCols() > 0}
         splitActive={splitRow() > 0 || splitCol() > 0}
+        filterActive={filterActive()}
         currentFontFamily={currentFontFamily()}
       />
       <FormulaBar
@@ -718,6 +772,11 @@ const App: Component = () => {
           findMatches={findMatches()}
           findActiveIndex={findActiveIndex()}
           onFormatCellsOpen={() => setShowFormatCells(true)}
+          onDataValidationOpen={() => setShowDataValidation(true)}
+          filterActive={filterActive()}
+          filterStartCol={filterInfo()?.start_col}
+          filterEndCol={filterInfo()?.end_col}
+          onFilterColumnClick={handleFilterColumnClick}
         />
         <ChartContainer
           charts={chartOverlays()}
@@ -748,6 +807,30 @@ const App: Component = () => {
             setShowFormatCells(false);
           }}
           onClose={() => setShowFormatCells(false)}
+        />
+      </Show>
+      <Show when={showDataValidation()}>
+        <DataValidationDialog
+          activeSheet={activeSheetName()}
+          row={selectedCell()[0]}
+          col={selectedCell()[1]}
+          cellRef={cellRefStr(selectedCell()[0], selectedCell()[1])}
+          onClose={() => setShowDataValidation(false)}
+          onSaved={() => {
+            setShowDataValidation(false);
+            setRefreshTrigger((n) => n + 1);
+            setStatusMessage('Validation saved');
+          }}
+        />
+      </Show>
+      <Show when={showFilterDropdown()}>
+        <FilterDropdown
+          activeSheet={activeSheetName()}
+          col={filterDropdownCol()}
+          x={filterDropdownX()}
+          y={filterDropdownY()}
+          onClose={() => setShowFilterDropdown(false)}
+          onApply={handleFilterApply}
         />
       </Show>
       <Show when={showConditionalFormat()}>
@@ -783,6 +866,7 @@ const App: Component = () => {
         selectionSummary={selectionSummary()}
         zoom={zoom()}
         onZoomChange={handleZoomChange}
+        filterSummary={filterInfo() ? `${filterInfo()!.visible_rows} of ${filterInfo()!.total_rows} rows displayed` : undefined}
       />
     </div>
   );
