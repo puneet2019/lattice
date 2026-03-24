@@ -69,7 +69,8 @@ import {
 } from './bridge/tauri';
 import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData } from './bridge/tauri';
 import type { ChartInfo, ChartTypeStr } from './bridge/tauri';
-import { parse_cell_ref } from './bridge/tauri_helpers';
+import { parse_cell_ref, col_to_letter } from './bridge/tauri_helpers';
+import { TOTAL_ROWS, TOTAL_COLS } from './components/Grid/constants';
 import './styles/grid.css';
 
 /** Convert 0-based row, col to A1-style reference. */
@@ -83,6 +84,44 @@ function cellRefStr(row: number, col: number): string {
   return `${result}${row + 1}`;
 }
 
+/** Parse column letters (e.g., "A", "AA") to 0-based column index. */
+function parseColLetters(letters: string): number {
+  const upper = letters.toUpperCase();
+  let col = 0;
+  for (let i = 0; i < upper.length; i++) {
+    col = col * 26 + (upper.charCodeAt(i) - 64);
+  }
+  return col - 1;
+}
+
+/** Compute name box display string from selection range. */
+function nameBoxDisplayStr(
+  row: number, col: number,
+  minRow: number, minCol: number,
+  maxRow: number, maxCol: number,
+): string {
+  // Single cell
+  if (minRow === maxRow && minCol === maxCol) {
+    return cellRefStr(row, col);
+  }
+  // All cells selected
+  if (minRow === 0 && minCol === 0 && maxRow >= TOTAL_ROWS - 1 && maxCol >= TOTAL_COLS - 1) {
+    return 'All';
+  }
+  // Full column(s): all rows selected
+  if (minRow === 0 && maxRow >= TOTAL_ROWS - 1) {
+    const startLetter = col_to_letter(minCol);
+    const endLetter = col_to_letter(maxCol);
+    return minCol === maxCol ? `${startLetter}:${startLetter}` : `${startLetter}:${endLetter}`;
+  }
+  // Full row(s): all columns selected
+  if (minCol === 0 && maxCol >= TOTAL_COLS - 1) {
+    return minRow === maxRow ? `${minRow + 1}:${minRow + 1}` : `${minRow + 1}:${maxRow + 1}`;
+  }
+  // Range
+  return `${cellRefStr(minRow, minCol)}:${cellRefStr(maxRow, maxCol)}`;
+}
+
 const App: Component = () => {
   const [sheets, setSheets] = createSignal<string[]>(['Sheet1']);
   const [activeSheetName, setActiveSheetLocal] = createSignal('Sheet1');
@@ -90,6 +129,9 @@ const App: Component = () => {
   // Track the full selection range (minRow, minCol, maxRow, maxCol) for multi-cell operations.
   const [selRange, setSelRange] = createSignal<[number, number, number, number]>([0, 0, 0, 0]);
   const [formulaContent, setFormulaContent] = createSignal('');
+  const [nameBoxDisplay, setNameBoxDisplay] = createSignal('A1');
+  // Navigation request signal: [row, col, anchorRow, anchorCol, endRow, endCol]
+  const [navigateTo, setNavigateTo] = createSignal<[number, number, number, number, number, number] | null>(null);
   const [statusMessage, setStatusMessage] = createSignal('Ready');
   const [mode, setMode] = createSignal<'Ready' | 'Edit'>('Ready');
   const [selectionSummary, setSelectionSummary] = createSignal('');
@@ -675,7 +717,12 @@ const App: Component = () => {
   const handleSelectionChange = (row: number, col: number, minRow?: number, minCol?: number, maxRow?: number, maxCol?: number) => {
     setSelectedCell([row, col]);
     // Update the full selection range (defaults to single cell if no range provided).
-    setSelRange([minRow ?? row, minCol ?? col, maxRow ?? row, maxCol ?? col]);
+    const mR = minRow ?? row;
+    const mC = minCol ?? col;
+    const xR = maxRow ?? row;
+    const xC = maxCol ?? col;
+    setSelRange([mR, mC, xR, xC]);
+    setNameBoxDisplay(nameBoxDisplayStr(row, col, mR, mC, xR, xC));
     setStatusMessage(`Cell ${cellRefStr(row, col)}`);
     // Sync toolbar format state from the selected cell
     getCell(activeSheetName(), row, col)
@@ -723,10 +770,74 @@ const App: Component = () => {
   };
 
   const handleFormulaNavigate = (ref: string) => {
+    // Check for range notation (e.g., "A1:C5")
+    if (ref.includes(':')) {
+      const parts = ref.split(':');
+      if (parts.length === 2) {
+        // Full row notation (e.g., "3:5")
+        const rowOnly = /^(\d+)$/;
+        const m1 = parts[0].match(rowOnly);
+        const m2 = parts[1].match(rowOnly);
+        if (m1 && m2) {
+          const r1 = parseInt(m1[1], 10) - 1;
+          const r2 = parseInt(m2[1], 10) - 1;
+          const minR = Math.min(r1, r2);
+          const maxR = Math.max(r1, r2);
+          setSelectedCell([minR, 0]);
+          setSelRange([minR, 0, maxR, TOTAL_COLS - 1]);
+          setNameBoxDisplay(nameBoxDisplayStr(minR, 0, minR, 0, maxR, TOTAL_COLS - 1));
+          setNavigateTo([minR, 0, minR, 0, maxR, TOTAL_COLS - 1]);
+          setStatusMessage(`Row ${minR + 1}:${maxR + 1}`);
+          setFormulaContent('');
+          return;
+        }
+        // Full column notation (e.g., "A:C")
+        const colOnly = /^([A-Za-z]+)$/;
+        const c1 = parts[0].match(colOnly);
+        const c2 = parts[1].match(colOnly);
+        if (c1 && c2) {
+          const col1 = parseColLetters(c1[1]);
+          const col2 = parseColLetters(c2[1]);
+          const minC = Math.min(col1, col2);
+          const maxC = Math.max(col1, col2);
+          setSelectedCell([0, minC]);
+          setSelRange([0, minC, TOTAL_ROWS - 1, maxC]);
+          setNameBoxDisplay(nameBoxDisplayStr(0, minC, 0, minC, TOTAL_ROWS - 1, maxC));
+          setNavigateTo([0, minC, 0, minC, TOTAL_ROWS - 1, maxC]);
+          setStatusMessage(`Column ${col_to_letter(minC)}:${col_to_letter(maxC)}`);
+          setFormulaContent('');
+          return;
+        }
+        // Cell range notation (e.g., "A1:C5")
+        const p1 = parse_cell_ref(parts[0].trim());
+        const p2 = parse_cell_ref(parts[1].trim());
+        if (p1 && p2) {
+          const minR = Math.min(p1.row, p2.row);
+          const minC = Math.min(p1.col, p2.col);
+          const maxR = Math.max(p1.row, p2.row);
+          const maxC = Math.max(p1.col, p2.col);
+          setSelectedCell([minR, minC]);
+          setSelRange([minR, minC, maxR, maxC]);
+          setNameBoxDisplay(nameBoxDisplayStr(minR, minC, minR, minC, maxR, maxC));
+          setNavigateTo([minR, minC, minR, minC, maxR, maxC]);
+          setStatusMessage(`Range ${cellRefStr(minR, minC)}:${cellRefStr(maxR, maxC)}`);
+          // Fetch the top-left cell content for formula bar
+          getCell(activeSheetName(), minR, minC)
+            .then((cell) => {
+              setFormulaContent(cell?.formula ? `=${cell.formula}` : cell?.value ?? '');
+            })
+            .catch(() => setFormulaContent(''));
+          return;
+        }
+      }
+    }
+    // Single cell reference
     const parsed = parse_cell_ref(ref);
     if (parsed) {
       setSelectedCell([parsed.row, parsed.col]);
       setSelRange([parsed.row, parsed.col, parsed.row, parsed.col]);
+      setNameBoxDisplay(cellRefStr(parsed.row, parsed.col));
+      setNavigateTo([parsed.row, parsed.col, parsed.row, parsed.col, parsed.row, parsed.col]);
       setStatusMessage(`Cell ${cellRefStr(parsed.row, parsed.col)}`);
       // Fetch the navigated cell's content for the formula bar
       getCell(activeSheetName(), parsed.row, parsed.col)
@@ -1332,7 +1443,7 @@ const App: Component = () => {
         currentFontFamily={currentFontFamily()}
       />
       <FormulaBar
-        cellRef={cellRefStr(selectedCell()[0], selectedCell()[1])}
+        cellRef={nameBoxDisplay()}
         content={formulaContent()}
         onCommit={handleFormulaCommit}
         onCancel={handleFormulaCancel}
@@ -1348,6 +1459,8 @@ const App: Component = () => {
           onNavigateToCell={(row, col) => {
             setSelectedCell([row, col]);
             setSelRange([row, col, row, col]);
+            setNameBoxDisplay(cellRefStr(row, col));
+            setNavigateTo([row, col, row, col, row, col]);
             setStatusMessage(`Cell ${cellRefStr(row, col)}`);
             // Sync formula bar with navigated cell
             getCell(activeSheetName(), row, col)
@@ -1415,6 +1528,7 @@ const App: Component = () => {
           pageBreakPreview={pageBreakPreview()}
           pageBreakPaperSize="letter"
           pageBreakOrientation="portrait"
+          navigateTo={navigateTo()}
         />
         <ChartContainer
           charts={chartOverlays()}

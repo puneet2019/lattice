@@ -258,6 +258,34 @@ const Toolbar: Component<ToolbarProps> = (props) => {
         </button>
         <Show when={showFontSizeDropdown()}>
           <div class="toolbar-dropdown-menu">
+            <input
+              type="number"
+              min="1"
+              max="400"
+              placeholder="Custom"
+              class="toolbar-font-size-input"
+              style={{
+                width: '100%',
+                padding: '4px 8px',
+                border: 'none',
+                'border-bottom': '1px solid var(--grid-border, #e0e0e0)',
+                'font-size': '12px',
+                outline: 'none',
+                'box-sizing': 'border-box',
+                background: 'transparent',
+                color: 'inherit',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = parseInt(e.currentTarget.value, 10);
+                  if (val > 0 && val <= 400) {
+                    handleFontSizeSelect(val);
+                  }
+                }
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
             <For each={FONT_SIZES}>
               {(size) => (
                 <div

@@ -84,7 +84,7 @@ const LIGHT_COLORS: ThemeColors = {
   cornerBg: '#f8f9fa',
   cellText: '#202124',
   cellBg: '#ffffff',
-  freezeBorder: '#9e9e9e',
+  freezeBorder: '#1a73e8',
 };
 
 const DARK_COLORS: ThemeColors = {
@@ -96,7 +96,7 @@ const DARK_COLORS: ThemeColors = {
   cornerBg: '#292a2d',
   cellText: '#e8eaed',
   cellBg: '#202124',
-  freezeBorder: '#5f6368',
+  freezeBorder: '#8ab4f8',
 };
 
 /** Detect system dark mode preference. */
@@ -198,6 +198,8 @@ export interface VirtualGridProps {
   pageBreakPaperSize?: string;
   /** Orientation for page break calculation: 'portrait'|'landscape'. */
   pageBreakOrientation?: string;
+  /** External navigation request: [row, col, anchorRow, anchorCol, endRow, endCol]. Increment to trigger. */
+  navigateTo?: [number, number, number, number, number, number] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +650,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   // Editing
   // -----------------------------------------------------------------------
 
-  function startEditing(clearContent: boolean) {
+  function startEditing(clearContent: boolean, clickX?: number, clickY?: number) {
     // Clear marching ants when editing starts
     stopMarchingAnts();
     // Reset formula ref tracking
@@ -676,11 +678,50 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       if (editorRef) {
         editorRef.focus();
         if (!clearContent) {
-          editorRef.setSelectionRange(content.length, content.length);
+          // If we have a click position (double-click), place cursor at click location
+          if (clickX !== undefined && clickY !== undefined && content.length > 0) {
+            const cursorPos = computeCursorPosFromClick(editorRef, content, clickX, clickY);
+            editorRef.setSelectionRange(cursorPos, cursorPos);
+          } else {
+            editorRef.setSelectionRange(content.length, content.length);
+          }
         }
         autoResizeEditor();
       }
     });
+  }
+
+  /** Compute the cursor position in text based on a click's screen coordinates. */
+  function computeCursorPosFromClick(
+    editor: HTMLTextAreaElement, text: string, clientX: number, _clientY: number,
+  ): number {
+    const rect = editor.getBoundingClientRect();
+    // Relative X within the editor, accounting for padding
+    const editorPadding = 4; // matches CSS padding
+    const relX = clientX - rect.left - editorPadding;
+    if (relX <= 0) return 0;
+
+    // Use a temporary canvas to measure character widths
+    const measureCanvas = document.createElement('canvas');
+    const measureCtx = measureCanvas.getContext('2d');
+    if (!measureCtx) return text.length;
+
+    const style = window.getComputedStyle(editor);
+    measureCtx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+
+    // Find character index where cumulative width exceeds relX
+    for (let i = 0; i <= text.length; i++) {
+      const w = measureCtx.measureText(text.slice(0, i)).width;
+      if (w >= relX) {
+        // Check if we're closer to character i or i-1
+        if (i > 0) {
+          const prevW = measureCtx.measureText(text.slice(0, i - 1)).width;
+          return (relX - prevW < w - relX) ? i - 1 : i;
+        }
+        return i;
+      }
+    }
+    return text.length;
   }
 
   async function commitEdit(moveRow: number, moveCol: number) {
@@ -1099,6 +1140,10 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const fontFamily = cell?.font_family || '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
     const fontWeight = cell?.bold ? 'bold' : 'normal';
     const fontStyleCss = cell?.italic ? 'italic' : 'normal';
+    // Match cell alignment: auto-align numbers right when h_align is default "left"
+    const isNumber = cell?.value ? (!isNaN(Number(cell.value)) && cell.value.trim() !== '') : false;
+    const userSetAlign = cell?.h_align && cell.h_align !== 'left';
+    const textAlign = userSetAlign ? cell!.h_align : (isNumber ? 'right' : 'left');
     return {
       position: 'absolute' as const,
       left: `${x}px`,
@@ -1110,6 +1155,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       'font-family': fontFamily,
       'font-weight': fontWeight,
       'font-style': fontStyleCss,
+      'text-align': textAlign,
       color: cell?.font_color || undefined,
     };
   }
@@ -3292,7 +3338,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       selectCell(hit.row, hit.col);
 
       if (isDoubleClick) {
-        startEditing(false);
+        startEditing(false, e.clientX, e.clientY);
         return;
       }
 
@@ -4938,6 +4984,20 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchHiddenCols();
     fetchConditionalFormats();
     fetchRowGroups();
+  });
+
+  // Handle external navigation requests (name box, find bar)
+  createEffect(() => {
+    const nav = props.navigateTo;
+    if (!nav) return;
+    const [row, col, anchorRow, anchorCol, endRow, endCol] = nav;
+    setSelectedRow(row);
+    setSelectedCol(col);
+    setRangeAnchor([anchorRow, anchorCol]);
+    setRangeEnd([endRow, endCol]);
+    ensureCellVisible(row, col);
+    fetchVisibleData();
+    draw();
   });
 
   // Sync find match highlights from props to canvas-accessible state
