@@ -26,10 +26,6 @@
   --context-menu-text: #202124;
   --context-menu-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   --danger-color: #d93025;
-  --dialog-preview-bg: #fafafa;
-  --dialog-backdrop-bg: rgba(0, 0, 0, 0.3);
-  --print-preview-canvas-bg: #e8e8e8;
-  --btn-primary-text: #ffffff;
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
     'Helvetica Neue', Arial, sans-serif;
 }
@@ -59,10 +55,6 @@
     --context-menu-text: #e8eaed;
     --context-menu-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     --danger-color: #f28b82;
-    --dialog-preview-bg: #2d2e30;
-    --dialog-backdrop-bg: rgba(0, 0, 0, 0.5);
-    --print-preview-canvas-bg: #1a1a1c;
-    --btn-primary-text: #ffffff;
   }
 }
 
@@ -1119,7 +1111,7 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--dialog-backdrop-bg);
+  background: rgba(0, 0, 0, 0.3);
   z-index: 300;
   display: flex;
   align-items: center;
@@ -1238,7 +1230,7 @@ body,
 .chart-dialog-preview {
   border: 1px solid var(--grid-border);
   border-radius: 4px;
-  background: var(--dialog-preview-bg);
+  background: #fafafa;
   min-height: 120px;
   display: flex;
   align-items: center;
@@ -1278,7 +1270,7 @@ body,
 
 .chart-dialog-btn-primary {
   background: var(--selection-border);
-  color: var(--btn-primary-text);
+  color: #ffffff;
   border-color: var(--selection-border);
 }
 
@@ -1297,7 +1289,7 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--dialog-backdrop-bg);
+  background: rgba(0, 0, 0, 0.3);
   z-index: 300;
   display: flex;
   align-items: center;
@@ -1553,7 +1545,7 @@ body,
 }
 
 .border-preview-edge.active {
-  background: var(--selection-bg);
+  background: rgba(26, 115, 232, 0.15);
 }
 
 .border-preview-top {
@@ -1620,7 +1612,7 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--dialog-backdrop-bg);
+  background: rgba(0, 0, 0, 0.3);
   z-index: 300;
   display: flex;
   align-items: center;
@@ -1932,7 +1924,7 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--dialog-backdrop-bg);
+  background: rgba(0, 0, 0, 0.35);
   z-index: 500;
   display: flex;
   align-items: center;
@@ -2045,7 +2037,7 @@ body,
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--dialog-backdrop-bg);
+  background: rgba(0, 0, 0, 0.5);
   z-index: 600;
   display: flex;
   align-items: center;
@@ -2107,7 +2099,7 @@ body,
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: var(--print-preview-canvas-bg);
+  background: #e8e8e8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2118,7 +2110,7 @@ body,
   width: 100%;
   height: 100%;
   border: none;
-  background: var(--cell-bg);
+  background: white;
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
@@ -2207,7 +2199,7 @@ body,
 
 .print-settings-toggle.active {
   background: var(--selection-border);
-  color: var(--btn-primary-text);
+  color: white;
 }
 
 .print-settings-toggle:hover:not(.active) {
@@ -2340,7 +2332,7 @@ body,
 
 .print-settings-btn-primary {
   background: var(--selection-border);
-  color: var(--btn-primary-text);
+  color: white;
   border-color: var(--selection-border);
 }
 
@@ -2349,133 +2341,56 @@ body,
 }
 
 /* -----------------------------------------------------------------------
-   Data Cleanup Dialog
+   Welcome Screen
    ----------------------------------------------------------------------- */
 
-.data-cleanup-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--toolbar-border);
-  margin-bottom: 12px;
-}
-
-.data-cleanup-tab {
-  padding: 8px 14px;
-  border: none;
-  background: transparent;
-  color: var(--header-text);
-  font-size: 12px;
-  font-family: var(--font-family);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.1s, border-color 0.1s;
-}
-
-.data-cleanup-tab:hover {
-  color: var(--cell-text);
-}
-
-.data-cleanup-tab.active {
-  color: var(--selection-border);
-  border-bottom-color: var(--selection-border);
-  font-weight: 500;
-}
-
-.data-cleanup-content {
-  min-height: 120px;
-}
-
-.data-cleanup-desc {
-  font-size: 12px;
-  color: var(--header-text);
-  margin: 0 0 8px;
-  line-height: 1.5;
-}
-
-.data-cleanup-col-actions {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.data-cleanup-link-btn {
-  background: none;
-  border: none;
-  color: var(--selection-border);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-  font-family: var(--font-family);
-}
-
-.data-cleanup-link-btn:hover {
-  text-decoration: underline;
-}
-
-.data-cleanup-col-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.data-cleanup-col-item {
+.welcome-action-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--cell-text);
-  cursor: pointer;
-}
-
-.data-cleanup-col-item input[type="checkbox"] {
-  accent-color: var(--selection-border);
-}
-
-.data-cleanup-fix-list {
-  font-size: 12px;
-  color: var(--cell-text);
-  margin: 0 0 8px 16px;
-  line-height: 1.6;
-}
-
-.data-cleanup-result {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: var(--selection-bg);
-  color: var(--cell-text);
-  font-size: 12px;
-}
-
-/* -----------------------------------------------------------------------
-   Shared Dialog Buttons (used by Version History, Data Cleanup, etc.)
-   ----------------------------------------------------------------------- */
-
-.paste-special-button {
-  padding: 5px 12px;
+  gap: 8px;
+  padding: 10px 20px;
   border: 1px solid var(--grid-border);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: 8px;
+  font-size: 13px;
   font-family: var(--font-family);
+  font-weight: 500;
   cursor: pointer;
-  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+  background: var(--cell-bg);
   color: var(--cell-text);
-  transition: background 0.1s;
 }
 
-.paste-special-button:hover {
+.welcome-action-btn:hover {
   background: var(--selection-bg);
-}
-
-.paste-special-button.primary {
-  background: var(--selection-border);
-  color: var(--btn-primary-text);
   border-color: var(--selection-border);
 }
 
-.paste-special-button.primary:hover {
+.welcome-action-primary {
+  background: var(--selection-border);
+  color: white;
+  border-color: var(--selection-border);
+}
+
+.welcome-action-primary:hover {
   opacity: 0.9;
   background: var(--selection-border);
+  border-color: var(--selection-border);
+}
+
+.welcome-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.welcome-recent-item:hover {
+  background: var(--selection-bg);
 }

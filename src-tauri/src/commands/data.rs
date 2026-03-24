@@ -649,62 +649,6 @@ pub async fn create_pivot_table(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Named Functions
-// ---------------------------------------------------------------------------
-
-/// Information about a named function returned to the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NamedFunctionInfo {
-    pub name: String,
-    pub params: Vec<String>,
-    pub body: String,
-    pub description: Option<String>,
-}
-
-/// Add a user-defined named function (LAMBDA alias) to the workbook.
-#[tauri::command]
-pub async fn add_named_function(
-    state: State<'_, AppState>,
-    name: String,
-    params: Vec<String>,
-    body: String,
-    description: Option<String>,
-) -> Result<(), String> {
-    let mut wb = state.workbook.write().await;
-    wb.add_named_function(name, params, body, description)
-        .map_err(|e| e.to_string())
-}
-
-/// Remove a named function by name (case-insensitive).
-#[tauri::command]
-pub async fn remove_named_function(state: State<'_, AppState>, name: String) -> Result<(), String> {
-    let mut wb = state.workbook.write().await;
-    wb.remove_named_function(&name).map_err(|e| e.to_string())
-}
-
-/// List all named functions in the workbook.
-#[tauri::command]
-pub async fn list_named_functions(
-    state: State<'_, AppState>,
-) -> Result<Vec<NamedFunctionInfo>, String> {
-    let wb = state.workbook.read().await;
-    let functions = wb.list_named_functions();
-    Ok(functions
-        .into_iter()
-        .map(|nf| NamedFunctionInfo {
-            name: nf.name.clone(),
-            params: nf.params.clone(),
-            body: nf.body.clone(),
-            description: nf.description.clone(),
-        })
-        .collect())
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Format a Range as "A1:B2" string.
 fn format_range(range: &lattice_core::Range) -> String {
     let start = format_cell_ref(&range.start);
@@ -720,4 +664,56 @@ fn format_range(range: &lattice_core::Range) -> String {
 fn format_cell_ref(cell: &CellRef) -> String {
     let col_str = lattice_core::col_to_letter(cell.col);
     format!("{}{}", col_str, cell.row + 1)
+}
+
+// ---------------------------------------------------------------------------
+// Named function commands
+// ---------------------------------------------------------------------------
+
+/// Named function info returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamedFunctionInfo {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: String,
+    pub description: Option<String>,
+}
+
+/// Add a named function to the workbook.
+#[tauri::command]
+pub async fn add_named_function(
+    state: State<'_, AppState>,
+    name: String,
+    params: Vec<String>,
+    body: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    wb.add_named_function(name, params, body, description)
+        .map_err(|e| e.to_string())
+}
+
+/// Remove a named function by name.
+#[tauri::command]
+pub async fn remove_named_function(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    wb.remove_named_function(&name).map_err(|e| e.to_string())
+}
+
+/// List all named functions in the workbook.
+#[tauri::command]
+pub async fn list_named_functions(
+    state: State<'_, AppState>,
+) -> Result<Vec<NamedFunctionInfo>, String> {
+    let wb = state.workbook.read().await;
+    Ok(wb
+        .list_named_functions()
+        .iter()
+        .map(|nf| NamedFunctionInfo {
+            name: nf.name.clone(),
+            params: nf.params.clone(),
+            body: nf.body.clone(),
+            description: nf.description.clone(),
+        })
+        .collect())
 }

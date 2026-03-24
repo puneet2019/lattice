@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { listen } from '@tauri-apps/api/event';
-import { open as dialogOpen, save as dialogSave, ask } from '@tauri-apps/plugin-dialog';
+import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 import Toolbar from './components/Toolbar';
 import FormulaBar from './components/FormulaBar';
 import FindBar from './components/FindBar';
@@ -24,6 +24,10 @@ import KeyboardShortcutsDialog from './components/KeyboardShortcutsDialog';
 import PrintPreviewDialog from './components/PrintPreviewDialog';
 import DataCleanupDialog from './components/DataCleanupDialog';
 import TextToColumnsDialog from './components/TextToColumnsDialog';
+import AboutDialog from './components/AboutDialog';
+import FilterViewDropdown from './components/FilterViewDropdown';
+import NamedFunctionsDialog from './components/NamedFunctionsDialog';
+import WelcomeScreen from './components/WelcomeScreen';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
@@ -162,6 +166,7 @@ const App: Component = () => {
   const [showGridlines, setShowGridlines] = createSignal(true);
   const [showFormulas, setShowFormulas] = createSignal(false);
   const [recentFiles, setRecentFilesState] = createSignal<RecentFile[]>([]);
+  const [workbookLoaded, setWorkbookLoaded] = createSignal(false);
 
   /** Mark the workbook as having unsaved changes. */
   function markDirty() {
@@ -206,6 +211,7 @@ const App: Component = () => {
     setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
     setIsDirty(false);
+    setWorkbookLoaded(true);
   }
 
   const handleFileNew = async () => {
@@ -247,6 +253,29 @@ const App: Component = () => {
       updateWindowTitle(path, false);
       setSaveStatus('saved');
       // Track in recent files
+      const fileName = path.split('/').pop() || path;
+      void addRecentFile(path, fileName).catch(() => {});
+      setStatusMessage(`Opened: ${path}`);
+    } catch (e) {
+      setStatusMessage(`Open failed: ${e}`);
+    }
+  };
+
+  const handleOpenRecentFile = async (path: string) => {
+    try {
+      const lower = path.toLowerCase();
+      let info;
+      if (lower.endsWith('.csv')) {
+        info = await openCsv(path);
+      } else if (lower.endsWith('.tsv') || lower.endsWith('.tab')) {
+        info = await openTsv(path);
+      } else {
+        info = await openFile(path);
+      }
+      applyWorkbookInfo(info);
+      setCurrentFilePath(path);
+      updateWindowTitle(path, false);
+      setSaveStatus('saved');
       const fileName = path.split('/').pop() || path;
       void addRecentFile(path, fileName).catch(() => {});
       setStatusMessage(`Opened: ${path}`);
@@ -459,6 +488,7 @@ const App: Component = () => {
         .catch((e) => setStatusMessage(`Insert checkbox failed: ${e}`));
     },
     insert_named_range: () => { setShowNamedRanges(true); },
+    insert_named_function: () => { setShowNamedFunctions(true); },
 
     // -- Format > Number ----------------------------------------------------
     format_num_general: () => { handleNumberFormat('General'); },
@@ -522,11 +552,15 @@ const App: Component = () => {
 
     // -- Data > Filter, validation, etc. ------------------------------------
     data_create_filter: handleFilterToggle,
+    data_filter_views: () => { setShowFilterViews(true); },
     data_named_ranges: () => { setShowNamedRanges(true); },
     data_validation: () => { setShowDataValidation(true); },
     data_remove_duplicates: () => { setShowDataCleanup(true); },
     data_text_to_columns: () => { setShowTextToColumns(true); },
     data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
+
+    // -- Help ---------------------------------------------------------------
+    help_about: () => { setShowAbout(true); },
   };
 
   // Load sheets on mount and subscribe to menu events.
@@ -579,23 +613,13 @@ const App: Component = () => {
       // Tauri event system not available (browser dev mode).
     }
     // Auto-save every 60 seconds if there are unsaved changes and a file path exists.
-    const autoSaveInterval = setInterval(async () => {
-      const path = currentFilePath();
-      if (isDirty() && path) {
-        setSaveStatus('saving');
-        try {
-          await saveFile(path);
-          setIsDirty(false);
-          updateWindowTitle(path, false);
-          setSaveStatus('saved');
-        } catch {
-          setSaveStatus('unsaved');
-          setStatusMessage('Auto-save failed');
-        }
+    const autoSaveInterval = setInterval(() => {
+      if (isDirty() && currentFilePath()) {
+        void handleFileSave();
       }
     }, 60_000);
 
-    // Warn before closing with unsaved changes (browser fallback).
+    // Warn before closing with unsaved changes.
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
       if (isDirty()) {
         e.preventDefault();
@@ -604,27 +628,8 @@ const App: Component = () => {
     };
     window.addEventListener('beforeunload', beforeUnloadHandler);
 
-    // Tauri-native close confirmation dialog.
-    let unlistenClose: (() => void) | undefined;
-    try {
-      unlistenClose = await getCurrentWindow().onCloseRequested(async (event) => {
-        if (isDirty()) {
-          const confirmed = await ask('You have unsaved changes. Close anyway?', {
-            title: 'Unsaved Changes',
-            kind: 'warning',
-          });
-          if (!confirmed) {
-            event.preventDefault();
-          }
-        }
-      });
-    } catch {
-      // Tauri not available in browser dev mode
-    }
-
     onCleanup(() => {
       unlisten?.();
-      unlistenClose?.();
       clearInterval(autoSaveInterval);
       window.removeEventListener('beforeunload', beforeUnloadHandler);
     });
@@ -1397,6 +1402,9 @@ const App: Component = () => {
   const [pageBreakPreview, setPageBreakPreview] = createSignal(false);
   const [showDataCleanup, setShowDataCleanup] = createSignal(false);
   const [showTextToColumns, setShowTextToColumns] = createSignal(false);
+  const [showAbout, setShowAbout] = createSignal(false);
+  const [showFilterViews, setShowFilterViews] = createSignal(false);
+  const [showNamedFunctions, setShowNamedFunctions] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1506,6 +1514,17 @@ const App: Component = () => {
           }}
         />
       </Show>
+      <Show
+        when={workbookLoaded()}
+        fallback={
+          <WelcomeScreen
+            recentFiles={recentFiles()}
+            onNewWorkbook={handleFileNew}
+            onOpenFile={handleFileOpen}
+            onOpenRecent={(path) => void handleOpenRecentFile(path)}
+          />
+        }
+      >
       <div style={{ position: 'relative', flex: '1', overflow: 'hidden', display: 'flex', "flex-direction": 'column' }}>
         <VirtualGrid
           activeSheet={activeSheetName()}
@@ -1567,6 +1586,7 @@ const App: Component = () => {
           onEditChart={(id) => void handleEditChart(id)}
         />
       </div>
+      </Show>
       <Show when={showChartDialog()}>
         <ChartDialog
           activeSheet={activeSheetName()}
@@ -1699,6 +1719,23 @@ const App: Component = () => {
           }}
           onClose={() => setShowTextToColumns(false)}
         />
+      </Show>
+      <Show when={showNamedFunctions()}>
+        <NamedFunctionsDialog
+          onClose={() => setShowNamedFunctions(false)}
+          onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showFilterViews()}>
+        <FilterViewDropdown
+          activeSheet={activeSheetName()}
+          onClose={() => setShowFilterViews(false)}
+          onStatusChange={setStatusMessage}
+          onRefresh={() => setRefreshTrigger((n) => n + 1)}
+        />
+      </Show>
+      <Show when={showAbout()}>
+        <AboutDialog onClose={() => setShowAbout(false)} />
       </Show>
       <SheetTabs
         sheets={sheets()}

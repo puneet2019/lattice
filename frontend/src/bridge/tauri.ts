@@ -810,40 +810,6 @@ export async function resolveNamedRange(
 }
 
 // ---------------------------------------------------------------------------
-// Named function commands
-// ---------------------------------------------------------------------------
-
-/** Named function info returned from the backend. */
-export interface NamedFunctionInfo {
-  name: string;
-  params: string[];
-  body: string;
-  description: string | null;
-}
-
-export async function addNamedFunction(
-  name: string,
-  params: string[],
-  body: string,
-  description?: string,
-): Promise<void> {
-  return invoke('add_named_function', {
-    name,
-    params,
-    body,
-    description: description ?? null,
-  });
-}
-
-export async function removeNamedFunction(name: string): Promise<void> {
-  return invoke('remove_named_function', { name });
-}
-
-export async function listNamedFunctions(): Promise<NamedFunctionInfo[]> {
-  return invoke('list_named_functions');
-}
-
-// ---------------------------------------------------------------------------
 // Conditional format commands
 // ---------------------------------------------------------------------------
 
@@ -933,4 +899,70 @@ export async function removeConditionalFormat(
     endCol,
     ruleIndex,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Named function commands
+// ---------------------------------------------------------------------------
+
+/** Named function info from the backend. */
+export interface NamedFunctionInfo {
+  name: string;
+  params: string[];
+  body: string;
+  description: string | null;
+}
+
+export async function addNamedFunction(
+  name: string,
+  params: string[],
+  body: string,
+  description?: string,
+): Promise<void> {
+  return invoke('add_named_function', {
+    name,
+    params,
+    body,
+    description: description ?? null,
+  });
+}
+
+export async function removeNamedFunction(name: string): Promise<void> {
+  return invoke('remove_named_function', { name });
+}
+
+export async function listNamedFunctions(): Promise<NamedFunctionInfo[]> {
+  return invoke('list_named_functions');
+}
+
+// ---------------------------------------------------------------------------
+// Filter view commands
+// ---------------------------------------------------------------------------
+
+/** Filter view info from the backend. */
+export interface FilterViewInfo {
+  name: string;
+  column_filters: Record<number, string[]>;
+}
+
+export async function saveFilterView(
+  name: string,
+  columnFilters: Record<number, string[]>,
+): Promise<void> {
+  return invoke('save_filter_view', { name, column_filters: columnFilters });
+}
+
+export async function listFilterViews(): Promise<FilterViewInfo[]> {
+  return invoke('list_filter_views');
+}
+
+export async function applyFilterView(
+  sheet: string,
+  name: string,
+): Promise<number> {
+  return invoke('apply_filter_view', { sheet, name });
+}
+
+export async function deleteFilterView(name: string): Promise<void> {
+  return invoke('delete_filter_view', { name });
 }

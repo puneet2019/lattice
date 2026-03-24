@@ -1,12 +1,51 @@
-import type { Component } from 'solid-js';
+import type { Component, JSX } from 'solid-js';
 import { createSignal, createEffect, For, Show } from 'solid-js';
 import { renderChartSvg, createChart, deleteChart, updateChart } from '../../bridge/tauri';
 import type { ChartTypeStr } from '../../bridge/tauri';
 
+/** SVG icon silhouettes for each chart type. */
+function chartTypeIcon(type: ChartTypeStr): JSX.Element {
+  const s = 'currentColor';
+  switch (type) {
+    case 'bar':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><rect x="3" y="14" width="4" height="8" rx="0.5" /><rect x="10" y="8" width="4" height="14" rx="0.5" /><rect x="17" y="4" width="4" height="18" rx="0.5" /></svg>);
+    case 'line':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={s} stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,18 8,10 13,14 18,6 22,8" /></svg>);
+    case 'pie':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke={s} stroke-width="1.5" /><path d="M12 3 A9 9 0 0 1 21 12 L12 12 Z" fill={s} opacity="0.7" /><path d="M12 12 L12 3 A9 9 0 0 0 5.4 18 Z" fill={s} opacity="0.35" /></svg>);
+    case 'scatter':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><circle cx="6" cy="16" r="2" /><circle cx="10" cy="10" r="2" /><circle cx="16" cy="14" r="2" /><circle cx="14" cy="6" r="2" /><circle cx="20" cy="8" r="2" /></svg>);
+    case 'area':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 22 L3 16 L8 10 L13 14 L18 6 L22 8 L22 22 Z" fill={s} opacity="0.3" /><polyline points="3,16 8,10 13,14 18,6 22,8" fill="none" stroke={s} stroke-width="1.5" stroke-linejoin="round" /></svg>);
+    case 'stacked_bar':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><rect x="3" y="14" width="4" height="8" rx="0.5" opacity="0.5" /><rect x="3" y="10" width="4" height="4" rx="0.5" /><rect x="10" y="8" width="4" height="14" rx="0.5" opacity="0.5" /><rect x="10" y="3" width="4" height="5" rx="0.5" /><rect x="17" y="10" width="4" height="12" rx="0.5" opacity="0.5" /><rect x="17" y="5" width="4" height="5" rx="0.5" /></svg>);
+    case 'stacked_area':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 22 L3 16 L8 12 L13 15 L18 8 L22 10 L22 22 Z" fill={s} opacity="0.2" /><path d="M3 22 L3 18 L8 15 L13 17 L18 12 L22 14 L22 22 Z" fill={s} opacity="0.35" /></svg>);
+    case 'combo':
+      return (<svg width="24" height="24" viewBox="0 0 24 24"><rect x="4" y="14" width="4" height="8" rx="0.5" fill={s} opacity="0.4" /><rect x="10" y="10" width="4" height="12" rx="0.5" fill={s} opacity="0.4" /><rect x="16" y="12" width="4" height="10" rx="0.5" fill={s} opacity="0.4" /><polyline points="6,10 12,6 18,8" fill="none" stroke={s} stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>);
+    case 'histogram':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><rect x="2" y="18" width="4" height="4" rx="0.5" /><rect x="6" y="12" width="4" height="10" rx="0.5" /><rect x="10" y="6" width="4" height="16" rx="0.5" /><rect x="14" y="10" width="4" height="12" rx="0.5" /><rect x="18" y="16" width="4" height="6" rx="0.5" /></svg>);
+    case 'candlestick':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={s} stroke-width="1.5"><line x1="6" y1="4" x2="6" y2="20" /><rect x="4" y="8" width="4" height="6" fill={s} opacity="0.3" stroke={s} /><line x1="14" y1="6" x2="14" y2="18" /><rect x="12" y="10" width="4" height="4" fill={s} opacity="0.6" stroke={s} /><line x1="20" y1="5" x2="20" y2="19" /><rect x="18" y="8" width="4" height="8" fill={s} opacity="0.3" stroke={s} /></svg>);
+    case 'waterfall':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><rect x="2" y="4" width="4" height="18" rx="0.5" opacity="0.5" /><rect x="7" y="4" width="4" height="8" rx="0.5" opacity="0.7" /><rect x="12" y="8" width="4" height="6" rx="0.5" opacity="0.4" /><rect x="17" y="6" width="4" height="16" rx="0.5" opacity="0.5" /></svg>);
+    case 'treemap':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={s} stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="1" /><line x1="12" y1="2" x2="12" y2="22" /><line x1="2" y1="12" x2="12" y2="12" /><line x1="12" y1="10" x2="22" y2="10" /><line x1="18" y1="10" x2="18" y2="22" /></svg>);
+    case 'radar':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={s} stroke-width="1.2"><polygon points="12,3 20,9 18,18 6,18 4,9" opacity="0.15" fill={s} /><polygon points="12,3 20,9 18,18 6,18 4,9" /><polygon points="12,7 17,11 16,16 8,16 7,11" stroke-dasharray="2 1" opacity="0.5" /></svg>);
+    case 'bubble':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><circle cx="8" cy="14" r="4" opacity="0.35" /><circle cx="16" cy="10" r="3" opacity="0.5" /><circle cx="14" cy="18" r="2.5" opacity="0.25" /><circle cx="6" cy="7" r="2" opacity="0.4" /></svg>);
+    case 'gauge':
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M4 18 A10 10 0 0 1 20 18" stroke={s} stroke-width="2.5" stroke-linecap="round" /><line x1="12" y1="17" x2="16" y2="9" stroke={s} stroke-width="1.5" stroke-linecap="round" /></svg>);
+    default:
+      return (<svg width="24" height="24" viewBox="0 0 24 24" fill={s}><rect x="4" y="4" width="16" height="16" rx="2" opacity="0.3" /></svg>);
+  }
+}
+
 /** Chart type group for organized display. */
 interface ChartTypeGroup {
   title: string;
-  types: { value: ChartTypeStr; label: string; icon: string }[];
+  types: { value: ChartTypeStr; label: string }[];
 }
 
 /** Chart types organized by category. */
@@ -14,42 +53,42 @@ const CHART_TYPE_GROUPS: ChartTypeGroup[] = [
   {
     title: 'Basic',
     types: [
-      { value: 'bar', label: 'Bar', icon: 'B' },
-      { value: 'line', label: 'Line', icon: 'L' },
-      { value: 'pie', label: 'Pie', icon: 'P' },
-      { value: 'scatter', label: 'Scatter', icon: 'S' },
-      { value: 'area', label: 'Area', icon: 'A' },
-      { value: 'stacked_bar', label: 'Stacked Bar', icon: 'SB' },
-      { value: 'stacked_area', label: 'Stacked Area', icon: 'SA' },
+      { value: 'bar', label: 'Bar' },
+      { value: 'line', label: 'Line' },
+      { value: 'pie', label: 'Pie' },
+      { value: 'scatter', label: 'Scatter' },
+      { value: 'area', label: 'Area' },
+      { value: 'stacked_bar', label: 'Stacked Bar' },
+      { value: 'stacked_area', label: 'Stacked Area' },
     ],
   },
   {
     title: 'Advanced',
     types: [
-      { value: 'combo', label: 'Combo', icon: 'Cb' },
-      { value: 'histogram', label: 'Histogram', icon: 'H' },
+      { value: 'combo', label: 'Combo' },
+      { value: 'histogram', label: 'Histogram' },
     ],
   },
   {
     title: 'Financial',
     types: [
-      { value: 'candlestick', label: 'Candlestick', icon: 'Cs' },
-      { value: 'waterfall', label: 'Waterfall', icon: 'W' },
+      { value: 'candlestick', label: 'Candlestick' },
+      { value: 'waterfall', label: 'Waterfall' },
     ],
   },
   {
     title: 'Specialty',
     types: [
-      { value: 'treemap', label: 'Treemap', icon: 'T' },
-      { value: 'radar', label: 'Radar', icon: 'R' },
-      { value: 'bubble', label: 'Bubble', icon: 'Bb' },
-      { value: 'gauge', label: 'Gauge', icon: 'G' },
+      { value: 'treemap', label: 'Treemap' },
+      { value: 'radar', label: 'Radar' },
+      { value: 'bubble', label: 'Bubble' },
+      { value: 'gauge', label: 'Gauge' },
     ],
   },
 ];
 
 /** Flat list of all chart types (for backward compat). */
-const CHART_TYPES = CHART_TYPE_GROUPS.flatMap((g) => g.types);
+const _CHART_TYPES = CHART_TYPE_GROUPS.flatMap((g) => g.types);
 
 export interface ChartDialogProps {
   /** Current active sheet name. */
@@ -250,9 +289,7 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
                           class={`chart-dialog-type-btn ${chartType() === ct.value ? 'active' : ''}`}
                           onClick={() => setChartType(ct.value)}
                         >
-                          <span style={{ "font-size": "18px", "font-weight": "600" }}>
-                            {ct.icon}
-                          </span>
+                          {chartTypeIcon(ct.value)}
                           <span>{ct.label}</span>
                         </button>
                       )}
