@@ -74,6 +74,34 @@ describe('getColX', () => {
     expect(getColX(widths, 2)).toBe(150 + DEFAULT_COL_WIDTH);
     expect(getColX(widths, 3)).toBe(150 + DEFAULT_COL_WIDTH + 50);
   });
+
+  it('skips hidden columns (zero width)', () => {
+    const widths = new Map<number, number>();
+    const hidden = new Set([1]); // hide col 1
+    // Col 0: x=0 (width DEFAULT_COL_WIDTH)
+    // Col 1: hidden, zero width
+    // Col 2: x=DEFAULT_COL_WIDTH (col 1 subtracted)
+    expect(getColX(widths, 0, hidden)).toBe(0);
+    expect(getColX(widths, 2, hidden)).toBe(DEFAULT_COL_WIDTH);
+    expect(getColX(widths, 3, hidden)).toBe(2 * DEFAULT_COL_WIDTH);
+  });
+
+  it('skips multiple hidden columns', () => {
+    const widths = new Map<number, number>();
+    const hidden = new Set([1, 2]); // hide cols 1 and 2
+    expect(getColX(widths, 0, hidden)).toBe(0);
+    expect(getColX(widths, 3, hidden)).toBe(DEFAULT_COL_WIDTH);
+    expect(getColX(widths, 4, hidden)).toBe(2 * DEFAULT_COL_WIDTH);
+  });
+
+  it('skips hidden columns with custom widths', () => {
+    const widths = new Map<number, number>([[1, 120]]);
+    const hidden = new Set([1]); // hide col 1 (custom width 120)
+    // Col 0: x=0 (width DEFAULT_COL_WIDTH)
+    // Col 1: hidden (120px subtracted)
+    // Col 2: x=DEFAULT_COL_WIDTH (not DEFAULT_COL_WIDTH+120)
+    expect(getColX(widths, 2, hidden)).toBe(DEFAULT_COL_WIDTH);
+  });
 });
 
 describe('getRowY', () => {
@@ -88,6 +116,27 @@ describe('getRowY', () => {
     const heights = new Map<number, number>([[2, 40]]);
     expect(getRowY(heights, 3)).toBe(2 * DEFAULT_ROW_HEIGHT + 40);
     expect(getRowY(heights, 4)).toBe(2 * DEFAULT_ROW_HEIGHT + 40 + DEFAULT_ROW_HEIGHT);
+  });
+
+  it('skips hidden rows (zero height)', () => {
+    const heights = new Map<number, number>();
+    const hidden = new Set([1]); // hide row 1
+    expect(getRowY(heights, 0, hidden)).toBe(0);
+    expect(getRowY(heights, 2, hidden)).toBe(DEFAULT_ROW_HEIGHT);
+    expect(getRowY(heights, 3, hidden)).toBe(2 * DEFAULT_ROW_HEIGHT);
+  });
+
+  it('skips multiple hidden rows', () => {
+    const heights = new Map<number, number>();
+    const hidden = new Set([1, 2, 3]); // hide rows 1-3
+    expect(getRowY(heights, 0, hidden)).toBe(0);
+    expect(getRowY(heights, 4, hidden)).toBe(DEFAULT_ROW_HEIGHT);
+  });
+
+  it('skips hidden rows with custom heights', () => {
+    const heights = new Map<number, number>([[1, 40]]);
+    const hidden = new Set([1]); // hide row 1 (custom height 40)
+    expect(getRowY(heights, 2, hidden)).toBe(DEFAULT_ROW_HEIGHT);
   });
 });
 
@@ -121,6 +170,13 @@ describe('colAtX', () => {
     expect(colAtX(widths, DEFAULT_COL_WIDTH + 29)).toBe(1);
     expect(colAtX(widths, DEFAULT_COL_WIDTH + 30)).toBe(2);
   });
+
+  it('skips hidden column when clicking in gap', () => {
+    const widths = new Map<number, number>();
+    const hidden = new Set([1]); // hide col 1
+    // With col 1 hidden, clicking at x=DEFAULT_COL_WIDTH should return col 2
+    expect(colAtX(widths, DEFAULT_COL_WIDTH, hidden)).toBe(2);
+  });
 });
 
 describe('rowAtY', () => {
@@ -140,5 +196,12 @@ describe('rowAtY', () => {
     expect(rowAtY(heights, 40)).toBe(1);
     expect(rowAtY(heights, 60)).toBe(1);
     expect(rowAtY(heights, 61)).toBe(2);
+  });
+
+  it('skips hidden row when clicking in gap', () => {
+    const heights = new Map<number, number>();
+    const hidden = new Set([1]); // hide row 1
+    // With row 1 hidden, clicking at y=DEFAULT_ROW_HEIGHT should return row 2
+    expect(rowAtY(heights, DEFAULT_ROW_HEIGHT, hidden)).toBe(2);
   });
 });

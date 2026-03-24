@@ -746,6 +746,8 @@ export interface RowGroupData {
   start: number;
   end: number;
   collapsed: boolean;
+  /** Nesting depth level (0 = top level, 1 = nested inside another, etc.). */
+  level: number;
 }
 
 export async function addRowGroup(

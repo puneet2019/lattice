@@ -418,25 +418,39 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     return rowHeights.get(row) ?? DEFAULT_ROW_HEIGHT;
   }
 
-  /** Return the x-offset (in content coordinates) of the left edge of `col`. */
+  /** Return the x-offset (in content coordinates) of the left edge of `col`.
+   *  Hidden columns are skipped (zero width), so they don't occupy space. */
   function getColX(col: number): number {
-    // For efficiency, sum only the columns that have custom widths up to `col`.
-    // All others use the default width.
+    // Start with all cols at default width, then adjust for custom widths
+    // and subtract hidden columns.
     let x = col * DEFAULT_COL_WIDTH;
     colWidths.forEach((w, c) => {
       if (c < col) {
         x += w - DEFAULT_COL_WIDTH;
       }
     });
+    // Subtract the width of hidden columns before this column.
+    hiddenCols.forEach((c) => {
+      if (c < col) {
+        x -= colWidths.get(c) ?? DEFAULT_COL_WIDTH;
+      }
+    });
     return x;
   }
 
-  /** Return the y-offset (in content coordinates) of the top edge of `row`. */
+  /** Return the y-offset (in content coordinates) of the top edge of `row`.
+   *  Hidden rows are skipped (zero height), so they don't occupy space. */
   function getRowY(row: number): number {
     let y = row * DEFAULT_ROW_HEIGHT;
     rowHeights.forEach((h, r) => {
       if (r < row) {
         y += h - DEFAULT_ROW_HEIGHT;
+      }
+    });
+    // Subtract the height of hidden rows before this row.
+    hiddenRows.forEach((r) => {
+      if (r < row) {
+        y -= rowHeights.get(r) ?? DEFAULT_ROW_HEIGHT;
       }
     });
     return y;
@@ -2427,15 +2441,16 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         ctx.lineWidth = 1;
       }
 
-      // Draw row group +/- indicator in left gutter
+      // Draw row group +/- indicator in left gutter (indented by level)
       for (let gi = 0; gi < rowGroups.length; gi++) {
         const g = rowGroups[gi];
+        const indent = (g.level ?? 0) * 10;
         if (g.collapsed) {
           // Show + button on the row just before the collapsed group (or at group start if start=0)
           const indicatorRow = g.start > 0 ? g.start - 1 : g.start;
           if (row === indicatorRow) {
             const btnSize = 9;
-            const btnX = 2;
+            const btnX = 2 + indent;
             const btnY = y + rh / 2 - btnSize / 2;
             ctx.strokeStyle = COLORS.headerText;
             ctx.lineWidth = 1;
@@ -2452,7 +2467,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           // Show - button on the first row of the expanded group
           if (row === g.start) {
             const btnSize = 9;
-            const btnX = 2;
+            const btnX = 2 + indent;
             const btnY = y + rh / 2 - btnSize / 2;
             ctx.strokeStyle = COLORS.headerText;
             ctx.lineWidth = 1;
@@ -2465,7 +2480,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
           }
           // Draw a bracket line along the gutter for grouped rows
           if (row >= g.start && row <= g.end) {
-            const lineX = 6;
+            const lineX = 6 + indent;
             if (row === g.start) {
               ctx.strokeStyle = COLORS.headerText;
               ctx.lineWidth = 1;
@@ -2500,6 +2515,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     ctx.fillRect(0, 0, ROW_NUMBER_WIDTH, HEADER_HEIGHT);
     ctx.strokeStyle = COLORS.gridBorder;
     ctx.strokeRect(0, 0, ROW_NUMBER_WIDTH, HEADER_HEIGHT);
+
+    // Draw row group level indicator buttons (1, 2, 3...) when groups exist.
+    if (rowGroups.length > 0) {
+      const maxLevel = Math.max(...rowGroups.map((g) => g.level ?? 0));
+      const btnSize = 10;
+      const btnGap = 2;
+      const startX = 1;
+      const btnY = (HEADER_HEIGHT - btnSize) / 2;
+      ctx.font = '8px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let lvl = 0; lvl <= maxLevel; lvl++) {
+        const bx = startX + lvl * (btnSize + btnGap);
+        ctx.strokeStyle = COLORS.headerText;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx, btnY, btnSize, btnSize);
+        ctx.fillStyle = COLORS.headerText;
+        ctx.fillText(String(lvl + 1), bx + btnSize / 2, btnY + btnSize / 2);
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -2948,6 +2983,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     // Adjust forward/backward
     while (col > 0 && getColX(col) > contentX) col--;
     while (col < TOTAL_COLS - 1 && getColX(col + 1) <= contentX) col++;
+    // Skip hidden columns forward to nearest visible column
+    while (col < TOTAL_COLS - 1 && hiddenCols.has(col)) col++;
     return col;
   }
 
@@ -2957,6 +2994,8 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     row = Math.max(0, Math.min(row, TOTAL_ROWS - 1));
     while (row > 0 && getRowY(row) > contentY) row--;
     while (row < TOTAL_ROWS - 1 && getRowY(row + 1) <= contentY) row++;
+    // Skip hidden rows forward to nearest visible row
+    while (row < TOTAL_ROWS - 1 && hiddenRows.has(row)) row++;
     return row;
   }
 
@@ -3093,16 +3132,52 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
 
+    // Check if click is on a row group level button in the corner area
+    if (localX < ROW_NUMBER_WIDTH && localY < HEADER_HEIGHT && rowGroups.length > 0) {
+      const maxLevel = Math.max(...rowGroups.map((g) => g.level ?? 0));
+      const btnSize = 10;
+      const btnGap = 2;
+      const startX = 1;
+      const btnY = (HEADER_HEIGHT - btnSize) / 2;
+      for (let lvl = 0; lvl <= maxLevel; lvl++) {
+        const bx = startX + lvl * (btnSize + btnGap);
+        if (localX >= bx && localX <= bx + btnSize && localY >= btnY && localY <= btnY + btnSize) {
+          e.preventDefault();
+          // Toggle all groups at this level: collapse expanded ones, or expand all if all are collapsed
+          const groupsAtLevel = rowGroups.filter((g) => (g.level ?? 0) === lvl);
+          const allCollapsed = groupsAtLevel.every((g) => g.collapsed);
+          const togglePromises = rowGroups.map((g, gi) => {
+            if ((g.level ?? 0) !== lvl) return Promise.resolve();
+            if (allCollapsed && g.collapsed) return toggleRowGroup(props.activeSheet, gi);
+            if (!allCollapsed && !g.collapsed) return toggleRowGroup(props.activeSheet, gi);
+            return Promise.resolve();
+          });
+          void Promise.all(togglePromises).then(() => {
+            fetchRowGroups();
+            fetchHiddenRows();
+            lastFetchKey = '';
+            fetchVisibleData();
+            draw();
+          }).catch(() => props.onStatusChange('Toggle level failed'));
+          return;
+        }
+      }
+    }
+
     // Check if click is on a row group +/- button in the gutter
-    if (localX < 14 && localY >= HEADER_HEIGHT && rowGroups.length > 0) {
+    const gutterWidth = rowGroups.length > 0
+      ? 14 + Math.max(...rowGroups.map((g) => (g.level ?? 0))) * 10
+      : 14;
+    if (localX < gutterWidth && localY >= HEADER_HEIGHT && rowGroups.length > 0) {
       const contentY = localY - HEADER_HEIGHT + effectiveScrollY(localY);
       const clickRow = rowAtY(contentY);
       for (let gi = 0; gi < rowGroups.length; gi++) {
         const g = rowGroups[gi];
+        const indent = (g.level ?? 0) * 10;
         const indicatorRow = g.collapsed
           ? (g.start > 0 ? g.start - 1 : g.start)
           : g.start;
-        if (clickRow === indicatorRow) {
+        if (clickRow === indicatorRow && localX >= indent && localX < indent + 14) {
           e.preventDefault();
           void toggleRowGroup(props.activeSheet, gi).then(() => {
             fetchRowGroups();

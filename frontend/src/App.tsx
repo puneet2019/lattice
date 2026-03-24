@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js';
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { listen } from '@tauri-apps/api/event';
-import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
+import { open as dialogOpen, save as dialogSave, ask } from '@tauri-apps/plugin-dialog';
 import Toolbar from './components/Toolbar';
 import FormulaBar from './components/FormulaBar';
 import FindBar from './components/FindBar';
@@ -579,13 +579,23 @@ const App: Component = () => {
       // Tauri event system not available (browser dev mode).
     }
     // Auto-save every 60 seconds if there are unsaved changes and a file path exists.
-    const autoSaveInterval = setInterval(() => {
-      if (isDirty() && currentFilePath()) {
-        void handleFileSave();
+    const autoSaveInterval = setInterval(async () => {
+      const path = currentFilePath();
+      if (isDirty() && path) {
+        setSaveStatus('saving');
+        try {
+          await saveFile(path);
+          setIsDirty(false);
+          updateWindowTitle(path, false);
+          setSaveStatus('saved');
+        } catch {
+          setSaveStatus('unsaved');
+          setStatusMessage('Auto-save failed');
+        }
       }
     }, 60_000);
 
-    // Warn before closing with unsaved changes.
+    // Warn before closing with unsaved changes (browser fallback).
     const beforeUnloadHandler = (e: BeforeUnloadEvent) => {
       if (isDirty()) {
         e.preventDefault();
@@ -594,8 +604,27 @@ const App: Component = () => {
     };
     window.addEventListener('beforeunload', beforeUnloadHandler);
 
+    // Tauri-native close confirmation dialog.
+    let unlistenClose: (() => void) | undefined;
+    try {
+      unlistenClose = await getCurrentWindow().onCloseRequested(async (event) => {
+        if (isDirty()) {
+          const confirmed = await ask('You have unsaved changes. Close anyway?', {
+            title: 'Unsaved Changes',
+            kind: 'warning',
+          });
+          if (!confirmed) {
+            event.preventDefault();
+          }
+        }
+      });
+    } catch {
+      // Tauri not available in browser dev mode
+    }
+
     onCleanup(() => {
       unlisten?.();
+      unlistenClose?.();
       clearInterval(autoSaveInterval);
       window.removeEventListener('beforeunload', beforeUnloadHandler);
     });

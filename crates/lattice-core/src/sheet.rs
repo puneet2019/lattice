@@ -96,6 +96,9 @@ pub struct RowGroup {
     pub end: u32,
     /// Whether the group is currently collapsed (rows hidden).
     pub collapsed: bool,
+    /// Nesting depth level (0 = top level, 1 = nested inside another, etc.).
+    #[serde(default)]
+    pub level: u32,
 }
 
 /// A single sheet inside a workbook.
@@ -1055,26 +1058,54 @@ impl Sheet {
 
     /// Add a row group spanning `start..=end` (0-based, inclusive).
     ///
-    /// Returns an error if the range overlaps an existing group.
+    /// Supports nested groups: a new group fully contained within an existing
+    /// group gets level = parent_level + 1.  Partial overlaps (not fully
+    /// contained either way) are rejected.
     pub fn add_row_group(&mut self, start: u32, end: u32) -> Result<()> {
         if start > end {
             return Err(LatticeError::InvalidRange(
                 "Row group start must be <= end".into(),
             ));
         }
-        // Check for overlaps with existing groups
+        // Reject partial overlaps (allow full containment for nesting).
         for g in &self.row_groups {
-            if start <= g.end && end >= g.start {
+            let overlaps = start <= g.end && end >= g.start;
+            if !overlaps {
+                continue;
+            }
+            let new_contains_old = start <= g.start && end >= g.end;
+            let old_contains_new = g.start <= start && g.end >= end;
+            let identical = start == g.start && end == g.end;
+            if identical {
                 return Err(LatticeError::InvalidRange(format!(
-                    "Row group {}..={} overlaps existing group {}..={}",
+                    "Row group {}..={} already exists",
+                    start, end
+                )));
+            }
+            if !new_contains_old && !old_contains_new {
+                return Err(LatticeError::InvalidRange(format!(
+                    "Row group {}..={} partially overlaps existing group {}..={}",
                     start, end, g.start, g.end
                 )));
+            }
+        }
+        // Compute nesting level: count how many existing groups fully contain this one.
+        let level = self
+            .row_groups
+            .iter()
+            .filter(|g| g.start <= start && g.end >= end)
+            .count() as u32;
+        // Bump the level of existing groups that are fully contained by this new one.
+        for g in &mut self.row_groups {
+            if start <= g.start && end >= g.end {
+                g.level += 1;
             }
         }
         self.row_groups.push(RowGroup {
             start,
             end,
             collapsed: false,
+            level,
         });
         Ok(())
     }
@@ -1082,6 +1113,7 @@ impl Sheet {
     /// Remove the row group at the given index.
     ///
     /// If the group was collapsed, the hidden rows are restored.
+    /// Child groups that were fully contained have their level decremented.
     pub fn remove_row_group(&mut self, index: usize) -> Result<()> {
         if index >= self.row_groups.len() {
             return Err(LatticeError::InvalidRange(
@@ -1095,13 +1127,20 @@ impl Sheet {
                 self.hidden_rows.remove(&r);
             }
         }
+        // Decrement level of former child groups.
+        for g in &mut self.row_groups {
+            if group.start <= g.start && group.end >= g.end && g.level > 0 {
+                g.level -= 1;
+            }
+        }
         Ok(())
     }
 
     /// Toggle a row group between collapsed and expanded.
     ///
-    /// When collapsed, the rows in the group are added to `hidden_rows`.
-    /// When expanded, they are removed from `hidden_rows`.
+    /// When collapsed, the rows in the group are added to `hidden_rows`,
+    /// but rows belonging to a collapsed child group remain hidden when
+    /// expanding the parent.
     pub fn toggle_row_group(&mut self, index: usize) -> Result<bool> {
         if index >= self.row_groups.len() {
             return Err(LatticeError::InvalidRange(
@@ -1118,8 +1157,24 @@ impl Sheet {
                 self.hidden_rows.insert(r);
             }
         } else {
+            // When expanding, unhide rows but respect child groups that are
+            // still collapsed.
+            let mut child_hidden: std::collections::HashSet<u32> = std::collections::HashSet::new();
+            for (i, g) in self.row_groups.iter().enumerate() {
+                if i == index {
+                    continue;
+                }
+                // A child group is one fully contained within this group.
+                if g.start >= start && g.end <= end && g.collapsed {
+                    for r in g.start..=g.end {
+                        child_hidden.insert(r);
+                    }
+                }
+            }
             for r in start..=end {
-                self.hidden_rows.remove(&r);
+                if !child_hidden.contains(&r) {
+                    self.hidden_rows.remove(&r);
+                }
             }
         }
         Ok(collapsed)
@@ -1134,7 +1189,8 @@ impl Sheet {
 
     /// Add a column group spanning `start..=end` (0-based, inclusive).
     ///
-    /// Returns an error if the range overlaps an existing column group.
+    /// Supports nested groups: a new group fully contained within an existing
+    /// group gets level = parent_level + 1.  Partial overlaps are rejected.
     pub fn add_col_group(&mut self, start: u32, end: u32) -> Result<()> {
         if start > end {
             return Err(LatticeError::InvalidRange(
@@ -1142,17 +1198,41 @@ impl Sheet {
             ));
         }
         for g in &self.col_groups {
-            if start <= g.end && end >= g.start {
+            let overlaps = start <= g.end && end >= g.start;
+            if !overlaps {
+                continue;
+            }
+            let new_contains_old = start <= g.start && end >= g.end;
+            let old_contains_new = g.start <= start && g.end >= end;
+            let identical = start == g.start && end == g.end;
+            if identical {
                 return Err(LatticeError::InvalidRange(format!(
-                    "Column group {}..={} overlaps existing group {}..={}",
+                    "Column group {}..={} already exists",
+                    start, end
+                )));
+            }
+            if !new_contains_old && !old_contains_new {
+                return Err(LatticeError::InvalidRange(format!(
+                    "Column group {}..={} partially overlaps existing group {}..={}",
                     start, end, g.start, g.end
                 )));
+            }
+        }
+        let level = self
+            .col_groups
+            .iter()
+            .filter(|g| g.start <= start && g.end >= end)
+            .count() as u32;
+        for g in &mut self.col_groups {
+            if start <= g.start && end >= g.end {
+                g.level += 1;
             }
         }
         self.col_groups.push(RowGroup {
             start,
             end,
             collapsed: false,
+            level,
         });
         Ok(())
     }
@@ -1160,6 +1240,7 @@ impl Sheet {
     /// Remove the column group at the given index.
     ///
     /// If the group was collapsed, the hidden columns are restored.
+    /// Child groups have their level decremented.
     pub fn remove_col_group(&mut self, index: usize) -> Result<()> {
         if index >= self.col_groups.len() {
             return Err(LatticeError::InvalidRange(
@@ -1172,13 +1253,18 @@ impl Sheet {
                 self.hidden_cols.remove(&c);
             }
         }
+        for g in &mut self.col_groups {
+            if group.start <= g.start && group.end >= g.end && g.level > 0 {
+                g.level -= 1;
+            }
+        }
         Ok(())
     }
 
     /// Toggle a column group between collapsed and expanded.
     ///
     /// When collapsed, the columns in the group are added to `hidden_cols`.
-    /// When expanded, they are removed from `hidden_cols`.
+    /// When expanding, collapsed child groups remain hidden.
     pub fn toggle_col_group(&mut self, index: usize) -> Result<bool> {
         if index >= self.col_groups.len() {
             return Err(LatticeError::InvalidRange(
@@ -1195,8 +1281,21 @@ impl Sheet {
                 self.hidden_cols.insert(c);
             }
         } else {
+            let mut child_hidden: std::collections::HashSet<u32> = std::collections::HashSet::new();
+            for (i, g) in self.col_groups.iter().enumerate() {
+                if i == index {
+                    continue;
+                }
+                if g.start >= start && g.end <= end && g.collapsed {
+                    for c in g.start..=g.end {
+                        child_hidden.insert(c);
+                    }
+                }
+            }
             for c in start..=end {
-                self.hidden_cols.remove(&c);
+                if !child_hidden.contains(&c) {
+                    self.hidden_cols.remove(&c);
+                }
             }
         }
         Ok(collapsed)
@@ -2413,11 +2512,41 @@ mod tests {
     }
 
     #[test]
-    fn test_add_row_group_overlap_rejected() {
+    fn test_add_row_group_partial_overlap_rejected() {
         let mut sheet = Sheet::new("S1");
         sheet.add_row_group(2, 5).unwrap();
-        assert!(sheet.add_row_group(4, 8).is_err()); // overlaps
-        assert!(sheet.add_row_group(0, 2).is_err()); // overlaps at boundary
+        assert!(sheet.add_row_group(4, 8).is_err()); // partial overlap
+        assert!(sheet.add_row_group(0, 3).is_err()); // partial overlap at start
+    }
+
+    #[test]
+    fn test_add_row_group_nesting_allowed() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(0, 10).unwrap();
+        // Fully contained group is allowed (nested).
+        assert!(sheet.add_row_group(2, 5).is_ok());
+        assert_eq!(sheet.row_groups().len(), 2);
+        // Outer group stays at level 0, inner at level 1.
+        assert_eq!(sheet.row_groups()[0].level, 0);
+        assert_eq!(sheet.row_groups()[1].level, 1);
+    }
+
+    #[test]
+    fn test_add_row_group_wrapping_bumps_child_levels() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 5).unwrap();
+        assert_eq!(sheet.row_groups()[0].level, 0);
+        // Adding a bigger group that contains the first one bumps its level.
+        sheet.add_row_group(0, 10).unwrap();
+        assert_eq!(sheet.row_groups()[0].level, 1); // inner (was 0, now 1)
+        assert_eq!(sheet.row_groups()[1].level, 0); // outer
+    }
+
+    #[test]
+    fn test_add_row_group_duplicate_rejected() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(2, 5).unwrap();
+        assert!(sheet.add_row_group(2, 5).is_err()); // identical
     }
 
     #[test]
@@ -2426,6 +2555,32 @@ mod tests {
         sheet.add_row_group(2, 5).unwrap();
         assert!(sheet.add_row_group(6, 10).is_ok()); // adjacent, no overlap
         assert_eq!(sheet.row_groups().len(), 2);
+    }
+
+    #[test]
+    fn test_nested_toggle_respects_child_collapse() {
+        let mut sheet = Sheet::new("S1");
+        sheet.add_row_group(0, 10).unwrap(); // outer (level 0)
+        sheet.add_row_group(3, 5).unwrap(); // inner (level 1)
+        // Collapse inner group first.
+        sheet.toggle_row_group(1).unwrap();
+        assert!(sheet.hidden_rows.contains(&3));
+        assert!(sheet.hidden_rows.contains(&5));
+        // Collapse outer group.
+        sheet.toggle_row_group(0).unwrap();
+        // All rows 0..=10 should be hidden.
+        for r in 0..=10 {
+            assert!(sheet.hidden_rows.contains(&r), "row {r} should be hidden");
+        }
+        // Now expand outer group: inner child is still collapsed, so rows 3-5
+        // should remain hidden.
+        sheet.toggle_row_group(0).unwrap();
+        assert!(!sheet.hidden_rows.contains(&0));
+        assert!(!sheet.hidden_rows.contains(&2));
+        assert!(sheet.hidden_rows.contains(&3)); // child still collapsed
+        assert!(sheet.hidden_rows.contains(&4));
+        assert!(sheet.hidden_rows.contains(&5));
+        assert!(!sheet.hidden_rows.contains(&6));
     }
 
     #[test]
