@@ -40,5 +40,6 @@ credentials.json
 /tmp/
 *.tmp
 
-# Claude settings (keep agents and skills)
+# Claude settings and worktrees (keep agents and skills)
 .claude/settings*
+.claude/worktrees/
