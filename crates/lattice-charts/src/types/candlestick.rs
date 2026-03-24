@@ -149,7 +149,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
             by = body_top,
             bw = candle_width,
             bh = body_height,
-            fill = if is_bullish { color } else { color },
+            fill = color,
         ));
         svg.push('\n');
     }

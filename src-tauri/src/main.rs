@@ -5,8 +5,8 @@ mod commands;
 mod state;
 
 use state::AppState;
-use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Emitter, Manager};
 
 fn main() {
     // Check for --mcp-stdio flag before starting Tauri.
@@ -41,12 +41,12 @@ fn main() {
             let file_save_as = MenuItemBuilder::with_id("file_save_as", "Save As...")
                 .accelerator("CmdOrCtrl+Shift+S")
                 .build(app)?;
-            let file_export_csv = MenuItemBuilder::with_id("file_export_csv", "Download as CSV")
-                .build(app)?;
-            let file_export_tsv = MenuItemBuilder::with_id("file_export_tsv", "Download as TSV")
-                .build(app)?;
-            let file_export_pdf = MenuItemBuilder::with_id("file_export_pdf", "Download as PDF")
-                .build(app)?;
+            let file_export_csv =
+                MenuItemBuilder::with_id("file_export_csv", "Download as CSV").build(app)?;
+            let file_export_tsv =
+                MenuItemBuilder::with_id("file_export_tsv", "Download as TSV").build(app)?;
+            let file_export_pdf =
+                MenuItemBuilder::with_id("file_export_pdf", "Download as PDF").build(app)?;
             let file_quit = MenuItemBuilder::with_id("file_quit", "Quit Lattice")
                 .accelerator("CmdOrCtrl+Q")
                 .build(app)?;
@@ -151,10 +151,8 @@ fn main() {
                 MenuItemBuilder::with_id("insert_col_left", "Column Left").build(app)?;
             let insert_col_right =
                 MenuItemBuilder::with_id("insert_col_right", "Column Right").build(app)?;
-            let insert_chart =
-                MenuItemBuilder::with_id("insert_chart", "Chart").build(app)?;
-            let insert_note =
-                MenuItemBuilder::with_id("insert_note", "Comment/Note").build(app)?;
+            let insert_chart = MenuItemBuilder::with_id("insert_chart", "Chart").build(app)?;
+            let insert_note = MenuItemBuilder::with_id("insert_note", "Comment/Note").build(app)?;
             let insert_checkbox =
                 MenuItemBuilder::with_id("insert_checkbox", "Checkbox").build(app)?;
             let insert_named_range =
@@ -177,16 +175,13 @@ fn main() {
             // -- Format menu ------------------------------------------------
             let fmt_general =
                 MenuItemBuilder::with_id("format_num_general", "General").build(app)?;
-            let fmt_number =
-                MenuItemBuilder::with_id("format_num_number", "Number").build(app)?;
+            let fmt_number = MenuItemBuilder::with_id("format_num_number", "Number").build(app)?;
             let fmt_currency =
                 MenuItemBuilder::with_id("format_num_currency", "Currency").build(app)?;
             let fmt_percentage =
                 MenuItemBuilder::with_id("format_num_percentage", "Percentage").build(app)?;
-            let fmt_date =
-                MenuItemBuilder::with_id("format_num_date", "Date").build(app)?;
-            let fmt_time =
-                MenuItemBuilder::with_id("format_num_time", "Time").build(app)?;
+            let fmt_date = MenuItemBuilder::with_id("format_num_date", "Date").build(app)?;
+            let fmt_time = MenuItemBuilder::with_id("format_num_time", "Time").build(app)?;
             let fmt_scientific =
                 MenuItemBuilder::with_id("format_num_scientific", "Scientific").build(app)?;
 
@@ -213,9 +208,11 @@ fn main() {
                 MenuItemBuilder::with_id("format_strikethrough", "Strikethrough").build(app)?;
 
             let fmt_size_increase =
-                MenuItemBuilder::with_id("format_size_increase", "Increase Font Size").build(app)?;
+                MenuItemBuilder::with_id("format_size_increase", "Increase Font Size")
+                    .build(app)?;
             let fmt_size_decrease =
-                MenuItemBuilder::with_id("format_size_decrease", "Decrease Font Size").build(app)?;
+                MenuItemBuilder::with_id("format_size_decrease", "Decrease Font Size")
+                    .build(app)?;
 
             let font_size_submenu = SubmenuBuilder::new(app, "Font Size")
                 .item(&fmt_size_increase)
@@ -488,12 +485,11 @@ fn run_mcp_http(port: u16) {
 /// Parse `--port <N>` from CLI args, defaulting to 3141.
 fn parse_port_arg(args: &[String]) -> u16 {
     for (i, arg) in args.iter().enumerate() {
-        if arg == "--port" {
-            if let Some(port_str) = args.get(i + 1) {
-                if let Ok(port) = port_str.parse::<u16>() {
-                    return port;
-                }
-            }
+        if arg == "--port"
+            && let Some(port_str) = args.get(i + 1)
+            && let Ok(port) = port_str.parse::<u16>()
+        {
+            return port;
         }
     }
     3141

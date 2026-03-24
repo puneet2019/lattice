@@ -131,19 +131,23 @@ pub fn paste(
                     sheet.set_cell(target_row, target_col, new_cell);
                 }
                 (Some(cell), PasteMode::ValuesOnly) => {
-                    let mut new_cell = Cell::default();
-                    new_cell.value = cell.value.clone();
-                    new_cell.format = cell.format.clone();
+                    let new_cell = Cell {
+                        value: cell.value.clone(),
+                        format: cell.format.clone(),
+                        ..Default::default()
+                    };
                     // No formula
                     sheet.set_cell(target_row, target_col, new_cell);
                 }
                 (Some(cell), PasteMode::FormulasOnly) => {
-                    let mut new_cell = Cell::default();
-                    new_cell.value = cell.value.clone();
-                    if let Some(ref formula) = cell.formula {
-                        new_cell.formula =
-                            Some(adjust_formula_references(formula, row_offset, col_offset));
-                    }
+                    let new_cell = Cell {
+                        value: cell.value.clone(),
+                        formula: cell
+                            .formula
+                            .as_ref()
+                            .map(|f| adjust_formula_references(f, row_offset, col_offset)),
+                        ..Default::default()
+                    };
                     sheet.set_cell(target_row, target_col, new_cell);
                 }
                 (Some(cell), PasteMode::FormattingOnly) => {
@@ -154,9 +158,11 @@ pub fn paste(
                         updated.style_id = cell.style_id;
                         sheet.set_cell(target_row, target_col, updated);
                     } else {
-                        let mut new_cell = Cell::default();
-                        new_cell.format = cell.format.clone();
-                        new_cell.style_id = cell.style_id;
+                        let new_cell = Cell {
+                            format: cell.format.clone(),
+                            style_id: cell.style_id,
+                            ..Default::default()
+                        };
                         sheet.set_cell(target_row, target_col, new_cell);
                     }
                 }

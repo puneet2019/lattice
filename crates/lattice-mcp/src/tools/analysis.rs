@@ -92,7 +92,6 @@ pub fn handle_describe_data(workbook: &Workbook, args: Value) -> Result<Value, S
                     CellValue::Error(_) => null_count += 1,
                     CellValue::Array(_) => text_count += 1,
                     CellValue::Lambda { .. } => {}
-
                 },
                 None => null_count += 1,
             }

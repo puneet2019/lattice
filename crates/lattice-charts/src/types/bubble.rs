@@ -153,14 +153,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
                 r#"<rect x="{lx:.1}" y="{ry:.1}" width="12" height="12" fill="{color}" rx="2"/>"#,
                 ry = y - 9.0,
             ));
-            svg.push_str(&svg_text(
-                lx + 16.0,
-                y,
-                "start",
-                11,
-                "#333333",
-                &group.name,
-            ));
+            svg.push_str(&svg_text(lx + 16.0, y, "start", 11, "#333333", &group.name));
             svg.push('\n');
         }
     }

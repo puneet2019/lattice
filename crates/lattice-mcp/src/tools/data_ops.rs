@@ -670,8 +670,8 @@ pub fn handle_auto_fill(workbook: &mut Workbook, args: Value) -> Result<Value, S
     fill_range(sheet, &source, &target, direction);
 
     // Count filled cells.
-    let target_rows = (tgt_end.row - tgt_start.row + 1) as u32;
-    let target_cols = (tgt_end.col - tgt_start.col + 1) as u32;
+    let target_rows = tgt_end.row - tgt_start.row + 1;
+    let target_cols = tgt_end.col - tgt_start.col + 1;
     let cells_filled = target_rows * target_cols;
 
     Ok(json!({
@@ -1363,14 +1363,22 @@ mod tests {
         // A        | 10
         // B        | 20
         // A        | 30
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Category".into())).unwrap();
-        wb.set_cell("Sheet1", 0, 1, CellValue::Text("Amount".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("A".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 1, CellValue::Number(10.0)).unwrap();
-        wb.set_cell("Sheet1", 2, 0, CellValue::Text("B".into())).unwrap();
-        wb.set_cell("Sheet1", 2, 1, CellValue::Number(20.0)).unwrap();
-        wb.set_cell("Sheet1", 3, 0, CellValue::Text("A".into())).unwrap();
-        wb.set_cell("Sheet1", 3, 1, CellValue::Number(30.0)).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Category".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 0, 1, CellValue::Text("Amount".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("A".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 1, CellValue::Number(10.0))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Text("B".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 1, CellValue::Number(20.0))
+            .unwrap();
+        wb.set_cell("Sheet1", 3, 0, CellValue::Text("A".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 3, 1, CellValue::Number(30.0))
+            .unwrap();
 
         let result = handle_generate_pivot(
             &wb,
@@ -1445,20 +1453,10 @@ mod tests {
     #[test]
     fn test_text_to_columns_basic() {
         let mut wb = Workbook::new();
-        wb.set_cell(
-            "Sheet1",
-            0,
-            0,
-            CellValue::Text("a,b,c".into()),
-        )
-        .unwrap();
-        wb.set_cell(
-            "Sheet1",
-            1,
-            0,
-            CellValue::Text("x,y".into()),
-        )
-        .unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("a,b,c".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("x,y".into()))
+            .unwrap();
 
         let result = handle_text_to_columns(
             &mut wb,

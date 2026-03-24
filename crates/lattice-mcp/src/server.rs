@@ -9,9 +9,9 @@ use lattice_core::{ConditionalFormatStore, Workbook};
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops,
-    filter_view_ops, find_replace_ops, format_ops, formula_ops, named_range_ops, sheet_ops,
-    sparkline_ops, validation_ops,
+    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops, filter_view_ops,
+    find_replace_ops, format_ops, formula_ops, named_range_ops, sheet_ops, sparkline_ops,
+    validation_ops,
 };
 
 /// The MCP protocol version we implement.

@@ -78,7 +78,7 @@ pub async fn get_cell(
         .get_cell(&sheet, row, col)
         .map_err(|e| e.to_string())?;
 
-    Ok(cell.map(|c| cell_to_data(c)))
+    Ok(cell.map(cell_to_data))
 }
 
 /// Set a cell's value (and optionally a formula).
@@ -182,12 +182,12 @@ fn recalculate_formulas(workbook: &mut lattice_core::Workbook, sheet_name: &str)
             Err(_) => CellValue::Error(lattice_core::CellError::Value),
         };
         // Update the value without clearing the formula.
-        if let Ok(s) = workbook.get_sheet_mut(sheet_name) {
-            if let Some(cell) = s.get_cell(r, c) {
-                let mut cell = cell.clone();
-                cell.value = new_val;
-                s.set_cell(r, c, cell);
-            }
+        if let Ok(s) = workbook.get_sheet_mut(sheet_name)
+            && let Some(cell) = s.get_cell(r, c)
+        {
+            let mut cell = cell.clone();
+            cell.value = new_val;
+            s.set_cell(r, c, cell);
         }
     }
 }
@@ -210,7 +210,7 @@ pub async fn get_range(
         let mut row_data = Vec::new();
         for c in start_col..=end_col {
             let cell = s.get_cell(r, c);
-            row_data.push(cell.map(|c| cell_to_data(c)));
+            row_data.push(cell.map(cell_to_data));
         }
         rows.push(row_data);
     }
@@ -238,7 +238,8 @@ fn border_to_data(border: &lattice_core::Border) -> BorderEdgeData {
 fn cell_to_data(c: &lattice_core::Cell) -> CellData {
     let borders = {
         let b = &c.format.borders;
-        let has_any = b.top.is_some() || b.bottom.is_some() || b.left.is_some() || b.right.is_some();
+        let has_any =
+            b.top.is_some() || b.bottom.is_some() || b.left.is_some() || b.right.is_some();
         if has_any {
             Some(CellBordersData {
                 top: b.top.as_ref().map(border_to_data),

@@ -29,6 +29,7 @@ pub struct ValidationData {
 }
 
 /// Set a validation rule on a cell.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn set_validation(
     state: State<'_, AppState>,
@@ -64,9 +65,7 @@ pub async fn set_validation(
             min: min.map(|v| v as usize),
             max: max.map(|v| v as usize),
         },
-        "custom" => {
-            ValidationType::Custom(formula.unwrap_or_default())
-        }
+        "custom" => ValidationType::Custom(formula.unwrap_or_default()),
         _ => return Err(format!("Unknown validation type: {}", rule_type)),
     };
 

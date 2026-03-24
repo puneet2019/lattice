@@ -23,6 +23,7 @@ pub struct VersionInfo {
 }
 
 /// Get the versions directory for the current workbook.
+#[allow(dead_code)]
 fn versions_dir(file_path: &Option<String>) -> PathBuf {
     let filename = match file_path {
         Some(p) => {
@@ -46,6 +47,7 @@ fn versions_dir(file_path: &Option<String>) -> PathBuf {
 }
 
 /// Get current unix timestamp in seconds.
+#[allow(dead_code)]
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -54,11 +56,9 @@ fn now_secs() -> u64 {
 }
 
 /// Save a snapshot of the current workbook as a versioned .xlsx file.
+#[allow(dead_code)]
 #[tauri::command]
-pub async fn save_version(
-    state: State<'_, AppState>,
-    description: String,
-) -> Result<(), String> {
+pub async fn save_version(state: State<'_, AppState>, description: String) -> Result<(), String> {
     let wb = state.workbook.read().await;
     let fp = state.file_path.read().await;
     let dir = versions_dir(&fp);
@@ -82,10 +82,9 @@ pub async fn save_version(
 }
 
 /// List all saved versions for the current workbook (newest first).
+#[allow(dead_code)]
 #[tauri::command]
-pub async fn list_versions(
-    state: State<'_, AppState>,
-) -> Result<Vec<VersionInfo>, String> {
+pub async fn list_versions(state: State<'_, AppState>) -> Result<Vec<VersionInfo>, String> {
     let fp = state.file_path.read().await;
     let dir = versions_dir(&fp);
     drop(fp);
@@ -146,6 +145,7 @@ pub async fn list_versions(
 }
 
 /// Restore a previously saved version by index.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn restore_version(
     state: State<'_, AppState>,
@@ -189,6 +189,7 @@ pub async fn restore_version(
 }
 
 /// Sanitize a description string for use in a filename.
+#[allow(dead_code)]
 fn sanitize_description(desc: &str) -> String {
     desc.chars()
         .map(|c| {

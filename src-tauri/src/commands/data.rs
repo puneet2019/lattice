@@ -293,7 +293,10 @@ pub async fn sort_range(
     let (start_row, start_col, end_row, end_col) = if let Some(ref range_str) = range {
         let parts: Vec<&str> = range_str.split(':').collect();
         if parts.len() != 2 {
-            return Err(format!("Invalid range format '{}': expected 'A1:B2'", range_str));
+            return Err(format!(
+                "Invalid range format '{}': expected 'A1:B2'",
+                range_str
+            ));
         }
         let start = CellRef::parse(parts[0]).map_err(|e| e.to_string())?;
         let end = CellRef::parse(parts[1]).map_err(|e| e.to_string())?;
@@ -364,9 +367,7 @@ pub async fn add_named_range(
 
 /// List all named ranges in the workbook.
 #[tauri::command]
-pub async fn list_named_ranges(
-    state: State<'_, AppState>,
-) -> Result<Vec<NamedRangeInfo>, String> {
+pub async fn list_named_ranges(state: State<'_, AppState>) -> Result<Vec<NamedRangeInfo>, String> {
     let wb = state.workbook.read().await;
     let ranges = wb.named_ranges.list();
     Ok(ranges
@@ -381,10 +382,7 @@ pub async fn list_named_ranges(
 
 /// Remove a named range by name.
 #[tauri::command]
-pub async fn remove_named_range(
-    state: State<'_, AppState>,
-    name: String,
-) -> Result<(), String> {
+pub async fn remove_named_range(state: State<'_, AppState>, name: String) -> Result<(), String> {
     let mut wb = state.workbook.write().await;
     wb.named_ranges.remove(&name).map_err(|e| e.to_string())
 }
@@ -523,6 +521,7 @@ pub async fn text_to_columns(
 ///
 /// Used by the pivot dialog to populate column header dropdowns.
 /// If a cell is empty or does not exist, its entry will be an empty string.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn get_sheet_headers(
     state: State<'_, AppState>,
@@ -556,6 +555,7 @@ pub async fn get_sheet_headers(
 // ---------------------------------------------------------------------------
 
 /// Value field specification from the frontend.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PivotValueInput {
     /// 0-based column index within the source range.
@@ -569,6 +569,7 @@ pub struct PivotValueInput {
 /// Parses the `source_range` (A1:C10 format), builds a `PivotConfig`, calls
 /// `generate_pivot`, creates the target sheet if needed, and writes the
 /// result rows.
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn create_pivot_table(
     state: State<'_, AppState>,
@@ -631,9 +632,7 @@ pub async fn create_pivot_table(
         wb.add_sheet(&target_sheet).map_err(|e| e.to_string())?;
     }
 
-    let target = wb
-        .get_sheet_mut(&target_sheet)
-        .map_err(|e| e.to_string())?;
+    let target = wb.get_sheet_mut(&target_sheet).map_err(|e| e.to_string())?;
 
     // Write headers to row 0.
     for (col, header) in result.headers.iter().enumerate() {

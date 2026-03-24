@@ -121,8 +121,7 @@ fn render_grouped(data: &ChartData, options: &ChartOptions) -> String {
         if series.values.len() >= 2 {
             let color = series.color.as_deref().unwrap_or_else(|| series_color(si));
             let xs: Vec<f64> = (0..series.values.len()).map(|i| i as f64).collect();
-            if let Some((slope, intercept)) =
-                super::scatter::linear_regression(&xs, &series.values)
+            if let Some((slope, intercept)) = super::scatter::linear_regression(&xs, &series.values)
             {
                 // Evaluate at first and last category
                 let trend_y1 = intercept;
@@ -141,7 +140,8 @@ fn render_grouped(data: &ChartData, options: &ChartOptions) -> String {
 
                 let px1 = margins.left + category_width / 2.0;
                 let py1 = margins.top + ph * (1.0 - frac1);
-                let px2 = margins.left + (n_categories - 1) as f64 * category_width
+                let px2 = margins.left
+                    + (n_categories - 1) as f64 * category_width
                     + category_width / 2.0;
                 let py2 = margins.top + ph * (1.0 - frac2);
 
@@ -269,12 +269,7 @@ fn render_stacked(data: &ChartData, options: &ChartOptions) -> String {
                     format_data_label(raw_value)
                 };
                 svg.push_str(&svg_text(
-                    label_x,
-                    label_y,
-                    "middle",
-                    10,
-                    "#ffffff",
-                    &display,
+                    label_x, label_y, "middle", 10, "#ffffff", &display,
                 ));
                 svg.push('\n');
             }

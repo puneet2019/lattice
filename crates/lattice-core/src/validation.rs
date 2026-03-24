@@ -109,7 +109,7 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
             CellValue::Text(t) => options.iter().any(|o| o.eq_ignore_ascii_case(t)),
             CellValue::Number(n) => {
                 let s = n.to_string();
-                options.iter().any(|o| *o == s)
+                options.contains(&s)
             }
             CellValue::Empty => false,
             _ => false,
@@ -127,15 +127,15 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
                 }
                 _ => return false,
             };
-            if let Some(lo) = min {
-                if n < *lo {
-                    return false;
-                }
+            if let Some(lo) = min
+                && n < *lo
+            {
+                return false;
             }
-            if let Some(hi) = max {
-                if n > *hi {
-                    return false;
-                }
+            if let Some(hi) = max
+                && n > *hi
+            {
+                return false;
             }
             true
         }
@@ -146,15 +146,15 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
                 CellValue::Text(t) => t.as_str(),
                 _ => return false,
             };
-            if let Some(lo) = min {
-                if date_str < lo.as_str() {
-                    return false;
-                }
+            if let Some(lo) = min
+                && date_str < lo.as_str()
+            {
+                return false;
             }
-            if let Some(hi) = max {
-                if date_str > hi.as_str() {
-                    return false;
-                }
+            if let Some(hi) = max
+                && date_str > hi.as_str()
+            {
+                return false;
             }
             true
         }
@@ -168,15 +168,15 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
                     cell_value_display_len(value)
                 }
             };
-            if let Some(lo) = min {
-                if len < *lo {
-                    return false;
-                }
+            if let Some(lo) = min
+                && len < *lo
+            {
+                return false;
             }
-            if let Some(hi) = max {
-                if len > *hi {
-                    return false;
-                }
+            if let Some(hi) = max
+                && len > *hi
+            {
+                return false;
             }
             true
         }
@@ -203,7 +203,7 @@ fn cell_value_display_len(value: &CellValue) -> usize {
         CellValue::Empty => 0,
         CellValue::Error(e) => e.to_string().len(),
         CellValue::Date(s) => s.len(),
-        CellValue::Array(_) => 7, // "{array}"
+        CellValue::Array(_) => 7,      // "{array}"
         CellValue::Lambda { .. } => 8, // "{lambda}"
     }
 }

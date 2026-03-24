@@ -130,14 +130,7 @@ pub fn handle_add_conditional_format(
     let style_input = args.style.unwrap_or_default();
     let rule = parse_rule(args.rule_type, style_input)?;
 
-    store.add_rule(
-        &args.sheet,
-        start.row,
-        start.col,
-        end.row,
-        end.col,
-        rule,
-    );
+    store.add_rule(&args.sheet, start.row, start.col, end.row, end.col, rule);
 
     Ok(json!({
         "success": true,
@@ -314,7 +307,11 @@ fn parse_rule(input: RuleTypeInput, style_input: StyleInput) -> Result<Condition
 /// Convert a ConditionalRule to a JSON value for output.
 fn rule_to_json(rule: &ConditionalRule) -> Value {
     let kind = match &rule.rule_type {
-        ConditionalRuleType::CellValue { operator, value1, value2 } => {
+        ConditionalRuleType::CellValue {
+            operator,
+            value1,
+            value2,
+        } => {
             let op_str = match operator {
                 ComparisonOperator::GreaterThan => ">",
                 ComparisonOperator::LessThan => "<",
@@ -340,13 +337,20 @@ fn rule_to_json(rule: &ConditionalRule) -> Value {
         ConditionalRuleType::IsError => json!({"kind": "is_error"}),
         ConditionalRuleType::DuplicateValues => json!({"kind": "duplicate_values"}),
         ConditionalRuleType::UniqueValues => json!({"kind": "unique_values"}),
-        ConditionalRuleType::ColorScale { min_color, max_color, mid_color } => json!({
+        ConditionalRuleType::ColorScale {
+            min_color,
+            max_color,
+            mid_color,
+        } => json!({
             "kind": "color_scale",
             "min_color": min_color,
             "max_color": max_color,
             "mid_color": mid_color,
         }),
-        ConditionalRuleType::DataBar { color, max_length_percent } => json!({
+        ConditionalRuleType::DataBar {
+            color,
+            max_length_percent,
+        } => json!({
             "kind": "data_bar",
             "color": color,
             "max_length_percent": max_length_percent,
@@ -427,11 +431,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = handle_list_conditional_formats(
-            &store,
-            json!({"sheet": "Sheet1"}),
-        )
-        .unwrap();
+        let result = handle_list_conditional_formats(&store, json!({"sheet": "Sheet1"})).unwrap();
 
         assert_eq!(result["count"], 1);
         assert_eq!(result["conditional_formats"][0]["range"], "A1:B5");

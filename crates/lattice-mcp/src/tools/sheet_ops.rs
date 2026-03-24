@@ -95,22 +95,31 @@ pub fn tool_definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "protect_sheet".to_string(),
-            description: "Protect a sheet to prevent editing. Optionally set a password.".to_string(),
+            description: "Protect a sheet to prevent editing. Optionally set a password."
+                .to_string(),
             input_schema: object_schema(
                 &[
                     ("sheet", string_prop("Sheet name")),
-                    ("password", string_prop("Optional password to protect the sheet")),
+                    (
+                        "password",
+                        string_prop("Optional password to protect the sheet"),
+                    ),
                 ],
                 &["sheet"],
             ),
         },
         ToolDef {
             name: "unprotect_sheet".to_string(),
-            description: "Remove protection from a sheet. Supply the password if it was protected with one.".to_string(),
+            description:
+                "Remove protection from a sheet. Supply the password if it was protected with one."
+                    .to_string(),
             input_schema: object_schema(
                 &[
                     ("sheet", string_prop("Sheet name")),
-                    ("password", string_prop("Password used when protecting (if any)")),
+                    (
+                        "password",
+                        string_prop("Password used when protecting (if any)"),
+                    ),
                 ],
                 &["sheet"],
             ),
@@ -121,7 +130,10 @@ pub fn tool_definitions() -> Vec<ToolDef> {
             input_schema: object_schema(
                 &[
                     ("sheet", string_prop("Sheet name")),
-                    ("color", string_prop("CSS hex color (e.g. '#FF0000'), or null to clear")),
+                    (
+                        "color",
+                        string_prop("CSS hex color (e.g. '#FF0000'), or null to clear"),
+                    ),
                 ],
                 &["sheet"],
             ),
@@ -383,9 +395,7 @@ pub fn handle_set_sheet_tab_color(
     args: Value,
 ) -> std::result::Result<Value, String> {
     // Parse manually to support null color (clear).
-    let raw = args
-        .as_object()
-        .ok_or("arguments must be a JSON object")?;
+    let raw = args.as_object().ok_or("arguments must be a JSON object")?;
     let sheet_name = raw
         .get("sheet")
         .and_then(|v| v.as_str())
@@ -514,22 +524,14 @@ mod tests {
     #[test]
     fn test_protect_and_unprotect_sheet() {
         let mut wb = Workbook::new();
-        let result = handle_protect_sheet(
-            &mut wb,
-            json!({"sheet": "Sheet1"}),
-        )
-        .unwrap();
+        let result = handle_protect_sheet(&mut wb, json!({"sheet": "Sheet1"})).unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["has_password"], false);
 
         let sheet = wb.get_sheet("Sheet1").unwrap();
         assert!(sheet.is_protected());
 
-        let result = handle_unprotect_sheet(
-            &mut wb,
-            json!({"sheet": "Sheet1"}),
-        )
-        .unwrap();
+        let result = handle_unprotect_sheet(&mut wb, json!({"sheet": "Sheet1"})).unwrap();
         assert_eq!(result["success"], true);
 
         let sheet = wb.get_sheet("Sheet1").unwrap();
@@ -539,36 +541,26 @@ mod tests {
     #[test]
     fn test_protect_with_password() {
         let mut wb = Workbook::new();
-        handle_protect_sheet(
-            &mut wb,
-            json!({"sheet": "Sheet1", "password": "secret"}),
-        )
-        .unwrap();
+        handle_protect_sheet(&mut wb, json!({"sheet": "Sheet1", "password": "secret"})).unwrap();
 
         // Wrong password should fail.
-        let result = handle_unprotect_sheet(
-            &mut wb,
-            json!({"sheet": "Sheet1", "password": "wrong"}),
-        );
+        let result =
+            handle_unprotect_sheet(&mut wb, json!({"sheet": "Sheet1", "password": "wrong"}));
         assert!(result.is_err());
 
         // Correct password should succeed.
-        let result = handle_unprotect_sheet(
-            &mut wb,
-            json!({"sheet": "Sheet1", "password": "secret"}),
-        )
-        .unwrap();
+        let result =
+            handle_unprotect_sheet(&mut wb, json!({"sheet": "Sheet1", "password": "secret"}))
+                .unwrap();
         assert_eq!(result["success"], true);
     }
 
     #[test]
     fn test_set_sheet_tab_color() {
         let mut wb = Workbook::new();
-        let result = handle_set_sheet_tab_color(
-            &mut wb,
-            json!({"sheet": "Sheet1", "color": "#FF0000"}),
-        )
-        .unwrap();
+        let result =
+            handle_set_sheet_tab_color(&mut wb, json!({"sheet": "Sheet1", "color": "#FF0000"}))
+                .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["tab_color"], "#FF0000");
 
@@ -576,11 +568,8 @@ mod tests {
         assert_eq!(sheet.tab_color, Some("#FF0000".to_string()));
 
         // Clear color.
-        let result = handle_set_sheet_tab_color(
-            &mut wb,
-            json!({"sheet": "Sheet1", "color": null}),
-        )
-        .unwrap();
+        let result =
+            handle_set_sheet_tab_color(&mut wb, json!({"sheet": "Sheet1", "color": null})).unwrap();
         assert_eq!(result["success"], true);
 
         let sheet = wb.get_sheet("Sheet1").unwrap();

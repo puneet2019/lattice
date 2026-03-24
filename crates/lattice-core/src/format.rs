@@ -31,9 +31,10 @@ pub enum VAlign {
 /// This enum represents the semantic meaning of a number format,
 /// as opposed to the raw Excel-compatible format pattern string
 /// stored in `CellFormat::number_format`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub enum NumberFormat {
     /// Default -- display value as-is with smart formatting.
+    #[default]
     General,
     /// Fixed-decimal number with thousand separators (e.g. `1,234.56`).
     Number { decimal_places: u8 },
@@ -51,12 +52,6 @@ pub enum NumberFormat {
     Accounting { symbol: String, decimal_places: u8 },
     /// User-defined format string (Excel-compatible pattern).
     Custom(String),
-}
-
-impl Default for NumberFormat {
-    fn default() -> Self {
-        Self::General
-    }
 }
 
 /// Style of a cell border line.

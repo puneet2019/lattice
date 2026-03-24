@@ -107,7 +107,7 @@ struct TreemapRect {
 
 /// Choose a font size that fits within the rectangle.
 fn font_size_for_rect(w: f64, h: f64) -> u32 {
-    let size = (w.min(h) / 3.0).min(14.0).max(8.0);
+    let size = (w.min(h) / 3.0).clamp(8.0, 14.0);
     size as u32
 }
 

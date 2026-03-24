@@ -34,16 +34,24 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
 
     // Determine gauge range (min..max)
     let gauge_min = 0.0_f64;
-    let gauge_max = if value <= 100.0 { 100.0 } else { nice_max(value) };
+    let gauge_max = if value <= 100.0 {
+        100.0
+    } else {
+        nice_max(value)
+    };
 
     // Chart center and radius
     let title_offset = if options.title.is_some() { 30.0 } else { 0.0 };
-    let subtitle_offset = if options.subtitle.is_some() { 18.0 } else { 0.0 };
+    let subtitle_offset = if options.subtitle.is_some() {
+        18.0
+    } else {
+        0.0
+    };
     let top_margin = title_offset + subtitle_offset + 20.0;
     let available_w = options.width as f64 - 40.0;
     let available_h = options.height as f64 - top_margin - 60.0;
     // Gauge is a half-circle, so height = radius
-    let radius = (available_w / 2.0).min(available_h).min(160.0).max(40.0);
+    let radius = (available_w / 2.0).min(available_h).clamp(40.0, 160.0);
     let cx = options.width as f64 / 2.0;
     let cy = top_margin + radius + 10.0;
 
@@ -54,9 +62,15 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
     // Resolve zone colors
     let custom = options.color_palette.as_deref();
     let zone_colors: [&str; 3] = [
-        custom.and_then(|p| p.first().map(|s| s.as_str())).unwrap_or(ZONE_COLORS[0]),
-        custom.and_then(|p| p.get(1).map(|s| s.as_str())).unwrap_or(ZONE_COLORS[1]),
-        custom.and_then(|p| p.get(2).map(|s| s.as_str())).unwrap_or(ZONE_COLORS[2]),
+        custom
+            .and_then(|p| p.first().map(|s| s.as_str()))
+            .unwrap_or(ZONE_COLORS[0]),
+        custom
+            .and_then(|p| p.get(1).map(|s| s.as_str()))
+            .unwrap_or(ZONE_COLORS[1]),
+        custom
+            .and_then(|p| p.get(2).map(|s| s.as_str()))
+            .unwrap_or(ZONE_COLORS[2]),
     ];
 
     // Draw three zone arcs (each covering 1/3 of the semicircle)
@@ -144,15 +158,29 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
     } else {
         format!("{:.1}", value)
     };
-    svg.push_str(&svg_text(cx, cy + 35.0, "middle", 24, "#333333", &value_text));
+    svg.push_str(&svg_text(
+        cx,
+        cy + 35.0,
+        "middle",
+        24,
+        "#333333",
+        &value_text,
+    ));
     svg.push('\n');
 
     // Optional label from first series name
-    if let Some(series) = data.series.first() {
-        if !series.name.is_empty() {
-            svg.push_str(&svg_text(cx, cy + 55.0, "middle", 12, "#666666", &series.name));
-            svg.push('\n');
-        }
+    if let Some(series) = data.series.first()
+        && !series.name.is_empty()
+    {
+        svg.push_str(&svg_text(
+            cx,
+            cy + 55.0,
+            "middle",
+            12,
+            "#666666",
+            &series.name,
+        ));
+        svg.push('\n');
     }
 
     svg.push_str(svg_close());
@@ -306,11 +334,7 @@ mod tests {
     #[test]
     fn test_gauge_custom_zone_colors() {
         let opts = ChartOptions {
-            color_palette: Some(vec![
-                "#0000ff".into(),
-                "#00ff00".into(),
-                "#ff00ff".into(),
-            ]),
+            color_palette: Some(vec!["#0000ff".into(), "#00ff00".into(), "#ff00ff".into()]),
             ..ChartOptions::default()
         };
         let svg = render(&sample_data(50.0), &opts);

@@ -59,7 +59,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
             false
         } else {
             let ratio = bar_range / ln_range;
-            ratio > DUAL_AXIS_THRESHOLD || ratio < 1.0 / DUAL_AXIS_THRESHOLD
+            !(1.0 / DUAL_AXIS_THRESHOLD..=DUAL_AXIS_THRESHOLD).contains(&ratio)
         }
     };
 

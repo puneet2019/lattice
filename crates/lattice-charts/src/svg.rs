@@ -33,7 +33,7 @@ pub fn series_color(index: usize) -> &'static str {
 ///
 /// This lets callers pass `options.color_palette.as_ref()` and get the right color
 /// regardless of whether a custom palette was provided.
-pub fn palette_color<'a>(index: usize, custom: Option<&'a [String]>) -> &'a str {
+pub fn palette_color(index: usize, custom: Option<&[String]>) -> &str {
     match custom {
         Some(p) if !p.is_empty() => &p[index % p.len()],
         _ => series_color(index),
@@ -200,10 +200,7 @@ impl Margins {
 ///
 /// Uses `options.background_color` if set, otherwise defaults to white.
 pub fn svg_open(options: &ChartOptions) -> String {
-    let bg = options
-        .background_color
-        .as_deref()
-        .unwrap_or("#ffffff");
+    let bg = options.background_color.as_deref().unwrap_or("#ffffff");
     format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">
 <rect width="100%" height="100%" fill="{bg}" rx="4"/>"##,

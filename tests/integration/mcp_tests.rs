@@ -4,8 +4,8 @@
 //! sends JSON-RPC 2.0 strings via `handle_message()`, and asserts on the
 //! parsed response values — not just `isError: false`.
 
-use lattice_core::{CellValue, FillDirection, FillPattern, Sheet, detect_pattern, fill_range};
 use lattice_core::selection::{CellRef, Range};
+use lattice_core::{CellValue, FillDirection, FillPattern, Sheet, detect_pattern, fill_range};
 use lattice_mcp::McpServer;
 use serde_json::{Value, json};
 
@@ -2082,16 +2082,11 @@ async fn test_named_range_remove_and_resolve_fails() {
     )
     .await;
 
-    let remove_result =
-        call_tool(&mut server, "remove_named_range", json!({"name": "Temp"})).await;
+    let remove_result = call_tool(&mut server, "remove_named_range", json!({"name": "Temp"})).await;
     assert_eq!(remove_result["success"], true);
 
-    let err = call_tool_expect_error(
-        &mut server,
-        "resolve_named_range",
-        json!({"name": "Temp"}),
-    )
-    .await;
+    let err =
+        call_tool_expect_error(&mut server, "resolve_named_range", json!({"name": "Temp"})).await;
     assert!(
         !err.is_empty(),
         "resolving a removed named range must return an error"

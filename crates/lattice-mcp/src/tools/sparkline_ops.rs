@@ -13,19 +13,48 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "add_sparkline".to_string(),
-            description: "Add an inline sparkline chart to a cell. Supports line, bar, and win_loss types.".to_string(),
+            description:
+                "Add an inline sparkline chart to a cell. Supports line, bar, and win_loss types."
+                    .to_string(),
             input_schema: object_schema(
                 &[
                     ("sheet", string_prop("Sheet name")),
-                    ("cell_ref", string_prop("Cell to place the sparkline in (A1 notation)")),
-                    ("spark_type", string_prop("Sparkline type: 'line', 'bar', or 'win_loss'")),
-                    ("data_range", string_prop("Data range for the sparkline in A1:B2 notation")),
-                    ("color", string_prop("Primary color (CSS hex, e.g. '#4e79a7')")),
-                    ("high_color", string_prop("Highlight color for maximum value")),
-                    ("low_color", string_prop("Highlight color for minimum value")),
-                    ("negative_color", string_prop("Color for negative values (bar/win_loss)")),
-                    ("show_markers", bool_prop("Show point markers (line type only)")),
-                    ("line_width", number_prop("Stroke width for line sparklines")),
+                    (
+                        "cell_ref",
+                        string_prop("Cell to place the sparkline in (A1 notation)"),
+                    ),
+                    (
+                        "spark_type",
+                        string_prop("Sparkline type: 'line', 'bar', or 'win_loss'"),
+                    ),
+                    (
+                        "data_range",
+                        string_prop("Data range for the sparkline in A1:B2 notation"),
+                    ),
+                    (
+                        "color",
+                        string_prop("Primary color (CSS hex, e.g. '#4e79a7')"),
+                    ),
+                    (
+                        "high_color",
+                        string_prop("Highlight color for maximum value"),
+                    ),
+                    (
+                        "low_color",
+                        string_prop("Highlight color for minimum value"),
+                    ),
+                    (
+                        "negative_color",
+                        string_prop("Color for negative values (bar/win_loss)"),
+                    ),
+                    (
+                        "show_markers",
+                        bool_prop("Show point markers (line type only)"),
+                    ),
+                    (
+                        "line_width",
+                        number_prop("Stroke width for line sparklines"),
+                    ),
                 ],
                 &["sheet", "cell_ref", "spark_type", "data_range"],
             ),
@@ -36,7 +65,10 @@ pub fn tool_definitions() -> Vec<ToolDef> {
             input_schema: object_schema(
                 &[
                     ("sheet", string_prop("Sheet name")),
-                    ("cell_ref", string_prop("Cell containing the sparkline (A1 notation)")),
+                    (
+                        "cell_ref",
+                        string_prop("Cell containing the sparkline (A1 notation)"),
+                    ),
                 ],
                 &["sheet", "cell_ref"],
             ),
@@ -44,10 +76,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
         ToolDef {
             name: "list_sparklines".to_string(),
             description: "List all sparklines in a sheet".to_string(),
-            input_schema: object_schema(
-                &[("sheet", string_prop("Sheet name"))],
-                &["sheet"],
-            ),
+            input_schema: object_schema(&[("sheet", string_prop("Sheet name"))], &["sheet"]),
         },
     ]
 }
@@ -70,15 +99,12 @@ pub struct AddSparklineArgs {
 }
 
 /// Handle the `add_sparkline` tool call.
-pub fn handle_add_sparkline(
-    workbook: &mut Workbook,
-    args: Value,
-) -> Result<Value, String> {
+pub fn handle_add_sparkline(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
     let args: AddSparklineArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
-    let cell = CellRef::parse(&args.cell_ref)
-        .map_err(|e| format!("Invalid cell reference: {}", e))?;
+    let cell =
+        CellRef::parse(&args.cell_ref).map_err(|e| format!("Invalid cell reference: {}", e))?;
 
     let (start, end) = parse_range(&args.data_range)?;
 
@@ -136,15 +162,12 @@ pub struct RemoveSparklineArgs {
 }
 
 /// Handle the `remove_sparkline` tool call.
-pub fn handle_remove_sparkline(
-    workbook: &mut Workbook,
-    args: Value,
-) -> Result<Value, String> {
+pub fn handle_remove_sparkline(workbook: &mut Workbook, args: Value) -> Result<Value, String> {
     let args: RemoveSparklineArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
-    let cell = CellRef::parse(&args.cell_ref)
-        .map_err(|e| format!("Invalid cell reference: {}", e))?;
+    let cell =
+        CellRef::parse(&args.cell_ref).map_err(|e| format!("Invalid cell reference: {}", e))?;
 
     let sheet = workbook
         .get_sheet_mut(&args.sheet)
@@ -166,16 +189,11 @@ pub struct ListSparklinesArgs {
 }
 
 /// Handle the `list_sparklines` tool call.
-pub fn handle_list_sparklines(
-    workbook: &Workbook,
-    args: Value,
-) -> Result<Value, String> {
+pub fn handle_list_sparklines(workbook: &Workbook, args: Value) -> Result<Value, String> {
     let args: ListSparklinesArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
 
-    let sheet = workbook
-        .get_sheet(&args.sheet)
-        .map_err(|e| e.to_string())?;
+    let sheet = workbook.get_sheet(&args.sheet).map_err(|e| e.to_string())?;
 
     let sparklines = sheet.sparklines.list();
 
@@ -304,11 +322,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = handle_remove_sparkline(
-            &mut wb,
-            json!({"sheet": "Sheet1", "cell_ref": "D1"}),
-        )
-        .unwrap();
+        let result =
+            handle_remove_sparkline(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "D1"})).unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["was_present"], true);
 
@@ -319,11 +334,8 @@ mod tests {
     #[test]
     fn test_remove_sparkline_not_present() {
         let mut wb = Workbook::new();
-        let result = handle_remove_sparkline(
-            &mut wb,
-            json!({"sheet": "Sheet1", "cell_ref": "A1"}),
-        )
-        .unwrap();
+        let result =
+            handle_remove_sparkline(&mut wb, json!({"sheet": "Sheet1", "cell_ref": "A1"})).unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["was_present"], false);
     }
@@ -352,11 +364,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = handle_list_sparklines(
-            &wb,
-            json!({"sheet": "Sheet1"}),
-        )
-        .unwrap();
+        let result = handle_list_sparklines(&wb, json!({"sheet": "Sheet1"})).unwrap();
 
         assert_eq!(result["count"], 2);
     }
@@ -364,11 +372,7 @@ mod tests {
     #[test]
     fn test_list_sparklines_empty() {
         let wb = Workbook::new();
-        let result = handle_list_sparklines(
-            &wb,
-            json!({"sheet": "Sheet1"}),
-        )
-        .unwrap();
+        let result = handle_list_sparklines(&wb, json!({"sheet": "Sheet1"})).unwrap();
 
         assert_eq!(result["count"], 0);
         assert!(result["sparklines"].as_array().unwrap().is_empty());

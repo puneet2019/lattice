@@ -38,9 +38,7 @@ pub async fn set_auto_filter(
     let (max_row, max_col) = s.used_range();
 
     let total_rows = if max_row > 0 { max_row } else { 0 };
-    let visible = (1..=max_row)
-        .filter(|r| !s.is_row_hidden(*r))
-        .count() as u32;
+    let visible = (1..=max_row).filter(|r| !s.is_row_hidden(*r)).count() as u32;
 
     Ok(FilterInfo {
         active: true,
@@ -117,8 +115,7 @@ pub async fn apply_column_filter(
 
     for row in 1..=max_row {
         let cell_val = s.get_cell(row, col).map(|c| &c.value);
-        let is_blank = cell_val.is_none()
-            || matches!(cell_val, Some(CellValue::Empty));
+        let is_blank = cell_val.is_none() || matches!(cell_val, Some(CellValue::Empty));
 
         let passes = if is_blank {
             allow_blanks
@@ -132,9 +129,7 @@ pub async fn apply_column_filter(
         }
     }
 
-    let visible = (1..=max_row)
-        .filter(|r| !s.is_row_hidden(*r))
-        .count() as u32;
+    let visible = (1..=max_row).filter(|r| !s.is_row_hidden(*r)).count() as u32;
 
     Ok(FilterInfo {
         active: true,
@@ -149,10 +144,7 @@ pub async fn apply_column_filter(
 
 /// Clear all filters and unhide all rows.
 #[tauri::command]
-pub async fn clear_filter(
-    state: State<'_, AppState>,
-    sheet: String,
-) -> Result<(), String> {
+pub async fn clear_filter(state: State<'_, AppState>, sheet: String) -> Result<(), String> {
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
     let (max_row, _) = s.used_range();
@@ -173,9 +165,7 @@ pub async fn get_filter_info(
     let (max_row, max_col) = s.used_range();
 
     let has_hidden = (1..=max_row).any(|r| s.is_row_hidden(r));
-    let visible = (1..=max_row)
-        .filter(|r| !s.is_row_hidden(*r))
-        .count() as u32;
+    let visible = (1..=max_row).filter(|r| !s.is_row_hidden(*r)).count() as u32;
 
     Ok(FilterInfo {
         active: has_hidden,
@@ -229,9 +219,7 @@ pub async fn save_filter_view(
 
 /// List all saved filter views.
 #[tauri::command]
-pub async fn list_filter_views(
-    state: State<'_, AppState>,
-) -> Result<Vec<FilterViewInfo>, String> {
+pub async fn list_filter_views(state: State<'_, AppState>) -> Result<Vec<FilterViewInfo>, String> {
     let wb = state.workbook.read().await;
     Ok(wb
         .filter_views
@@ -267,10 +255,7 @@ pub async fn apply_filter_view(
 
 /// Delete a saved filter view by name.
 #[tauri::command]
-pub async fn delete_filter_view(
-    state: State<'_, AppState>,
-    name: String,
-) -> Result<(), String> {
+pub async fn delete_filter_view(state: State<'_, AppState>, name: String) -> Result<(), String> {
     let mut wb = state.workbook.write().await;
     wb.filter_views.remove(&name).map_err(|e| e.to_string())
 }

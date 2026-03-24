@@ -274,15 +274,19 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
                 *pos += 1; // skip ')'
             }
             // Support immediate invocation: LAMBDA(x, x+1)(5)
-            if let CellValue::Lambda { ref params, ref body } = result {
-                if *pos < tokens.len() && tokens[*pos] == Token::LParen {
-                    *pos += 1; // skip '('
-                    let call_args = parse_function_args(tokens, pos, ctx, "LAMBDA_CALL")?;
-                    if *pos < tokens.len() && tokens[*pos] == Token::RParen {
-                        *pos += 1; // skip ')'
-                    }
-                    return invoke_lambda(params, body, &call_args, ctx);
+            if let CellValue::Lambda {
+                ref params,
+                ref body,
+            } = result
+                && *pos < tokens.len()
+                && tokens[*pos] == Token::LParen
+            {
+                *pos += 1; // skip '('
+                let call_args = parse_function_args(tokens, pos, ctx, "LAMBDA_CALL")?;
+                if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+                    *pos += 1; // skip ')'
                 }
+                return invoke_lambda(params, body, &call_args, ctx);
             }
             Ok(result)
         }
@@ -299,10 +303,10 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             // Check if this is a LET variable holding a Lambda before
             // dispatching to the built-in function table.
             let upper = name.to_ascii_uppercase();
-            if let Some(ref vars) = ctx.let_vars {
-                if let Some(CellValue::Lambda { params, body }) = vars.get(&upper) {
-                    return invoke_lambda(params, body, &args, ctx);
-                }
+            if let Some(ref vars) = ctx.let_vars
+                && let Some(CellValue::Lambda { params, body }) = vars.get(&upper)
+            {
+                return invoke_lambda(params, body, &args, ctx);
             }
             evaluate_function(&name, args, ctx)
         }
@@ -313,30 +317,26 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             if *pos < tokens.len() && tokens[*pos] == Token::Colon {
                 // In array iteration context, a range as an expression operand
                 // should return the value at the current iteration offset.
-                if let Some((ref ranges, row_off, col_off)) = ctx.array_iter {
-                    if let Ok(cr) = parse_cell_ref(&r) {
-                        // Peek at the end ref
-                        if *pos + 1 < tokens.len() {
-                            if let Token::CellRef(end_r) = &tokens[*pos + 1] {
-                                if let Ok(end_cr) = parse_cell_ref(end_r) {
-                                    let r_min = cr.row.min(end_cr.row);
-                                    let c_min = cr.col.min(end_cr.col);
-                                    // Check if this range is one of our iterated ranges
-                                    let is_iter = ranges.iter().any(|ir| {
-                                        ir.r_min == r_min && ir.c_min == c_min
-                                    });
-                                    if is_iter {
-                                        *pos += 2; // skip ':' and end ref
-                                        let target_row = r_min + row_off;
-                                        let target_col = c_min + col_off;
-                                        return match ctx.sheet.get_cell(target_row, target_col) {
-                                            Some(cell) => Ok(cell.value.clone()),
-                                            None => Ok(CellValue::Empty),
-                                        };
-                                    }
-                                }
-                            }
-                        }
+                if let Some((ref ranges, row_off, col_off)) = ctx.array_iter
+                    && let Ok(cr) = parse_cell_ref(&r)
+                    && *pos + 1 < tokens.len()
+                    && let Token::CellRef(end_r) = &tokens[*pos + 1]
+                    && let Ok(end_cr) = parse_cell_ref(end_r)
+                {
+                    let r_min = cr.row.min(end_cr.row);
+                    let c_min = cr.col.min(end_cr.col);
+                    // Check if this range is one of our iterated ranges
+                    let is_iter = ranges
+                        .iter()
+                        .any(|ir| ir.r_min == r_min && ir.c_min == c_min);
+                    if is_iter {
+                        *pos += 2; // skip ':' and end ref
+                        let target_row = r_min + row_off;
+                        let target_col = c_min + col_off;
+                        return match ctx.sheet.get_cell(target_row, target_col) {
+                            Some(cell) => Ok(cell.value.clone()),
+                            None => Ok(CellValue::Empty),
+                        };
                     }
                 }
                 // Not in array iteration — return first cell's value
@@ -355,14 +355,12 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
                 Err(_) => {
                     // Not a valid cell ref — check if it's a LET variable
                     let upper = r.to_ascii_uppercase();
-                    if let Some(ref vars) = ctx.let_vars {
-                        if let Some(val) = vars.get(&upper) {
-                            return Ok(val.clone());
-                        }
+                    if let Some(ref vars) = ctx.let_vars
+                        && let Some(val) = vars.get(&upper)
+                    {
+                        return Ok(val.clone());
                     }
-                    Err(LatticeError::FormulaError(format!(
-                        "unknown name: {r}"
-                    )))
+                    Err(LatticeError::FormulaError(format!("unknown name: {r}")))
                 }
             }
         }
@@ -396,11 +394,7 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
 /// Names are CellRef tokens that are NOT valid cell references (e.g. `x`, `total`).
 /// The function requires an odd number of arguments >= 3 (at least one
 /// name-value pair plus the final formula).
-fn parse_let_function(
-    tokens: &[Token],
-    pos: &mut usize,
-    ctx: &EvalCtx<'_>,
-) -> Result<CellValue> {
+fn parse_let_function(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
     // Collect raw argument token ranges (delimited by commas at depth 0).
     let mut arg_starts: Vec<usize> = Vec::new();
     let mut arg_ends: Vec<usize> = Vec::new();
@@ -664,9 +658,7 @@ fn tokens_to_formula(tokens: &[Token]) -> String {
 /// Returns an error naming `func_name` if the argument is not a lambda.
 fn extract_lambda(arg: &FuncArg, func_name: &str) -> Result<(Vec<String>, String)> {
     match arg {
-        FuncArg::Value(CellValue::Lambda { params, body }) => {
-            Ok((params.clone(), body.clone()))
-        }
+        FuncArg::Value(CellValue::Lambda { params, body }) => Ok((params.clone(), body.clone())),
         _ => Err(LatticeError::FormulaError(format!(
             "{func_name}: last argument must be a LAMBDA"
         ))),
@@ -681,11 +673,7 @@ fn extract_lambda(arg: &FuncArg, func_name: &str) -> Result<(Vec<String>, String
 /// `CellValue::Array`.
 ///
 /// If no range operands are found, falls back to normal single-value evaluation.
-fn parse_arrayformula(
-    tokens: &[Token],
-    pos: &mut usize,
-    ctx: &EvalCtx<'_>,
-) -> Result<CellValue> {
+fn parse_arrayformula(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<CellValue> {
     // Record the start of the inner expression so we can re-evaluate it per element.
     let expr_start = *pos;
 
@@ -728,21 +716,18 @@ fn parse_arrayformula(
             Token::CellRef(start_ref) if scan_depth == 0 => {
                 if si + 2 < inner_tokens.len()
                     && inner_tokens[si + 1] == Token::Colon
+                    && let Token::CellRef(end_ref) = &inner_tokens[si + 2]
                 {
-                    if let Token::CellRef(end_ref) = &inner_tokens[si + 2] {
-                        if let (Ok(s), Ok(e)) =
-                            (parse_cell_ref(start_ref), parse_cell_ref(end_ref))
-                        {
-                            ranges.push(IterRange {
-                                r_min: s.row.min(e.row),
-                                c_min: s.col.min(e.col),
-                                r_max: s.row.max(e.row),
-                                c_max: s.col.max(e.col),
-                            });
-                        }
-                        si += 3;
-                        continue;
+                    if let (Ok(s), Ok(e)) = (parse_cell_ref(start_ref), parse_cell_ref(end_ref)) {
+                        ranges.push(IterRange {
+                            r_min: s.row.min(e.row),
+                            c_min: s.col.min(e.col),
+                            r_max: s.row.max(e.row),
+                            c_max: s.col.max(e.col),
+                        });
                     }
+                    si += 3;
+                    continue;
                 }
                 si += 1;
             }
@@ -827,39 +812,39 @@ fn parse_function_args(
         }
 
         // Check if this argument is a cross-sheet range: SheetRef : CellRef
-        if let Token::SheetRef(sheet_name, start_ref) = &tokens[*pos] {
-            if *pos + 2 < tokens.len() && tokens[*pos + 1] == Token::Colon {
-                if let Token::CellRef(end_ref) = &tokens[*pos + 2] {
-                    let sheet_name = sheet_name.clone();
-                    let start_ref = start_ref.clone();
-                    let end_ref = end_ref.clone();
-                    *pos += 3; // skip SheetRef : CellRef
-                    args.push(FuncArg::SheetRange(sheet_name, start_ref, end_ref));
-                    if *pos < tokens.len() && tokens[*pos] == Token::Comma {
-                        *pos += 1;
-                        continue;
-                    }
-                    break;
-                }
+        if let Token::SheetRef(sheet_name, start_ref) = &tokens[*pos]
+            && *pos + 2 < tokens.len()
+            && tokens[*pos + 1] == Token::Colon
+            && let Token::CellRef(end_ref) = &tokens[*pos + 2]
+        {
+            let sheet_name = sheet_name.clone();
+            let start_ref = start_ref.clone();
+            let end_ref = end_ref.clone();
+            *pos += 3; // skip SheetRef : CellRef
+            args.push(FuncArg::SheetRange(sheet_name, start_ref, end_ref));
+            if *pos < tokens.len() && tokens[*pos] == Token::Comma {
+                *pos += 1;
+                continue;
             }
+            break;
         }
 
         // Check if this argument is a range: CellRef : CellRef
-        if let Token::CellRef(start) = &tokens[*pos] {
-            if *pos + 2 < tokens.len() && tokens[*pos + 1] == Token::Colon {
-                if let Token::CellRef(end) = &tokens[*pos + 2] {
-                    let start = start.clone();
-                    let end = end.clone();
-                    *pos += 3; // skip start : end
-                    args.push(FuncArg::Range(start, end));
-                    // Check for comma or end
-                    if *pos < tokens.len() && tokens[*pos] == Token::Comma {
-                        *pos += 1;
-                        continue;
-                    }
-                    break;
-                }
+        if let Token::CellRef(start) = &tokens[*pos]
+            && *pos + 2 < tokens.len()
+            && tokens[*pos + 1] == Token::Colon
+            && let Token::CellRef(end) = &tokens[*pos + 2]
+        {
+            let start = start.clone();
+            let end = end.clone();
+            *pos += 3; // skip start : end
+            args.push(FuncArg::Range(start, end));
+            // Check for comma or end
+            if *pos < tokens.len() && tokens[*pos] == Token::Comma {
+                *pos += 1;
+                continue;
             }
+            break;
         }
 
         // Otherwise, parse a full expression as a single-value argument.
@@ -928,7 +913,7 @@ fn coerce_to_number(val: &CellValue) -> Result<f64> {
             // Coerce first element of array
             rows.first()
                 .and_then(|r| r.first())
-                .map(|v| coerce_to_number(v))
+                .map(coerce_to_number)
                 .unwrap_or(Ok(0.0))
         }
         CellValue::Lambda { .. } => Err(LatticeError::FormulaError(
@@ -971,7 +956,7 @@ fn coerce_to_bool(val: &CellValue) -> Result<bool> {
         CellValue::Array(rows) => rows
             .first()
             .and_then(|r| r.first())
-            .map(|v| coerce_to_bool(v))
+            .map(coerce_to_bool)
             .unwrap_or(Ok(false)),
         CellValue::Lambda { .. } => Err(LatticeError::FormulaError(
             "cannot convert lambda to boolean".into(),
@@ -1003,7 +988,7 @@ fn coerce_to_string(val: &CellValue) -> String {
         CellValue::Array(rows) => rows
             .first()
             .and_then(|r| r.first())
-            .map(|v| coerce_to_string(v))
+            .map(coerce_to_string)
             .unwrap_or_default(),
         CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
@@ -1306,20 +1291,11 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 match arg {
                     FuncArg::Range(start, end) => {
                         let vals = resolve_range_values(start, end, ctx.sheet)?;
-                        arrays.push(
-                            vals.iter()
-                                .map(|v| coerce_to_number_or_zero(v))
-                                .collect(),
-                        );
+                        arrays.push(vals.iter().map(coerce_to_number_or_zero).collect());
                     }
                     FuncArg::SheetRange(sheet_name, start, end) => {
-                        let vals =
-                            resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?;
-                        arrays.push(
-                            vals.iter()
-                                .map(|v| coerce_to_number_or_zero(v))
-                                .collect(),
-                        );
+                        let vals = resolve_cross_sheet_range_values(sheet_name, start, end, ctx)?;
+                        arrays.push(vals.iter().map(coerce_to_number_or_zero).collect());
                     }
                     FuncArg::Value(v) => {
                         arrays.push(vec![coerce_to_number_or_zero(v)]);
@@ -1380,12 +1356,11 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
 
             let mut sum = 0.0;
             for (i, val) in criteria_range.iter().enumerate() {
-                if matches_criteria(val, &criteria) {
-                    if let Some(sv) = sum_range.get(i) {
-                        if let Ok(n) = coerce_to_number(sv) {
-                            sum += n;
-                        }
-                    }
+                if matches_criteria(val, &criteria)
+                    && let Some(sv) = sum_range.get(i)
+                    && let Ok(n) = coerce_to_number(sv)
+                {
+                    sum += n;
                 }
             }
             Ok(CellValue::Number(sum))
@@ -1447,13 +1422,12 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let mut sum = 0.0;
             let mut count = 0;
             for (i, val) in criteria_range.iter().enumerate() {
-                if matches_criteria(val, &criteria) {
-                    if let Some(sv) = avg_range.get(i) {
-                        if let Ok(n) = coerce_to_number(sv) {
-                            sum += n;
-                            count += 1;
-                        }
-                    }
+                if matches_criteria(val, &criteria)
+                    && let Some(sv) = avg_range.get(i)
+                    && let Ok(n) = coerce_to_number(sv)
+                {
+                    sum += n;
+                    count += 1;
                 }
             }
             if count == 0 {
@@ -1705,7 +1679,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
         // ===== TEXT =====
         "CONCATENATE" | "CONCAT" => {
             let vals = collect_values(&args, ctx)?;
-            let s: String = vals.iter().map(|v| coerce_to_string(v)).collect();
+            let s: String = vals.iter().map(coerce_to_string).collect();
             Ok(CellValue::Text(s))
         }
         "LEFT" => {
@@ -2415,10 +2389,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let mut accumulator = initial;
             for val in &vals {
-                let call_args = vec![
-                    FuncArg::Value(accumulator),
-                    FuncArg::Value(val.clone()),
-                ];
+                let call_args = vec![FuncArg::Value(accumulator), FuncArg::Value(val.clone())];
                 accumulator = invoke_lambda(&params, &body, &call_args, ctx)?;
             }
             Ok(accumulator)
@@ -2537,33 +2508,33 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let a = require_args(&args, 1, "YEAR")?;
             let s = coerce_to_string(&a[0]);
             // Parse YYYY-MM-DD or YYYY/MM/DD
-            let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
-            if parts.len() >= 3 {
-                if let Ok(y) = parts[0].parse::<f64>() {
-                    return Ok(CellValue::Number(y));
-                }
+            let parts: Vec<&str> = s.split(['-', '/']).collect();
+            if parts.len() >= 3
+                && let Ok(y) = parts[0].parse::<f64>()
+            {
+                return Ok(CellValue::Number(y));
             }
             Ok(CellValue::Error(CellError::Value))
         }
         "MONTH" => {
             let a = require_args(&args, 1, "MONTH")?;
             let s = coerce_to_string(&a[0]);
-            let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
-            if parts.len() >= 3 {
-                if let Ok(m) = parts[1].parse::<f64>() {
-                    return Ok(CellValue::Number(m));
-                }
+            let parts: Vec<&str> = s.split(['-', '/']).collect();
+            if parts.len() >= 3
+                && let Ok(m) = parts[1].parse::<f64>()
+            {
+                return Ok(CellValue::Number(m));
             }
             Ok(CellValue::Error(CellError::Value))
         }
         "DAY" => {
             let a = require_args(&args, 1, "DAY")?;
             let s = coerce_to_string(&a[0]);
-            let parts: Vec<&str> = s.split(|c| c == '-' || c == '/').collect();
-            if parts.len() >= 3 {
-                if let Ok(d) = parts[2].parse::<f64>() {
-                    return Ok(CellValue::Number(d));
-                }
+            let parts: Vec<&str> = s.split(['-', '/']).collect();
+            if parts.len() >= 3
+                && let Ok(d) = parts[2].parse::<f64>()
+            {
+                return Ok(CellValue::Number(d));
             }
             Ok(CellValue::Error(CellError::Value))
         }
@@ -2584,10 +2555,10 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 "SECOND" => 2,
                 _ => 0,
             };
-            if let Some(part) = parts.get(index) {
-                if let Ok(n) = part.parse::<f64>() {
-                    return Ok(CellValue::Number(n));
-                }
+            if let Some(part) = parts.get(index)
+                && let Ok(n) = part.parse::<f64>()
+            {
+                return Ok(CellValue::Number(n));
             }
             Ok(CellValue::Number(0.0))
         }
@@ -2599,11 +2570,11 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let unit = coerce_to_string(&a[2]).to_uppercase();
 
             let start_parts: Vec<i32> = start
-                .split(|c| c == '-' || c == '/')
+                .split(['-', '/'])
                 .filter_map(|s| s.parse().ok())
                 .collect();
             let end_parts: Vec<i32> = end
-                .split(|c| c == '-' || c == '/')
+                .split(['-', '/'])
                 .filter_map(|s| s.parse().ok())
                 .collect();
 
@@ -2636,10 +2607,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let a = require_args(&args, 2, "EDATE")?;
             let s = coerce_to_string(&a[0]);
             let months = coerce_to_number(&a[1])? as i32;
-            let parts: Vec<i32> = s
-                .split(|c: char| c == '-' || c == '/')
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let parts: Vec<i32> = s.split(['-', '/']).filter_map(|p| p.parse().ok()).collect();
             if parts.len() < 3 {
                 return Ok(CellValue::Error(CellError::Value));
             }
@@ -2661,10 +2629,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             let a = require_args(&args, 2, "EOMONTH")?;
             let s = coerce_to_string(&a[0]);
             let months = coerce_to_number(&a[1])? as i32;
-            let parts: Vec<i32> = s
-                .split(|c: char| c == '-' || c == '/')
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let parts: Vec<i32> = s.split(['-', '/']).filter_map(|p| p.parse().ok()).collect();
             if parts.len() < 3 {
                 return Ok(CellValue::Error(CellError::Value));
             }
@@ -2687,10 +2652,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             // WEEKDAY(date, [type]) — simplified using Zeller's or Tomohiko Sakamoto
             let a = require_min_args(&args, 1, "WEEKDAY")?;
             let s = coerce_to_string(&a[0]);
-            let parts: Vec<i32> = s
-                .split(|c: char| c == '-' || c == '/')
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let parts: Vec<i32> = s.split(['-', '/']).filter_map(|p| p.parse().ok()).collect();
             if parts.len() < 3 {
                 return Ok(CellValue::Error(CellError::Value));
             }
@@ -2723,11 +2685,19 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let start_val = match &args[0] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError("NETWORKDAYS: start must be a value".into())),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "NETWORKDAYS: start must be a value".into(),
+                    ));
+                }
             };
             let end_val = match &args[1] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError("NETWORKDAYS: end must be a value".into())),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "NETWORKDAYS: end must be a value".into(),
+                    ));
+                }
             };
             let holidays: Vec<i32> = if args.len() > 2 {
                 match &args[2] {
@@ -2763,11 +2733,19 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let start_serial = match &args[0] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError("WORKDAY: start must be a value".into())),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "WORKDAY: start must be a value".into(),
+                    ));
+                }
             };
             let days = match &args[1] {
                 FuncArg::Value(v) => coerce_to_number(v)? as i32,
-                _ => return Err(LatticeError::FormulaError("WORKDAY: days must be a value".into())),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "WORKDAY: days must be a value".into(),
+                    ));
+                }
             };
             let holidays: Vec<i32> = if args.len() > 2 {
                 match &args[2] {
@@ -2802,15 +2780,19 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let start_val = match &args[0] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError(
-                    "NETWORKDAYS.INTL: start must be a value".into(),
-                )),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "NETWORKDAYS.INTL: start must be a value".into(),
+                    ));
+                }
             };
             let end_val = match &args[1] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError(
-                    "NETWORKDAYS.INTL: end must be a value".into(),
-                )),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "NETWORKDAYS.INTL: end must be a value".into(),
+                    ));
+                }
             };
             let weekend_days = if args.len() > 2 {
                 match &args[2] {
@@ -2837,15 +2819,19 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             }
             let start_serial = match &args[0] {
                 FuncArg::Value(v) => coerce_to_serial_date(v)? as i32,
-                _ => return Err(LatticeError::FormulaError(
-                    "WORKDAY.INTL: start must be a value".into(),
-                )),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "WORKDAY.INTL: start must be a value".into(),
+                    ));
+                }
             };
             let days = match &args[1] {
                 FuncArg::Value(v) => coerce_to_number(v)? as i32,
-                _ => return Err(LatticeError::FormulaError(
-                    "WORKDAY.INTL: days must be a value".into(),
-                )),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "WORKDAY.INTL: days must be a value".into(),
+                    ));
+                }
             };
             let weekend_days = if args.len() > 2 {
                 match &args[2] {
@@ -2867,10 +2853,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             // DATEVALUE(date_text) — return a serial date number (simplified)
             let a = require_args(&args, 1, "DATEVALUE")?;
             let s = coerce_to_string(&a[0]);
-            let parts: Vec<i32> = s
-                .split(|c: char| c == '-' || c == '/')
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let parts: Vec<i32> = s.split(['-', '/']).filter_map(|p| p.parse().ok()).collect();
             if parts.len() < 3 {
                 return Ok(CellValue::Error(CellError::Value));
             }
@@ -2987,7 +2970,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 CellValue::Error(_) => 16.0,
                 CellValue::Empty => 1.0,     // Empty is treated as number 0
                 CellValue::Date(_) => 1.0,   // Dates are numbers internally
-                CellValue::Array(_) => 64.0,      // Array type
+                CellValue::Array(_) => 64.0, // Array type
                 CellValue::Lambda { .. } => 128.0, // Lambda type
             };
             Ok(CellValue::Number(type_num))
@@ -3298,21 +3281,27 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 FuncArg::Range(s, e) => resolve_range_numbers(s, e, ctx.sheet)?,
                 FuncArg::SheetRange(sh, s, e) => {
                     let vals = resolve_cross_sheet_range_values(sh, s, e, ctx)?;
-                    vals.iter().filter_map(|v| match v {
-                        CellValue::Number(n) => Some(*n),
-                        _ => None,
-                    }).collect()
+                    vals.iter()
+                        .filter_map(|v| match v {
+                            CellValue::Number(n) => Some(*n),
+                            _ => None,
+                        })
+                        .collect()
                 }
                 FuncArg::Value(v) => vec![coerce_to_number(v)?],
             };
             let dates: Vec<f64> = match &args[2] {
                 FuncArg::Range(s, e) => {
                     let vals = resolve_range_values(s, e, ctx.sheet)?;
-                    vals.iter().map(|v| coerce_to_serial_date(v)).collect::<Result<Vec<f64>>>()?
+                    vals.iter()
+                        .map(coerce_to_serial_date)
+                        .collect::<Result<Vec<f64>>>()?
                 }
                 FuncArg::SheetRange(sh, s, e) => {
                     let vals = resolve_cross_sheet_range_values(sh, s, e, ctx)?;
-                    vals.iter().map(|v| coerce_to_serial_date(v)).collect::<Result<Vec<f64>>>()?
+                    vals.iter()
+                        .map(coerce_to_serial_date)
+                        .collect::<Result<Vec<f64>>>()?
                 }
                 FuncArg::Value(v) => vec![coerce_to_serial_date(v)?],
             };
@@ -3340,21 +3329,27 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 FuncArg::Range(s, e) => resolve_range_numbers(s, e, ctx.sheet)?,
                 FuncArg::SheetRange(sh, s, e) => {
                     let vals = resolve_cross_sheet_range_values(sh, s, e, ctx)?;
-                    vals.iter().filter_map(|v| match v {
-                        CellValue::Number(n) => Some(*n),
-                        _ => None,
-                    }).collect()
+                    vals.iter()
+                        .filter_map(|v| match v {
+                            CellValue::Number(n) => Some(*n),
+                            _ => None,
+                        })
+                        .collect()
                 }
                 FuncArg::Value(v) => vec![coerce_to_number(v)?],
             };
             let dates: Vec<f64> = match &args[1] {
                 FuncArg::Range(s, e) => {
                     let vals = resolve_range_values(s, e, ctx.sheet)?;
-                    vals.iter().map(|v| coerce_to_serial_date(v)).collect::<Result<Vec<f64>>>()?
+                    vals.iter()
+                        .map(coerce_to_serial_date)
+                        .collect::<Result<Vec<f64>>>()?
                 }
                 FuncArg::SheetRange(sh, s, e) => {
                     let vals = resolve_cross_sheet_range_values(sh, s, e, ctx)?;
-                    vals.iter().map(|v| coerce_to_serial_date(v)).collect::<Result<Vec<f64>>>()?
+                    vals.iter()
+                        .map(coerce_to_serial_date)
+                        .collect::<Result<Vec<f64>>>()?
                 }
                 FuncArg::Value(v) => vec![coerce_to_serial_date(v)?],
             };
@@ -3577,7 +3572,8 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 let type_adj = if pmt_type != 0 { 1.0 + rate } else { 1.0 };
                 let f_val = pv * factor + pmt * annuity * type_adj + fv;
                 let df_val = pv * nper * (1.0_f64 + rate).powf(nper - 1.0)
-                    + pmt * type_adj
+                    + pmt
+                        * type_adj
                         * (nper * (1.0_f64 + rate).powf(nper - 1.0) * rate - (factor - 1.0))
                         / (rate * rate)
                     + if pmt_type != 0 { pmt * annuity } else { 0.0 };
@@ -3723,42 +3719,42 @@ fn matches_criteria(cell_val: &CellValue, criteria: &CellValue) -> bool {
     let criteria_str = coerce_to_string(criteria);
     // Check for operator prefix
     if let Some(rest) = criteria_str.strip_prefix(">=") {
-        if let Ok(threshold) = rest.trim().parse::<f64>() {
-            if let Ok(n) = try_as_number(cell_val) {
-                return n >= threshold;
-            }
+        if let Ok(threshold) = rest.trim().parse::<f64>()
+            && let Ok(n) = try_as_number(cell_val)
+        {
+            return n >= threshold;
         }
         return false;
     }
     if let Some(rest) = criteria_str.strip_prefix("<=") {
-        if let Ok(threshold) = rest.trim().parse::<f64>() {
-            if let Ok(n) = try_as_number(cell_val) {
-                return n <= threshold;
-            }
+        if let Ok(threshold) = rest.trim().parse::<f64>()
+            && let Ok(n) = try_as_number(cell_val)
+        {
+            return n <= threshold;
         }
         return false;
     }
     if let Some(rest) = criteria_str.strip_prefix("<>") {
-        if let Ok(threshold) = rest.trim().parse::<f64>() {
-            if let Ok(n) = try_as_number(cell_val) {
-                return (n - threshold).abs() >= f64::EPSILON;
-            }
+        if let Ok(threshold) = rest.trim().parse::<f64>()
+            && let Ok(n) = try_as_number(cell_val)
+        {
+            return (n - threshold).abs() >= f64::EPSILON;
         }
         return !compare_values(cell_val, &CellValue::Text(rest.to_string()), "=");
     }
     if let Some(rest) = criteria_str.strip_prefix('>') {
-        if let Ok(threshold) = rest.trim().parse::<f64>() {
-            if let Ok(n) = try_as_number(cell_val) {
-                return n > threshold;
-            }
+        if let Ok(threshold) = rest.trim().parse::<f64>()
+            && let Ok(n) = try_as_number(cell_val)
+        {
+            return n > threshold;
         }
         return false;
     }
     if let Some(rest) = criteria_str.strip_prefix('<') {
-        if let Ok(threshold) = rest.trim().parse::<f64>() {
-            if let Ok(n) = try_as_number(cell_val) {
-                return n < threshold;
-            }
+        if let Ok(threshold) = rest.trim().parse::<f64>()
+            && let Ok(n) = try_as_number(cell_val)
+        {
+            return n < threshold;
         }
         return false;
     }
@@ -3801,11 +3797,10 @@ fn date_to_serial(year: i32, month: u32, day: u32) -> i32 {
         yr * 365 + yr / 4 - yr / 100 + yr / 400
     };
     let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let is_leap =
-        (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let is_leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     let mut day_of_year: i64 = 0;
-    for i in 0..(m - 1) as usize {
-        day_of_year += month_days[i];
+    for (i, &md) in month_days.iter().enumerate().take((m - 1) as usize) {
+        day_of_year += md;
         if i == 1 && is_leap {
             day_of_year += 1;
         }
@@ -3846,7 +3841,7 @@ fn serial_to_date(serial: i32) -> (i32, u32, u32) {
     let base = days_to_year(1900); // days before year 1900
     let abs_days = base + 1 + s; // +1 because Jan 1 is day 1 of year
     // Estimate year
-    let mut y = (abs_days * 400 / 146097) as i64;
+    let mut y = abs_days * 400 / 146097;
     loop {
         let start = days_to_year(y + 1);
         if start >= abs_days {
@@ -3854,12 +3849,12 @@ fn serial_to_date(serial: i32) -> (i32, u32, u32) {
         }
         y += 1;
     }
-    let mut remaining = abs_days - days_to_year(y) ;
+    let mut remaining = abs_days - days_to_year(y);
     let is_leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
     let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut m = 0usize;
-    for i in 0..12 {
-        let mut md = month_days[i];
+    for (i, &month_day) in month_days.iter().enumerate() {
+        let mut md = month_day;
         if i == 1 && is_leap {
             md += 1;
         }
@@ -3883,10 +3878,7 @@ fn coerce_to_serial_date(val: &CellValue) -> Result<f64> {
     match val {
         CellValue::Number(n) => Ok(*n),
         CellValue::Text(s) => {
-            let parts: Vec<i32> = s
-                .split(|c: char| c == '-' || c == '/')
-                .filter_map(|p| p.parse().ok())
-                .collect();
+            let parts: Vec<i32> = s.split(['-', '/']).filter_map(|p| p.parse().ok()).collect();
             if parts.len() >= 3 {
                 Ok(date_to_serial(parts[0], parts[1] as u32, parts[2] as u32) as f64)
             } else {
@@ -3895,9 +3887,7 @@ fn coerce_to_serial_date(val: &CellValue) -> Result<f64> {
                 )))
             }
         }
-        _ => Err(LatticeError::FormulaError(
-            "expected a date value".into(),
-        )),
+        _ => Err(LatticeError::FormulaError("expected a date value".into())),
     }
 }
 
@@ -3966,20 +3956,20 @@ fn parse_weekend_spec(val: &CellValue) -> Result<Vec<u32>> {
     // Try as a numeric code
     if let Ok(code) = s.parse::<i32>() {
         let days = match code {
-            1 => vec![7, 1],  // Sat, Sun
-            2 => vec![1, 2],  // Sun, Mon
-            3 => vec![2, 3],  // Mon, Tue
-            4 => vec![3, 4],  // Tue, Wed
-            5 => vec![4, 5],  // Wed, Thu
-            6 => vec![5, 6],  // Thu, Fri
-            7 => vec![6, 7],  // Fri, Sat
-            11 => vec![1],    // Sun only
-            12 => vec![2],    // Mon only
-            13 => vec![3],    // Tue only
-            14 => vec![4],    // Wed only
-            15 => vec![5],    // Thu only
-            16 => vec![6],    // Fri only
-            17 => vec![7],    // Sat only
+            1 => vec![7, 1], // Sat, Sun
+            2 => vec![1, 2], // Sun, Mon
+            3 => vec![2, 3], // Mon, Tue
+            4 => vec![3, 4], // Tue, Wed
+            5 => vec![4, 5], // Wed, Thu
+            6 => vec![5, 6], // Thu, Fri
+            7 => vec![6, 7], // Fri, Sat
+            11 => vec![1],   // Sun only
+            12 => vec![2],   // Mon only
+            13 => vec![3],   // Tue only
+            14 => vec![4],   // Wed only
+            15 => vec![5],   // Thu only
+            16 => vec![6],   // Fri only
+            17 => vec![7],   // Sat only
             _ => {
                 return Err(LatticeError::FormulaError(format!(
                     "invalid weekend code: {code}"
@@ -4406,10 +4396,7 @@ mod tests {
         let mut sheet = Sheet::new("T");
         sheet.set_value(0, 0, CellValue::Text("abc".to_string()));
         // A1 + 1 where A1 is text should trigger an error that IFERROR catches
-        assert_eq!(
-            eval("IFERROR(A1 + 1, 0)", &sheet),
-            CellValue::Number(0.0)
-        );
+        assert_eq!(eval("IFERROR(A1 + 1, 0)", &sheet), CellValue::Number(0.0));
     }
 
     #[test]
@@ -4495,10 +4482,7 @@ mod tests {
     fn test_sumproduct_single_range() {
         // SUMPRODUCT with a single range just sums the values
         let sheet = make_sheet_with_column(&[1.0, 2.0, 3.0]);
-        assert_eq!(
-            eval("SUMPRODUCT(A1:A3)", &sheet),
-            CellValue::Number(6.0)
-        );
+        assert_eq!(eval("SUMPRODUCT(A1:A3)", &sheet), CellValue::Number(6.0));
     }
 
     #[test]
@@ -5613,7 +5597,11 @@ mod tests {
         for (y, m, d) in test_dates {
             let serial = date_to_serial(y, m, d);
             let (ry, rm, rd) = serial_to_date(serial);
-            assert_eq!((ry, rm, rd), (y, m, d), "roundtrip failed for {y}-{m}-{d} (serial {serial})");
+            assert_eq!(
+                (ry, rm, rd),
+                (y, m, d),
+                "roundtrip failed for {y}-{m}-{d} (serial {serial})"
+            );
         }
     }
 
@@ -5646,7 +5634,10 @@ mod tests {
         if let CellValue::Number(n) = result {
             // With 9% discount rate, the NPV should be positive (profitable)
             assert!(n > 0.0, "XNPV should be positive, got {n}");
-            assert!(n < 10000.0, "XNPV should be less than sum of undiscounted values");
+            assert!(
+                n < 10000.0,
+                "XNPV should be less than sum of undiscounted values"
+            );
         } else {
             panic!("expected Number from XNPV, got {:?}", result);
         }
@@ -5700,7 +5691,10 @@ mod tests {
         let result = eval("RATE(60, -1000, 50000)", &sheet);
         if let CellValue::Number(r) = result {
             // Monthly rate should be around 0.6-0.8%
-            assert!(r > 0.005 && r < 0.01, "RATE result {r} not in expected range");
+            assert!(
+                r > 0.005 && r < 0.01,
+                "RATE result {r} not in expected range"
+            );
         } else {
             panic!("expected Number from RATE, got {:?}", result);
         }
@@ -5841,10 +5835,7 @@ mod tests {
         // Weekend string "1000001" = Mon and Sun are weekends
         let s = date_to_serial(2024, 1, 1) as f64; // Monday
         let e = date_to_serial(2024, 1, 7) as f64; // Sunday
-        let result = eval(
-            &format!("NETWORKDAYS.INTL({s}, {e}, \"1000001\")"),
-            &sheet,
-        );
+        let result = eval(&format!("NETWORKDAYS.INTL({s}, {e}, \"1000001\")"), &sheet);
         // Mon(wknd), Tue, Wed, Thu, Fri, Sat, Sun(wknd) = 5
         assert_eq!(result, CellValue::Number(5.0));
     }
@@ -6017,10 +6008,7 @@ mod tests {
     fn test_let_simple() {
         // LET(x, 10, x + 5) = 15
         let sheet = Sheet::new("T");
-        assert_eq!(
-            eval("LET(x, 10, x + 5)", &sheet),
-            CellValue::Number(15.0)
-        );
+        assert_eq!(eval("LET(x, 10, x + 5)", &sheet), CellValue::Number(15.0));
     }
 
     #[test]

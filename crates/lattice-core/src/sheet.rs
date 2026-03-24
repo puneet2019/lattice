@@ -293,11 +293,14 @@ impl Sheet {
             // This cell is a spill target; scan for the anchor
             let mut found_range = None;
             for ((_r, _c), c) in &self.cells {
-                if let Some(rng) = c.array_formula_range {
-                    if row >= rng.0 && row <= rng.2 && col >= rng.1 && col <= rng.3 {
-                        found_range = Some(rng);
-                        break;
-                    }
+                if let Some(rng) = c.array_formula_range
+                    && row >= rng.0
+                    && row <= rng.2
+                    && col >= rng.1
+                    && col <= rng.3
+                {
+                    found_range = Some(rng);
+                    break;
                 }
             }
             match found_range {
@@ -700,7 +703,7 @@ impl Sheet {
 
     /// Returns `true` if the sheet is currently protected.
     pub fn is_protected(&self) -> bool {
-        self.protection.as_ref().map_or(false, |p| p.is_protected)
+        self.protection.as_ref().is_some_and(|p| p.is_protected)
     }
 
     // ----- Protected Ranges -----
@@ -1062,12 +1065,10 @@ impl Sheet {
         // Check for overlaps with existing groups
         for g in &self.row_groups {
             if start <= g.end && end >= g.start {
-                return Err(LatticeError::InvalidRange(
-                    format!(
-                        "Row group {}..={} overlaps existing group {}..={}",
-                        start, end, g.start, g.end
-                    ),
-                ));
+                return Err(LatticeError::InvalidRange(format!(
+                    "Row group {}..={} overlaps existing group {}..={}",
+                    start, end, g.start, g.end
+                )));
             }
         }
         self.row_groups.push(RowGroup {
@@ -1142,12 +1143,10 @@ impl Sheet {
         }
         for g in &self.col_groups {
             if start <= g.end && end >= g.start {
-                return Err(LatticeError::InvalidRange(
-                    format!(
-                        "Column group {}..={} overlaps existing group {}..={}",
-                        start, end, g.start, g.end
-                    ),
-                ));
+                return Err(LatticeError::InvalidRange(format!(
+                    "Column group {}..={} overlaps existing group {}..={}",
+                    start, end, g.start, g.end
+                )));
             }
         }
         self.col_groups.push(RowGroup {
@@ -1240,6 +1239,7 @@ fn simple_hash(password: &str) -> String {
 }
 
 /// Check if two rectangular regions overlap.
+#[allow(clippy::too_many_arguments)]
 fn regions_overlap(
     r1_sr: u32,
     r1_sc: u32,

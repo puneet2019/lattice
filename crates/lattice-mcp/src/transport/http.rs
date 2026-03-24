@@ -167,14 +167,9 @@ async fn handle_get_sse(sse_tx: Arc<broadcast::Sender<String>>) -> Response<Full
     events.push_str("data: {\"status\":\"connected\"}\n\n");
 
     // Drain any pending messages (non-blocking).
-    loop {
-        match rx.try_recv() {
-            Ok(msg) => {
-                events.push_str("event: notification\n");
-                events.push_str(&format!("data: {}\n\n", msg));
-            }
-            Err(_) => break,
-        }
+    while let Ok(msg) = rx.try_recv() {
+        events.push_str("event: notification\n");
+        events.push_str(&format!("data: {}\n\n", msg));
     }
 
     Response::builder()

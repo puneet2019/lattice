@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use rust_xlsxwriter::{Color, Format, FormatBorder, FormatUnderline, Note, Workbook as XlsxWorkbook};
+use rust_xlsxwriter::{
+    Color, Format, FormatBorder, FormatUnderline, Note, Workbook as XlsxWorkbook,
+};
 
 use lattice_core::{CellValue, Workbook};
 
@@ -173,10 +175,10 @@ fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
         }
 
         // Write sheet tab color.
-        if let Some(ref color_str) = sheet.tab_color {
-            if let Some(color_val) = parse_hex_color(color_str) {
-                worksheet.set_tab_color(Color::RGB(color_val));
-            }
+        if let Some(ref color_str) = sheet.tab_color
+            && let Some(color_val) = parse_hex_color(color_str)
+        {
+            worksheet.set_tab_color(Color::RGB(color_val));
         }
     }
 
@@ -204,10 +206,10 @@ fn cell_format_to_xlsx_format(cf: &lattice_core::CellFormat) -> Format {
     fmt = fmt.set_font_name(&cf.font_family);
 
     // Parse hex color for font. rust_xlsxwriter uses u32 colors.
-    if let Some(ref fc) = cf.font_color {
-        if let Some(color) = parse_hex_color(fc) {
-            fmt = fmt.set_font_color(color);
-        }
+    if let Some(ref fc) = cf.font_color
+        && let Some(color) = parse_hex_color(fc)
+    {
+        fmt = fmt.set_font_color(color);
     }
 
     if let Some(ref bg) = cf.bg_color
@@ -588,8 +590,7 @@ mod tests {
         write_xlsx(&wb, &path).unwrap();
 
         // Read back and verify the merge region via calamine.
-        let mut excel: calamine::Xlsx<_> =
-            calamine::open_workbook(&path).unwrap();
+        let mut excel: calamine::Xlsx<_> = calamine::open_workbook(&path).unwrap();
         let merges = excel.worksheet_merge_cells("Sheet1").unwrap().unwrap();
         assert_eq!(merges.len(), 1);
         assert_eq!(merges[0].start, (0, 0));

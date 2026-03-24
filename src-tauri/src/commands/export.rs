@@ -2,7 +2,7 @@ use std::path::Path;
 
 use tauri::State;
 
-use lattice_io::{export_print_html, write_csv, write_tsv, PrintSettings};
+use lattice_io::{PrintSettings, export_print_html, write_csv, write_tsv};
 
 use crate::state::AppState;
 
@@ -47,6 +47,7 @@ pub async fn export_tsv(
 /// Returns the HTML string which can be opened in a browser and printed to PDF.
 /// If `sheet` is empty, defaults to the active sheet.
 /// Accepts optional print settings to customize paper size, orientation, etc.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn export_html(
     state: State<'_, AppState>,

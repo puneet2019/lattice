@@ -63,18 +63,18 @@ impl ICloudProvider {
             let path = entry.path();
 
             // Skip hidden files and directories (e.g. .Trash, .DS_Store).
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with('.') {
-                    continue;
-                }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.starts_with('.')
+            {
+                continue;
             }
 
             if path.is_dir() {
                 self.scan_dir(&path, results)?;
-            } else if is_spreadsheet(&path) {
-                if let Some(cf) = self.path_to_cloud_file(&path)? {
-                    results.push(cf);
-                }
+            } else if is_spreadsheet(&path)
+                && let Some(cf) = self.path_to_cloud_file(&path)?
+            {
+                results.push(cf);
             }
         }
 
@@ -181,8 +181,7 @@ impl CloudProvider for ICloudProvider {
         crate::atomic::save_atomic(&dest, &fs::read(local_path)?)?;
 
         self.path_to_cloud_file(&dest)?.ok_or_else(|| {
-            IoError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            IoError::Io(std::io::Error::other(
                 "failed to read back uploaded file metadata",
             ))
         })

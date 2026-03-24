@@ -7,8 +7,8 @@
 
 use crate::chart::{ChartData, ChartOptions};
 use crate::svg::{
-    Margins, compute_axis_scale, format_axis_value,
-    svg_axis_labels, svg_close, svg_open, svg_text, svg_title, xml_escape,
+    Margins, compute_axis_scale, format_axis_value, svg_axis_labels, svg_close, svg_open, svg_text,
+    svg_title, xml_escape,
 };
 
 /// Default color for positive (increase) bars.
@@ -71,7 +71,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
     all_vals.push(0.0);
     let dmin = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
     let dmax = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let (dmin, dmax) = if dmin > dmax { (0.0, 1.0) } else { (dmin.min(0.0), dmax.max(0.0)) };
+    let (dmin, dmax) = if dmin > dmax {
+        (0.0, 1.0)
+    } else {
+        (dmin.min(0.0), dmax.max(0.0))
+    };
     let scale = compute_axis_scale(dmin, dmax);
     let y_range = scale.max - scale.min;
 
@@ -167,7 +171,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
 
         // Data label
         if options.show_data_labels {
-            let label_y = if v >= 0.0 { bar_y - 4.0 } else { bar_y + bar_h + 12.0 };
+            let label_y = if v >= 0.0 {
+                bar_y - 4.0
+            } else {
+                bar_y + bar_h + 12.0
+            };
             svg.push_str(&svg_text(
                 bar_x + bar_width / 2.0,
                 label_y,
@@ -338,11 +346,7 @@ mod tests {
     #[test]
     fn test_waterfall_custom_palette() {
         let opts = ChartOptions {
-            color_palette: Some(vec![
-                "#00ff00".into(),
-                "#ff0000".into(),
-                "#0000ff".into(),
-            ]),
+            color_palette: Some(vec!["#00ff00".into(), "#ff0000".into(), "#0000ff".into()]),
             ..ChartOptions::default()
         };
         let svg = render(&sample_data(), &opts);

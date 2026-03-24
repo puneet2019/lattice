@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{
-    ComparisonOperator, ConditionalRule, ConditionalRuleType, ConditionalStyle,
-};
+use lattice_core::{ComparisonOperator, ConditionalRule, ConditionalRuleType, ConditionalStyle};
 
 use crate::state::AppState;
 
@@ -86,6 +84,7 @@ pub struct ConditionalFormatOutput {
 }
 
 /// Add a conditional formatting rule to a range.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn add_conditional_format(
     state: State<'_, AppState>,
@@ -183,11 +182,13 @@ fn parse_rule(input: RuleTypeInput, style_input: StyleInput) -> Result<Condition
             max_length_percent: 100,
         },
         "icon_set" => ConditionalRuleType::IconSet {
-            icons: input.icons.unwrap_or_else(|| vec![
-                "\u{2191}".to_string(),
-                "\u{2192}".to_string(),
-                "\u{2193}".to_string(),
-            ]),
+            icons: input.icons.unwrap_or_else(|| {
+                vec![
+                    "\u{2191}".to_string(),
+                    "\u{2192}".to_string(),
+                    "\u{2193}".to_string(),
+                ]
+            }),
             thresholds: input.thresholds.unwrap_or_else(|| vec![67.0, 33.0]),
         },
         _ => return Err(format!("Unknown rule kind: {}", input.kind)),
@@ -210,7 +211,11 @@ fn parse_rule(input: RuleTypeInput, style_input: StyleInput) -> Result<Condition
 
 fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
     let (kind, description, operator, value1, value2, text) = match &rule.rule_type {
-        ConditionalRuleType::CellValue { operator, value1, value2 } => {
+        ConditionalRuleType::CellValue {
+            operator,
+            value1,
+            value2,
+        } => {
             let op_str = match operator {
                 ComparisonOperator::GreaterThan => ">",
                 ComparisonOperator::LessThan => "<",
@@ -226,15 +231,52 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
             } else {
                 format!("Cell value {} {}", op_str, value1)
             };
-            ("cell_value".to_string(), desc, Some(op_str.to_string()), Some(*value1), *value2, None)
+            (
+                "cell_value".to_string(),
+                desc,
+                Some(op_str.to_string()),
+                Some(*value1),
+                *value2,
+                None,
+            )
         }
-        ConditionalRuleType::TextContains(t) => {
-            ("text_contains".to_string(), format!("Text contains \"{}\"", t), None, None, None, Some(t.clone()))
-        }
-        ConditionalRuleType::IsBlank => ("is_blank".to_string(), "Cell is blank".to_string(), None, None, None, None),
-        ConditionalRuleType::IsNotBlank => ("is_not_blank".to_string(), "Cell is not blank".to_string(), None, None, None, None),
-        ConditionalRuleType::IsError => ("is_error".to_string(), "Cell is error".to_string(), None, None, None, None),
-        ConditionalRuleType::ColorScale { min_color, max_color, mid_color } => {
+        ConditionalRuleType::TextContains(t) => (
+            "text_contains".to_string(),
+            format!("Text contains \"{}\"", t),
+            None,
+            None,
+            None,
+            Some(t.clone()),
+        ),
+        ConditionalRuleType::IsBlank => (
+            "is_blank".to_string(),
+            "Cell is blank".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
+        ConditionalRuleType::IsNotBlank => (
+            "is_not_blank".to_string(),
+            "Cell is not blank".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
+        ConditionalRuleType::IsError => (
+            "is_error".to_string(),
+            "Cell is error".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
+        ConditionalRuleType::ColorScale {
+            min_color,
+            max_color,
+            mid_color,
+        } => {
             return RuleOutput {
                 kind: "color_scale".to_string(),
                 description: format!("Color scale: {} to {}", min_color, max_color),
@@ -294,7 +336,14 @@ fn rule_to_output(rule: &ConditionalRule) -> RuleOutput {
                 thresholds: Some(thresholds.clone()),
             };
         }
-        _ => ("other".to_string(), "Custom rule".to_string(), None, None, None, None),
+        _ => (
+            "other".to_string(),
+            "Custom rule".to_string(),
+            None,
+            None,
+            None,
+            None,
+        ),
     };
 
     RuleOutput {

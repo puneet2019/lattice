@@ -139,8 +139,8 @@ pub fn handle_apply_filter_view(workbook: &mut Workbook, args: Value) -> Result<
         .get_sheet_mut(&args.sheet)
         .map_err(|e| e.to_string())?;
 
-    let hidden = lattice_core::filter_view::apply_filter_view(sheet, &view)
-        .map_err(|e| e.to_string())?;
+    let hidden =
+        lattice_core::filter_view::apply_filter_view(sheet, &view).map_err(|e| e.to_string())?;
 
     Ok(json!({
         "success": true,
@@ -194,9 +194,12 @@ mod tests {
     #[test]
     fn test_apply_filter_view() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Name".into())).unwrap();
-        wb.set_cell("Sheet1", 1, 0, CellValue::Text("apple".into())).unwrap();
-        wb.set_cell("Sheet1", 2, 0, CellValue::Text("banana".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("Name".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 1, 0, CellValue::Text("apple".into()))
+            .unwrap();
+        wb.set_cell("Sheet1", 2, 0, CellValue::Text("banana".into()))
+            .unwrap();
 
         handle_save_filter_view(
             &mut wb,
@@ -204,22 +207,16 @@ mod tests {
         )
         .unwrap();
 
-        let result = handle_apply_filter_view(
-            &mut wb,
-            json!({"sheet": "Sheet1", "name": "Apples"}),
-        )
-        .unwrap();
+        let result =
+            handle_apply_filter_view(&mut wb, json!({"sheet": "Sheet1", "name": "Apples"}))
+                .unwrap();
         assert_eq!(result["rows_hidden"], 1);
     }
 
     #[test]
     fn test_delete_filter_view() {
         let mut wb = Workbook::new();
-        handle_save_filter_view(
-            &mut wb,
-            json!({"name": "Test", "column_filters": {}}),
-        )
-        .unwrap();
+        handle_save_filter_view(&mut wb, json!({"name": "Test", "column_filters": {}})).unwrap();
 
         let result = handle_delete_filter_view(&mut wb, json!({"name": "Test"})).unwrap();
         assert_eq!(result["success"], true);

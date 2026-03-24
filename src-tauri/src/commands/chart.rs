@@ -243,13 +243,13 @@ pub async fn update_chart(
     };
 
     // Update stacked flag if chart type was changed.
-    if let Some(stacked) = new_stacked {
-        if let Ok(mut map) = state.chart_stacked.lock() {
-            if stacked {
-                map.insert(chart_id, true);
-            } else {
-                map.remove(&chart_id);
-            }
+    if let Some(stacked) = new_stacked
+        && let Ok(mut map) = state.chart_stacked.lock()
+    {
+        if stacked {
+            map.insert(chart_id, true);
+        } else {
+            map.remove(&chart_id);
         }
     }
 

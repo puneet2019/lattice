@@ -12,7 +12,7 @@ pub mod gauge;
 pub mod histogram;
 pub mod line;
 pub mod pie;
-pub mod scatter;
 pub mod radar;
+pub mod scatter;
 pub mod treemap;
 pub mod waterfall;

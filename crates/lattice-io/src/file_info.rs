@@ -46,9 +46,9 @@ pub fn get_file_info(path: &Path, workbook: &Workbook) -> Result<FileInfo> {
 
     let metadata = std::fs::metadata(path)?;
 
-    let created = metadata.created().ok().and_then(|t| system_time_to_iso(t));
+    let created = metadata.created().ok().and_then(system_time_to_iso);
 
-    let modified = metadata.modified().ok().and_then(|t| system_time_to_iso(t));
+    let modified = metadata.modified().ok().and_then(system_time_to_iso);
 
     let format = detect_format(path)
         .map(|f| f.to_string())

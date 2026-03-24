@@ -5,9 +5,7 @@
 //! axis labels at each spoke end.
 
 use crate::chart::{ChartData, ChartOptions};
-use crate::svg::{
-    palette_color, svg_close, svg_open, svg_text, svg_title, xml_escape,
-};
+use crate::svg::{palette_color, svg_close, svg_open, svg_text, svg_title, xml_escape};
 use std::f64::consts::PI;
 
 /// Number of concentric grid circles.
@@ -34,7 +32,11 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
 
     // Chart center and radius
     let title_offset = if options.title.is_some() { 30.0 } else { 0.0 };
-    let subtitle_offset = if options.subtitle.is_some() { 18.0 } else { 0.0 };
+    let subtitle_offset = if options.subtitle.is_some() {
+        18.0
+    } else {
+        0.0
+    };
     let legend_margin = if options.show_legend && data.series.len() > 1 {
         100.0
     } else {

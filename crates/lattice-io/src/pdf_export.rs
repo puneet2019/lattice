@@ -36,11 +36,21 @@ pub struct PrintSettings {
     pub custom_margins: Option<[f64; 4]>,
 }
 
-fn default_paper_size() -> String { "letter".to_string() }
-fn default_orientation() -> String { "portrait".to_string() }
-fn default_true() -> bool { true }
-fn default_scale() -> f64 { 1.0 }
-fn default_margins() -> String { "normal".to_string() }
+fn default_paper_size() -> String {
+    "letter".to_string()
+}
+fn default_orientation() -> String {
+    "portrait".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_scale() -> f64 {
+    1.0
+}
+fn default_margins() -> String {
+    "normal".to_string()
+}
 
 impl Default for PrintSettings {
     fn default() -> Self {
@@ -566,7 +576,8 @@ mod tests {
     #[test]
     fn test_export_with_headers() {
         let mut wb = Workbook::new();
-        wb.set_cell("Sheet1", 0, 0, CellValue::Text("val".into())).unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Text("val".into()))
+            .unwrap();
         let settings = PrintSettings {
             show_headers: true,
             ..PrintSettings::default()

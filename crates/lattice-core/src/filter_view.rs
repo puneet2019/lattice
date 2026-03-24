@@ -43,7 +43,11 @@ impl FilterViewStore {
     ///
     /// Returns an error if a view with the same name already exists
     /// (case-insensitive).
-    pub fn add(&mut self, name: impl Into<String>, column_filters: HashMap<u32, Vec<String>>) -> Result<()> {
+    pub fn add(
+        &mut self,
+        name: impl Into<String>,
+        column_filters: HashMap<u32, Vec<String>>,
+    ) -> Result<()> {
         let name = name.into();
         if name.is_empty() {
             return Err(LatticeError::Internal(
@@ -146,7 +150,9 @@ pub fn apply_filter_view(sheet: &mut Sheet, view: &FilterView) -> Result<u32> {
             let matches = if is_blank {
                 allow_blanks
             } else {
-                allowed_lower.iter().any(|v| v != "(blanks)" && *v == cell_text)
+                allowed_lower
+                    .iter()
+                    .any(|v| v != "(blanks)" && *v == cell_text)
             };
 
             if !matches {
@@ -267,7 +273,7 @@ mod tests {
         assert_eq!(hidden, 1); // banana hidden
         assert!(!sheet.is_row_hidden(0)); // header never hidden
         assert!(!sheet.is_row_hidden(1)); // apple visible
-        assert!(sheet.is_row_hidden(2));  // banana hidden
+        assert!(sheet.is_row_hidden(2)); // banana hidden
         assert!(!sheet.is_row_hidden(3)); // apple visible
     }
 
@@ -299,7 +305,10 @@ mod tests {
         assert!(sheet.is_row_hidden(2));
 
         // Applying empty filter should unhide all rows
-        let show_all = FilterView { name: "All".into(), column_filters: HashMap::new() };
+        let show_all = FilterView {
+            name: "All".into(),
+            column_filters: HashMap::new(),
+        };
         apply_filter_view(&mut sheet, &show_all).unwrap();
         assert!(!sheet.is_row_hidden(2));
         assert!(!sheet.is_row_hidden(3));
@@ -327,7 +336,9 @@ mod tests {
 
         // Store.apply
         let mut store = FilterViewStore::new();
-        store.add("BlanksOnly", view.column_filters.clone()).unwrap();
+        store
+            .add("BlanksOnly", view.column_filters.clone())
+            .unwrap();
         let hidden = store.apply(&mut sheet, "BlanksOnly").unwrap();
         assert_eq!(hidden, 2);
 
@@ -342,7 +353,11 @@ mod tests {
         let mut sheet = Sheet::new("Test");
         let view = FilterView {
             name: "E".into(),
-            column_filters: { let mut m = HashMap::new(); m.insert(0, vec!["x".into()]); m },
+            column_filters: {
+                let mut m = HashMap::new();
+                m.insert(0, vec!["x".into()]);
+                m
+            },
         };
         assert_eq!(apply_filter_view(&mut sheet, &view).unwrap(), 0);
 
@@ -353,7 +368,11 @@ mod tests {
         sheet2.set_value(2, 0, CellValue::Text("BANANA".into()));
         let view2 = FilterView {
             name: "C".into(),
-            column_filters: { let mut m = HashMap::new(); m.insert(0, vec!["apple".into()]); m },
+            column_filters: {
+                let mut m = HashMap::new();
+                m.insert(0, vec!["apple".into()]);
+                m
+            },
         };
         assert_eq!(apply_filter_view(&mut sheet2, &view2).unwrap(), 1);
         assert!(!sheet2.is_row_hidden(1));
@@ -366,7 +385,11 @@ mod tests {
         sheet3.set_value(2, 0, CellValue::Number(200.0));
         let view3 = FilterView {
             name: "N".into(),
-            column_filters: { let mut m = HashMap::new(); m.insert(0, vec!["100".into()]); m },
+            column_filters: {
+                let mut m = HashMap::new();
+                m.insert(0, vec!["100".into()]);
+                m
+            },
         };
         assert_eq!(apply_filter_view(&mut sheet3, &view3).unwrap(), 1);
         assert!(!sheet3.is_row_hidden(1));

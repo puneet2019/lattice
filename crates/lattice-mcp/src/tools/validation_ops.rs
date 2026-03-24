@@ -259,10 +259,8 @@ pub fn handle_validate_cell(workbook: &Workbook, args: Value) -> Result<Value, S
         "rule": format_rule(rule),
     });
 
-    if !is_valid {
-        if let Some(ref msg) = rule.error_message {
-            result["error_message"] = json!(msg);
-        }
+    if !is_valid && let Some(ref msg) = rule.error_message {
+        result["error_message"] = json!(msg);
     }
 
     Ok(result)

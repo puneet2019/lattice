@@ -204,13 +204,7 @@ fn render_stacked(data: &ChartData, options: &ChartOptions) -> String {
             (0..n_points)
                 .map(|pi| {
                     let x = point_x(pi, n_points, &margins, pw);
-                    let y = value_to_y(
-                        cumulative[si - 1][pi],
-                        scale.min,
-                        y_range,
-                        &margins,
-                        ph,
-                    );
+                    let y = value_to_y(cumulative[si - 1][pi], scale.min, y_range, &margins, ph);
                     (x, y)
                 })
                 .collect()

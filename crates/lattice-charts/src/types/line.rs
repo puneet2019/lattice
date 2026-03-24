@@ -95,8 +95,7 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
         // Linear trendline (dashed)
         if series.values.len() >= 2 {
             let xs: Vec<f64> = (0..series.values.len()).map(|i| i as f64).collect();
-            if let Some((slope, intercept)) =
-                super::scatter::linear_regression(&xs, &series.values)
+            if let Some((slope, intercept)) = super::scatter::linear_regression(&xs, &series.values)
             {
                 // Evaluate trendline at x=0 and x=n-1
                 let trend_y1 = intercept;

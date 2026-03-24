@@ -5,6 +5,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// A list of cell coordinates (row, col).
+type CellCoords = Vec<(u32, u32)>;
+
 /// A dependency graph that tracks which cells depend on which other cells.
 ///
 /// When cell X contains a formula referencing cell Y, we record that X depends
@@ -72,10 +75,7 @@ impl DependencyGraph {
     /// changes, in correct topological order (leaves first, roots last).
     ///
     /// Returns `Err(vec_of_cycle_cells)` if a circular reference is detected.
-    pub fn recalc_order(
-        &self,
-        changed_cell: &(u32, u32),
-    ) -> Result<Vec<(u32, u32)>, Vec<(u32, u32)>> {
+    pub fn recalc_order(&self, changed_cell: &(u32, u32)) -> Result<CellCoords, CellCoords> {
         // Collect all transitively affected cells via BFS.
         let mut affected: HashSet<(u32, u32)> = HashSet::new();
         let mut queue: VecDeque<(u32, u32)> = VecDeque::new();
@@ -131,10 +131,10 @@ impl DependencyGraph {
             }
             // Also count the changed_cell itself as a "resolved" precedent
             // (it's already been updated).
-            if let Some(precs) = self.precedents.get(&cell) {
-                if precs.contains(changed_cell) {
-                    deg = deg.saturating_sub(1);
-                }
+            if let Some(precs) = self.precedents.get(&cell)
+                && precs.contains(changed_cell)
+            {
+                deg = deg.saturating_sub(1);
             }
             in_degree.insert(cell, deg);
         }
