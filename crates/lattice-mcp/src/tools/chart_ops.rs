@@ -226,20 +226,23 @@ pub fn handle_delete_chart(args: Value) -> Result<Value, String> {
     }
 }
 
-/// Clear all charts (used in tests to reset state).
-#[cfg(test)]
-fn clear_chart_store() {
-    CHART_STORE.lock().unwrap().clear();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Helper: create a chart and return its ID.
+    fn create_test_chart(sheet: &str, chart_type: &str, data_range: &str) -> String {
+        let result = handle_create_chart(json!({
+            "sheet": sheet,
+            "chart_type": chart_type,
+            "data_range": data_range,
+        }))
+        .unwrap();
+        result["chart_id"].as_str().unwrap().to_string()
+    }
+
     #[test]
     fn test_create_chart() {
-        clear_chart_store();
-
         let result = handle_create_chart(json!({
             "sheet": "Sheet1",
             "chart_type": "bar",
@@ -251,12 +254,14 @@ mod tests {
         assert_eq!(result["success"], true);
         assert!(result["chart_id"].is_string());
         assert_eq!(result["chart_type"], "bar");
+
+        // Cleanup: remove the chart we just created.
+        let id = result["chart_id"].as_str().unwrap();
+        let _ = handle_delete_chart(json!({"chart_id": id}));
     }
 
     #[test]
     fn test_create_chart_invalid_type() {
-        clear_chart_store();
-
         let result = handle_create_chart(json!({
             "sheet": "Sheet1",
             "chart_type": "invalid",
@@ -268,64 +273,44 @@ mod tests {
 
     #[test]
     fn test_list_charts() {
-        clear_chart_store();
+        // Create two charts with a unique sheet name to avoid interference.
+        let id1 = create_test_chart("ListTest_A", "bar", "A1:B5");
+        let id2 = create_test_chart("ListTest_B", "line", "A1:C10");
 
-        handle_create_chart(json!({
-            "sheet": "Sheet1",
-            "chart_type": "bar",
-            "data_range": "A1:B5"
-        }))
-        .unwrap();
-
-        handle_create_chart(json!({
-            "sheet": "Sheet2",
-            "chart_type": "line",
-            "data_range": "A1:C10"
-        }))
-        .unwrap();
-
-        // List all.
-        let result = handle_list_charts(json!({})).unwrap();
-        assert_eq!(result["count"], 2);
-
-        // List filtered.
-        let result = handle_list_charts(json!({"sheet": "Sheet1"})).unwrap();
+        // Filter by the unique sheet name — only our chart should match.
+        let result = handle_list_charts(json!({"sheet": "ListTest_A"})).unwrap();
         assert_eq!(result["count"], 1);
+        assert_eq!(result["charts"][0]["chart_id"], id1);
+
+        let result = handle_list_charts(json!({"sheet": "ListTest_B"})).unwrap();
+        assert_eq!(result["count"], 1);
+        assert_eq!(result["charts"][0]["chart_id"], id2);
+
+        // Cleanup.
+        let _ = handle_delete_chart(json!({"chart_id": id1}));
+        let _ = handle_delete_chart(json!({"chart_id": id2}));
     }
 
     #[test]
     fn test_delete_chart() {
-        clear_chart_store();
+        let id = create_test_chart("DeleteTest", "pie", "A1:A5");
 
-        let created = handle_create_chart(json!({
-            "sheet": "Sheet1",
-            "chart_type": "pie",
-            "data_range": "A1:A5"
-        }))
-        .unwrap();
-
-        let chart_id = created["chart_id"].as_str().unwrap();
-
-        let result = handle_delete_chart(json!({"chart_id": chart_id})).unwrap();
+        let result = handle_delete_chart(json!({"chart_id": id})).unwrap();
         assert_eq!(result["success"], true);
 
-        // Should be gone.
-        let list = handle_list_charts(json!({})).unwrap();
-        assert_eq!(list["count"], 0);
+        // Verify deletion by trying to delete again — should fail.
+        let result = handle_delete_chart(json!({"chart_id": id}));
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_delete_chart_not_found() {
-        clear_chart_store();
-
-        let result = handle_delete_chart(json!({"chart_id": "nonexistent"}));
+        let result = handle_delete_chart(json!({"chart_id": "nonexistent-fixed-id-for-test"}));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_create_chart_with_options() {
-        clear_chart_store();
-
         let result = handle_create_chart(json!({
             "sheet": "Sheet1",
             "chart_type": "scatter",
@@ -340,5 +325,9 @@ mod tests {
 
         assert_eq!(result["success"], true);
         assert_eq!(result["title"], "My Chart");
+
+        // Cleanup.
+        let id = result["chart_id"].as_str().unwrap();
+        let _ = handle_delete_chart(json!({"chart_id": id}));
     }
 }

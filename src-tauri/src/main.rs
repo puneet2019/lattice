@@ -406,6 +406,10 @@ fn main() {
             commands::data::get_row_groups,
             commands::data::remove_duplicates,
             commands::data::text_to_columns,
+            // Named function commands
+            commands::data::add_named_function,
+            commands::data::remove_named_function,
+            commands::data::list_named_functions,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,

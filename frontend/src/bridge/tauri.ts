@@ -746,8 +746,6 @@ export interface RowGroupData {
   start: number;
   end: number;
   collapsed: boolean;
-  /** Nesting depth level (0 = top level, 1 = nested inside another, etc.). */
-  level: number;
 }
 
 export async function addRowGroup(
@@ -809,6 +807,40 @@ export async function resolveNamedRange(
   name: string,
 ): Promise<NamedRangeInfo> {
   return invoke('resolve_named_range', { name });
+}
+
+// ---------------------------------------------------------------------------
+// Named function commands
+// ---------------------------------------------------------------------------
+
+/** Named function info returned from the backend. */
+export interface NamedFunctionInfo {
+  name: string;
+  params: string[];
+  body: string;
+  description: string | null;
+}
+
+export async function addNamedFunction(
+  name: string,
+  params: string[],
+  body: string,
+  description?: string,
+): Promise<void> {
+  return invoke('add_named_function', {
+    name,
+    params,
+    body,
+    description: description ?? null,
+  });
+}
+
+export async function removeNamedFunction(name: string): Promise<void> {
+  return invoke('remove_named_function', { name });
+}
+
+export async function listNamedFunctions(): Promise<NamedFunctionInfo[]> {
+  return invoke('list_named_functions');
 }
 
 // ---------------------------------------------------------------------------

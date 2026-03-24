@@ -10,6 +10,7 @@ pub mod filter_view_ops;
 pub mod find_replace_ops;
 pub mod format_ops;
 pub mod formula_ops;
+pub mod named_function_ops;
 pub mod named_range_ops;
 pub mod sheet_ops;
 pub mod sparkline_ops;
@@ -96,6 +97,11 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Named function operations
+        for tool in named_function_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         // Format operations
         for tool in format_ops::tool_definitions() {
             reg.register(tool);
@@ -148,6 +154,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(chart_ops::tool_definitions());
     all.extend(find_replace_ops::tool_definitions());
     all.extend(named_range_ops::tool_definitions());
+    all.extend(named_function_ops::tool_definitions());
     all.extend(format_ops::tool_definitions());
     all.extend(formula_ops::tool_definitions());
     all.extend(validation_ops::tool_definitions());

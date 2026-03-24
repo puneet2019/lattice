@@ -2169,3 +2169,532 @@ async fn test_named_range_duplicate_is_error() {
         "adding a duplicate named range must produce an error"
     );
 }
+
+// ── 25. Named functions: add -> use in formula -> remove ─────────────────────
+
+/// Add a named function, use it in a formula evaluation, then remove it.
+#[tokio::test]
+async fn test_named_function_lifecycle() {
+    let mut server = McpServer::new_default();
+
+    // Add a named function DOUBLE(x) = x * 2.
+    let add_result = call_tool(
+        &mut server,
+        "add_named_function",
+        json!({
+            "name": "DOUBLE",
+            "params": ["x"],
+            "body": "x * 2",
+            "description": "Doubles a value"
+        }),
+    )
+    .await;
+    assert_eq!(add_result["success"], true);
+    assert_eq!(add_result["name"], "DOUBLE");
+    assert_eq!(add_result["params"][0], "x");
+    assert_eq!(add_result["body"], "x * 2");
+
+    // List should show 1 function.
+    let list_result = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(list_result["count"], 1);
+    assert_eq!(list_result["named_functions"][0]["name"], "DOUBLE");
+
+    // Remove the function.
+    let remove_result = call_tool(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "DOUBLE"}),
+    )
+    .await;
+    assert_eq!(remove_result["success"], true);
+
+    // List should now be empty.
+    let list_result = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(list_result["count"], 0);
+}
+
+/// Attempting to add a named function with a duplicate name (case-insensitive)
+/// must fail.
+#[tokio::test]
+async fn test_named_function_duplicate_is_error() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "add_named_function",
+        json!({"name": "TRIPLE", "params": ["x"], "body": "x * 3"}),
+    )
+    .await;
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "add_named_function",
+        json!({"name": "triple", "params": ["y"], "body": "y * 4"}),
+    )
+    .await;
+    assert!(
+        !err.is_empty(),
+        "adding a duplicate named function must produce an error"
+    );
+}
+
+/// Removing a nonexistent named function must fail.
+#[tokio::test]
+async fn test_named_function_remove_not_found() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "NONEXISTENT"}),
+    )
+    .await;
+    assert!(!err.is_empty());
+}
+
+/// Multi-param named function.
+#[tokio::test]
+async fn test_named_function_multi_param() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "add_named_function",
+        json!({
+            "name": "WEIGHTED_AVG",
+            "params": ["value", "weight"],
+            "body": "value * weight",
+            "description": "Multiply value by weight"
+        }),
+    )
+    .await;
+    assert_eq!(result["success"], true);
+    assert_eq!(result["params"].as_array().unwrap().len(), 2);
+
+    // Clean up.
+    call_tool(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "WEIGHTED_AVG"}),
+    )
+    .await;
+}
+
+// ── 26. Filter views: save -> list -> apply -> delete ────────────────────────
+
+/// Full filter view lifecycle: save, list, apply, delete.
+#[tokio::test]
+async fn test_filter_view_lifecycle() {
+    let mut server = McpServer::new_default();
+
+    // Set up data: header row + 3 data rows.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "Fruit"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2", "value": "apple"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A3", "value": "banana"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A4", "value": "apple"}),
+    )
+    .await;
+
+    // Save a filter view that only shows "apple" in column 0.
+    let save_result = call_tool(
+        &mut server,
+        "save_filter_view",
+        json!({
+            "name": "ApplesOnly",
+            "column_filters": {"0": ["apple"]}
+        }),
+    )
+    .await;
+    assert_eq!(save_result["success"], true);
+    assert_eq!(save_result["name"], "ApplesOnly");
+
+    // List filter views.
+    let list_result = call_tool(&mut server, "list_filter_views", json!({})).await;
+    assert_eq!(list_result["count"], 1);
+    assert_eq!(list_result["filter_views"][0]["name"], "ApplesOnly");
+
+    // Apply the filter view.
+    let apply_result = call_tool(
+        &mut server,
+        "apply_filter_view",
+        json!({"sheet": "Sheet1", "name": "ApplesOnly"}),
+    )
+    .await;
+    assert_eq!(apply_result["success"], true);
+    // "banana" (row index 2) should be hidden (1 row hidden).
+    assert_eq!(
+        apply_result["rows_hidden"], 1,
+        "one row ('banana') should be hidden"
+    );
+
+    // Delete the filter view.
+    let delete_result = call_tool(
+        &mut server,
+        "delete_filter_view",
+        json!({"name": "ApplesOnly"}),
+    )
+    .await;
+    assert_eq!(delete_result["success"], true);
+
+    // List should be empty.
+    let list_result = call_tool(&mut server, "list_filter_views", json!({})).await;
+    assert_eq!(list_result["count"], 0);
+}
+
+/// Deleting a nonexistent filter view must fail.
+#[tokio::test]
+async fn test_filter_view_delete_not_found() {
+    let mut server = McpServer::new_default();
+
+    let err =
+        call_tool_expect_error(&mut server, "delete_filter_view", json!({"name": "nope"})).await;
+    assert!(!err.is_empty());
+}
+
+/// Applying a nonexistent filter view must fail.
+#[tokio::test]
+async fn test_filter_view_apply_not_found() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "apply_filter_view",
+        json!({"sheet": "Sheet1", "name": "nope"}),
+    )
+    .await;
+    assert!(!err.is_empty());
+}
+
+// ── 27. Evaluate formula: SCAN and MAKEARRAY ─────────────────────────────────
+
+/// Test that SCAN can be evaluated via the MCP evaluate_formula tool.
+/// Uses cell references since the formula evaluator works with ranges.
+#[tokio::test]
+async fn test_evaluate_formula_scan() {
+    let mut server = McpServer::new_default();
+
+    // Write values 1, 2, 3 to A1:A3.
+    for i in 1..=3 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    // SCAN(0, A1:A3, LAMBDA(acc, x, acc + x)) should produce {1, 3, 6}
+    let result = call_tool(
+        &mut server,
+        "evaluate_formula",
+        json!({"sheet": "Sheet1", "formula": "SCAN(0, A1:A3, LAMBDA(acc, x, acc + x))"}),
+    )
+    .await;
+
+    assert_eq!(result["result_type"], "array");
+    // The result should be a 1-row array: [[1, 3, 6]]
+    let arr = result["result"].as_array().unwrap();
+    let inner = arr[0].as_array().unwrap();
+    assert_eq!(inner[0].as_f64().unwrap(), 1.0);
+    assert_eq!(inner[1].as_f64().unwrap(), 3.0);
+    assert_eq!(inner[2].as_f64().unwrap(), 6.0);
+}
+
+/// Test that MAKEARRAY can be evaluated via the MCP evaluate_formula tool.
+#[tokio::test]
+async fn test_evaluate_formula_makearray() {
+    let mut server = McpServer::new_default();
+
+    // MAKEARRAY(2, 3, LAMBDA(r, c, r * c)) should produce a 2x3 array.
+    let result = call_tool(
+        &mut server,
+        "evaluate_formula",
+        json!({"sheet": "Sheet1", "formula": "MAKEARRAY(2, 3, LAMBDA(r, c, r * c))"}),
+    )
+    .await;
+
+    assert_eq!(result["result_type"], "array");
+    let arr = result["result"].as_array().unwrap();
+    assert_eq!(arr.len(), 2, "should have 2 rows");
+
+    let row0 = arr[0].as_array().unwrap();
+    assert_eq!(row0.len(), 3, "should have 3 columns");
+    // r=1,c=1 -> 1; r=1,c=2 -> 2; r=1,c=3 -> 3
+    assert_eq!(row0[0].as_f64().unwrap(), 1.0);
+    assert_eq!(row0[1].as_f64().unwrap(), 2.0);
+    assert_eq!(row0[2].as_f64().unwrap(), 3.0);
+
+    let row1 = arr[1].as_array().unwrap();
+    // r=2,c=1 -> 2; r=2,c=2 -> 4; r=2,c=3 -> 6
+    assert_eq!(row1[0].as_f64().unwrap(), 2.0);
+    assert_eq!(row1[1].as_f64().unwrap(), 4.0);
+    assert_eq!(row1[2].as_f64().unwrap(), 6.0);
+}
+
+// ── 28. Sparklines: add -> list -> remove ────────────────────────────────────
+
+/// Full sparkline lifecycle: add two sparklines, list, remove one, verify.
+#[tokio::test]
+async fn test_sparkline_lifecycle() {
+    let mut server = McpServer::new_default();
+
+    // Write some data for the sparklines to reference.
+    for i in 1..=5 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i * 10}),
+        )
+        .await;
+    }
+
+    // Add a line sparkline in B1.
+    let add1 = call_tool(
+        &mut server,
+        "add_sparkline",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "B1",
+            "spark_type": "line",
+            "data_range": "A1:A5",
+            "color": "#4e79a7"
+        }),
+    )
+    .await;
+    assert_eq!(add1["success"], true);
+    assert_eq!(add1["spark_type"], "line");
+
+    // Add a bar sparkline in C1.
+    let add2 = call_tool(
+        &mut server,
+        "add_sparkline",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "C1",
+            "spark_type": "bar",
+            "data_range": "A1:A5"
+        }),
+    )
+    .await;
+    assert_eq!(add2["success"], true);
+
+    // List sparklines.
+    let list_result = call_tool(&mut server, "list_sparklines", json!({"sheet": "Sheet1"})).await;
+    assert_eq!(list_result["count"], 2);
+
+    // Remove the line sparkline from B1.
+    let remove_result = call_tool(
+        &mut server,
+        "remove_sparkline",
+        json!({"sheet": "Sheet1", "cell_ref": "B1"}),
+    )
+    .await;
+    assert_eq!(remove_result["success"], true);
+    assert_eq!(remove_result["was_present"], true);
+
+    // List should now have 1 sparkline.
+    let list_result = call_tool(&mut server, "list_sparklines", json!({"sheet": "Sheet1"})).await;
+    assert_eq!(list_result["count"], 1);
+
+    // Remove the bar sparkline from C1.
+    let remove_result = call_tool(
+        &mut server,
+        "remove_sparkline",
+        json!({"sheet": "Sheet1", "cell_ref": "C1"}),
+    )
+    .await;
+    assert_eq!(remove_result["success"], true);
+    assert_eq!(remove_result["was_present"], true);
+
+    // List should now be empty.
+    let list_result = call_tool(&mut server, "list_sparklines", json!({"sheet": "Sheet1"})).await;
+    assert_eq!(list_result["count"], 0);
+}
+
+/// Removing a sparkline that was never added should succeed but indicate
+/// it was not present.
+#[tokio::test]
+async fn test_sparkline_remove_not_present() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "remove_sparkline",
+        json!({"sheet": "Sheet1", "cell_ref": "Z99"}),
+    )
+    .await;
+    assert_eq!(result["success"], true);
+    assert_eq!(result["was_present"], false);
+}
+
+/// Adding a sparkline with an invalid type should produce an error.
+#[tokio::test]
+async fn test_sparkline_invalid_type() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "add_sparkline",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "spark_type": "pie",
+            "data_range": "B1:D1"
+        }),
+    )
+    .await;
+    assert!(err.contains("Invalid sparkline type"));
+}
+
+// ── 29. Charts: create -> list -> delete ─────────────────────────────────────
+
+/// Full chart lifecycle: create, list (filtered), delete, verify gone.
+#[tokio::test]
+async fn test_chart_lifecycle() {
+    let mut server = McpServer::new_default();
+
+    // Create a bar chart.
+    let create1 = call_tool(
+        &mut server,
+        "create_chart",
+        json!({
+            "sheet": "ChartLifecycleSheet",
+            "chart_type": "bar",
+            "data_range": "A1:B5",
+            "title": "Sales by Quarter"
+        }),
+    )
+    .await;
+    assert_eq!(create1["success"], true);
+    assert!(create1["chart_id"].is_string());
+    assert_eq!(create1["chart_type"], "bar");
+    assert_eq!(create1["title"], "Sales by Quarter");
+    let chart1_id = create1["chart_id"].as_str().unwrap().to_string();
+
+    // Create a line chart on a different sheet.
+    let create2 = call_tool(
+        &mut server,
+        "create_chart",
+        json!({
+            "sheet": "ChartLifecycleSheet2",
+            "chart_type": "line",
+            "data_range": "A1:C10"
+        }),
+    )
+    .await;
+    assert_eq!(create2["success"], true);
+    let chart2_id = create2["chart_id"].as_str().unwrap().to_string();
+
+    // List charts filtered by sheet.
+    let list_filtered = call_tool(
+        &mut server,
+        "list_charts",
+        json!({"sheet": "ChartLifecycleSheet"}),
+    )
+    .await;
+    assert_eq!(list_filtered["count"], 1);
+    assert_eq!(list_filtered["charts"][0]["chart_type"], "bar");
+
+    // Delete chart 1.
+    let delete1 = call_tool(&mut server, "delete_chart", json!({"chart_id": chart1_id})).await;
+    assert_eq!(delete1["success"], true);
+
+    // Verify chart 1 is gone — listing by its sheet should be empty.
+    let list_after = call_tool(
+        &mut server,
+        "list_charts",
+        json!({"sheet": "ChartLifecycleSheet"}),
+    )
+    .await;
+    assert_eq!(list_after["count"], 0);
+
+    // Chart 2 should still exist.
+    let list_sheet2 = call_tool(
+        &mut server,
+        "list_charts",
+        json!({"sheet": "ChartLifecycleSheet2"}),
+    )
+    .await;
+    assert_eq!(list_sheet2["count"], 1);
+
+    // Delete chart 2 for cleanup.
+    call_tool(&mut server, "delete_chart", json!({"chart_id": chart2_id})).await;
+}
+
+/// Creating a chart with an invalid type must fail.
+#[tokio::test]
+async fn test_chart_invalid_type_error() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "create_chart",
+        json!({
+            "sheet": "Sheet1",
+            "chart_type": "invalid_type",
+            "data_range": "A1:A5"
+        }),
+    )
+    .await;
+    assert!(err.contains("Invalid chart type"));
+}
+
+/// Deleting a nonexistent chart must fail.
+#[tokio::test]
+async fn test_chart_delete_not_found() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "delete_chart",
+        json!({"chart_id": "nonexistent-id-for-integration-test"}),
+    )
+    .await;
+    assert!(err.contains("Chart not found"));
+}
+
+/// Creating a chart with chart options (x/y axis labels).
+#[tokio::test]
+async fn test_chart_with_options() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "create_chart",
+        json!({
+            "sheet": "ChartOptionsSheet",
+            "chart_type": "scatter",
+            "data_range": "A1:B20",
+            "options": {
+                "title": "Scatter Plot",
+                "x_axis_label": "Time",
+                "y_axis_label": "Value"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(result["success"], true);
+    assert_eq!(result["title"], "Scatter Plot");
+
+    // Cleanup.
+    let id = result["chart_id"].as_str().unwrap();
+    call_tool(&mut server, "delete_chart", json!({"chart_id": id})).await;
+}

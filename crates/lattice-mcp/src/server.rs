@@ -10,8 +10,8 @@ use lattice_core::{ConditionalFormatStore, Workbook};
 use crate::tools::ToolRegistry;
 use crate::tools::{
     analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops, filter_view_ops,
-    find_replace_ops, format_ops, formula_ops, named_range_ops, sheet_ops, sparkline_ops,
-    validation_ops,
+    find_replace_ops, format_ops, formula_ops, named_function_ops, named_range_ops, sheet_ops,
+    sparkline_ops, validation_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -353,6 +353,20 @@ impl McpServer {
                 named_range_ops::handle_resolve_named_range(&wb, arguments)
             }
 
+            // ── Named function operations ────────────────────────────────
+            "add_named_function" => {
+                let mut wb = self.workbook.write().await;
+                named_function_ops::handle_add_named_function(&mut wb, arguments)
+            }
+            "remove_named_function" => {
+                let mut wb = self.workbook.write().await;
+                named_function_ops::handle_remove_named_function(&mut wb, arguments)
+            }
+            "list_named_functions" => {
+                let wb = self.workbook.read().await;
+                named_function_ops::handle_list_named_functions(&wb)
+            }
+
             // ── Analysis operations ──────────────────────────────────────
             "describe_data" => {
                 let wb = self.workbook.read().await;
@@ -545,10 +559,10 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let tools = parsed["result"]["tools"].as_array().unwrap();
-        // We should have 58+ tools (all tool modules implemented).
+        // We should have 61+ tools (all tool modules implemented).
         assert!(
-            tools.len() >= 58,
-            "Expected at least 58 tools, got {}",
+            tools.len() >= 61,
+            "Expected at least 61 tools, got {}",
             tools.len()
         );
 
@@ -579,6 +593,10 @@ mod tests {
         assert!(tool_names.contains(&"remove_named_range"));
         assert!(tool_names.contains(&"list_named_ranges"));
         assert!(tool_names.contains(&"resolve_named_range"));
+        // named_function_ops tools
+        assert!(tool_names.contains(&"add_named_function"));
+        assert!(tool_names.contains(&"remove_named_function"));
+        assert!(tool_names.contains(&"list_named_functions"));
         // validation_ops tools
         assert!(tool_names.contains(&"set_validation"));
         assert!(tool_names.contains(&"get_validation"));
