@@ -4,6 +4,7 @@ use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
 use crate::filter_view::FilterViewStore;
 use crate::formula::SheetResolver;
+use crate::named_function::{NamedFunction, NamedFunctionStore};
 use crate::named_range::NamedRangeStore;
 use crate::sheet::Sheet;
 use crate::validation::ValidationStore;
@@ -21,6 +22,8 @@ pub struct Workbook {
     pub filter_views: FilterViewStore,
     /// Data validation rules defined in this workbook.
     pub validations: ValidationStore,
+    /// User-defined named functions (LAMBDA aliases).
+    pub named_functions: NamedFunctionStore,
 }
 
 impl Workbook {
@@ -35,6 +38,7 @@ impl Workbook {
             named_ranges: NamedRangeStore::new(),
             filter_views: FilterViewStore::new(),
             validations: ValidationStore::new(),
+            named_functions: NamedFunctionStore::new(),
         }
     }
 
@@ -123,6 +127,34 @@ impl Workbook {
         }
         Ok(())
     }
+
+    // ── Named Functions ───────────────────────────────────────────────
+
+    /// Add a user-defined named function (LAMBDA alias).
+    pub fn add_named_function(
+        &mut self,
+        name: impl Into<String>,
+        params: Vec<String>,
+        body: impl Into<String>,
+        description: Option<String>,
+    ) -> Result<()> {
+        self.named_functions.add(name, params, body, description)
+    }
+
+    /// Remove a named function by name.
+    pub fn remove_named_function(&mut self, name: &str) -> Result<()> {
+        self.named_functions.remove(name)
+    }
+
+    /// List all named functions.
+    pub fn list_named_functions(&self) -> Vec<&NamedFunction> {
+        self.named_functions.list()
+    }
+
+    /// Get a named function by name (case-insensitive).
+    pub fn get_named_function(&self, name: &str) -> Option<&NamedFunction> {
+        self.named_functions.get(name)
+    }
 }
 
 impl SheetResolver for Workbook {
@@ -132,6 +164,10 @@ impl SheetResolver for Workbook {
             .get_cell(row, col)
             .map(|c| c.value.clone())
             .unwrap_or(CellValue::Empty))
+    }
+
+    fn resolve_named_function(&self, name: &str) -> Option<&NamedFunction> {
+        self.named_functions.get(name)
     }
 }
 
@@ -318,5 +354,109 @@ mod tests {
 
         let err = wb.resolve_cell("NoSuchSheet", 0, 0);
         assert!(err.is_err());
+    }
+
+    // --- Named functions ---
+
+    #[test]
+    fn test_add_named_function() {
+        let mut wb = Workbook::new();
+        wb.add_named_function("DOUBLE", vec!["x".into()], "x * 2", None)
+            .unwrap();
+        let nf = wb.get_named_function("DOUBLE").unwrap();
+        assert_eq!(nf.name, "DOUBLE");
+        assert_eq!(nf.body, "x * 2");
+    }
+
+    #[test]
+    fn test_remove_named_function() {
+        let mut wb = Workbook::new();
+        wb.add_named_function("DOUBLE", vec!["x".into()], "x * 2", None)
+            .unwrap();
+        wb.remove_named_function("DOUBLE").unwrap();
+        assert!(wb.get_named_function("DOUBLE").is_none());
+    }
+
+    #[test]
+    fn test_list_named_functions() {
+        let mut wb = Workbook::new();
+        wb.add_named_function("DOUBLE", vec!["x".into()], "x * 2", None)
+            .unwrap();
+        wb.add_named_function("TRIPLE", vec!["x".into()], "x * 3", None)
+            .unwrap();
+        assert_eq!(wb.list_named_functions().len(), 2);
+    }
+
+    #[test]
+    fn test_named_function_formula_evaluation() {
+        use crate::formula::FormulaEngine;
+        use crate::formula::evaluator::SimpleEvaluator;
+
+        let mut wb = Workbook::new();
+        wb.add_named_function("DOUBLE", vec!["x".into()], "x * 2", None)
+            .unwrap();
+        wb.set_cell("Sheet1", 0, 0, CellValue::Number(5.0)).unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval
+            .evaluate_with_context("DOUBLE(A1)", sheet1, Some(&wb))
+            .unwrap();
+        assert_eq!(result, CellValue::Number(10.0));
+    }
+
+    #[test]
+    fn test_named_function_multi_param() {
+        use crate::formula::FormulaEngine;
+        use crate::formula::evaluator::SimpleEvaluator;
+
+        let mut wb = Workbook::new();
+        wb.add_named_function(
+            "ADDMUL",
+            vec!["a".into(), "b".into(), "c".into()],
+            "(a + b) * c",
+            None,
+        )
+        .unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval
+            .evaluate_with_context("ADDMUL(2, 3, 4)", sheet1, Some(&wb))
+            .unwrap();
+        assert_eq!(result, CellValue::Number(20.0));
+    }
+
+    #[test]
+    fn test_named_function_wrong_arg_count() {
+        use crate::formula::FormulaEngine;
+        use crate::formula::evaluator::SimpleEvaluator;
+
+        let mut wb = Workbook::new();
+        wb.add_named_function("DOUBLE", vec!["x".into()], "x * 2", None)
+            .unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        let result = eval.evaluate_with_context("DOUBLE(1, 2)", sheet1, Some(&wb));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_named_function_case_insensitive() {
+        use crate::formula::FormulaEngine;
+        use crate::formula::evaluator::SimpleEvaluator;
+
+        let mut wb = Workbook::new();
+        wb.add_named_function("MyFunc", vec!["x".into()], "x + 100", None)
+            .unwrap();
+
+        let eval = SimpleEvaluator;
+        let sheet1 = wb.get_sheet("Sheet1").unwrap();
+        // The tokenizer converts function names to uppercase, so test that
+        let result = eval
+            .evaluate_with_context("MYFUNC(5)", sheet1, Some(&wb))
+            .unwrap();
+        assert_eq!(result, CellValue::Number(105.0));
     }
 }

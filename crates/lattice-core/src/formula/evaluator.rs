@@ -617,7 +617,7 @@ fn invoke_lambda(
                 }
             }
         };
-        vars.insert(param.clone(), val);
+        vars.insert(param.to_ascii_uppercase(), val);
     }
 
     // Evaluate the body with the variable bindings.
@@ -2462,6 +2462,94 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             Ok(CellValue::Array(vec![results]))
         }
 
+        "SCAN" => {
+            // SCAN(initial_value, array, lambda) — like REDUCE but returns all
+            // intermediate accumulator values as an array.
+            if args.len() != 3 {
+                return Err(LatticeError::FormulaError(
+                    "SCAN requires exactly 3 arguments (initial, array, lambda)".into(),
+                ));
+            }
+            let initial = match &args[0] {
+                FuncArg::Value(v) => v.clone(),
+                _ => CellValue::Number(0.0),
+            };
+            let vals = match &args[1] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
+                FuncArg::Value(CellValue::Array(rows)) => {
+                    rows.iter().flat_map(|r| r.iter().cloned()).collect()
+                }
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "SCAN: second argument must be a range or array".into(),
+                    ));
+                }
+            };
+            let (params, body) = extract_lambda(&args[2], "SCAN")?;
+            if params.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "SCAN: lambda must accept exactly 2 parameters (accumulator, value)".into(),
+                ));
+            }
+            let mut accumulator = initial;
+            let mut results: Vec<CellValue> = Vec::new();
+            for val in &vals {
+                let call_args = vec![FuncArg::Value(accumulator), FuncArg::Value(val.clone())];
+                accumulator = invoke_lambda(&params, &body, &call_args, ctx)?;
+                results.push(accumulator.clone());
+            }
+            Ok(CellValue::Array(vec![results]))
+        }
+        "MAKEARRAY" => {
+            // MAKEARRAY(rows, cols, lambda) — build a 2D array using a lambda
+            // that receives (row_index, col_index) and returns a value.
+            if args.len() != 3 {
+                return Err(LatticeError::FormulaError(
+                    "MAKEARRAY requires exactly 3 arguments (rows, cols, lambda)".into(),
+                ));
+            }
+            let n_rows = match &args[0] {
+                FuncArg::Value(v) => coerce_to_number(v)? as u32,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "MAKEARRAY: first argument must be a number (rows)".into(),
+                    ));
+                }
+            };
+            let n_cols = match &args[1] {
+                FuncArg::Value(v) => coerce_to_number(v)? as u32,
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "MAKEARRAY: second argument must be a number (cols)".into(),
+                    ));
+                }
+            };
+            if n_rows == 0 || n_cols == 0 {
+                return Err(LatticeError::FormulaError(
+                    "MAKEARRAY: rows and cols must be >= 1".into(),
+                ));
+            }
+            let (params, body) = extract_lambda(&args[2], "MAKEARRAY")?;
+            if params.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "MAKEARRAY: lambda must accept exactly 2 parameters (row, col)".into(),
+                ));
+            }
+            let mut result_rows: Vec<Vec<CellValue>> = Vec::new();
+            for r in 1..=n_rows {
+                let mut row: Vec<CellValue> = Vec::new();
+                for c in 1..=n_cols {
+                    let call_args = vec![
+                        FuncArg::Value(CellValue::Number(r as f64)),
+                        FuncArg::Value(CellValue::Number(c as f64)),
+                    ];
+                    row.push(invoke_lambda(&params, &body, &call_args, ctx)?);
+                }
+                result_rows.push(row);
+            }
+            Ok(CellValue::Array(result_rows))
+        }
+
         "CLEAN" => {
             // CLEAN(text) — remove non-printable characters (ASCII 0-31)
             let a = require_args(&args, 1, "CLEAN")?;
@@ -3597,16 +3685,14 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             // IMPORTRANGE(file_path, range_string)
             // Imports data from another spreadsheet file.
             //
-            // In Google Sheets this opens another spreadsheet. In Lattice the
-            // core engine is I/O-free, so we validate arguments and return
-            // #REF!. The MCP/Tauri layer provides the actual import_range
-            // tool that performs file I/O and returns the data.
+            // When a resolver with import_range support is available, delegate
+            // to it. Otherwise return #REF! (the core engine has no I/O).
             if args.len() != 2 {
                 return Err(LatticeError::FormulaError(
                     "IMPORTRANGE requires exactly 2 arguments: file_path, range_string".into(),
                 ));
             }
-            let _file_path = match &args[0] {
+            let file_path = match &args[0] {
                 FuncArg::Value(v) => coerce_to_string(v),
                 _ => {
                     return Err(LatticeError::FormulaError(
@@ -3614,7 +3700,7 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                     ));
                 }
             };
-            let _range_string = match &args[1] {
+            let range_string = match &args[1] {
                 FuncArg::Value(v) => coerce_to_string(v),
                 _ => {
                     return Err(LatticeError::FormulaError(
@@ -3622,8 +3708,13 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                     ));
                 }
             };
-            // The core engine has no I/O access. Return #REF! to signal that
-            // an external resolver (MCP import_range tool) is needed.
+            // Try the resolver's import_range if available.
+            if let Some(resolver) = ctx.resolver
+                && let Some(value) = resolver.import_range(&file_path, &range_string)
+            {
+                return Ok(value);
+            }
+            // No resolver or resolver returned None — return #REF!.
             Ok(CellValue::Error(CellError::Ref))
         }
 
@@ -3667,9 +3758,26 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             query_exec::execute_query(&data, &parsed, headers)
         }
 
-        _ => Err(LatticeError::FormulaError(format!(
-            "unknown function: {name}"
-        ))),
+        _ => {
+            // Check if this is a user-defined named function via the resolver.
+            if let Some(resolver) = ctx.resolver
+                && let Some(nf) = resolver.resolve_named_function(name)
+            {
+                let params = nf.params.clone();
+                let body = nf.body.clone();
+                if params.len() != args.len() {
+                    return Err(LatticeError::FormulaError(format!(
+                        "{name} expects {} argument(s), got {}",
+                        params.len(),
+                        args.len()
+                    )));
+                }
+                return invoke_lambda(&params, &body, &args, ctx);
+            }
+            Err(LatticeError::FormulaError(format!(
+                "unknown function: {name}"
+            )))
+        }
     }
 }
 
@@ -5564,6 +5672,63 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_importrange_with_resolver() {
+        use crate::formula::SheetResolver;
+
+        struct MockResolver;
+        impl SheetResolver for MockResolver {
+            fn resolve_cell(
+                &self,
+                _sheet_name: &str,
+                _row: u32,
+                _col: u32,
+            ) -> crate::error::Result<CellValue> {
+                Ok(CellValue::Empty)
+            }
+            fn import_range(&self, file_path: &str, range_string: &str) -> Option<CellValue> {
+                if file_path == "data.xlsx" && range_string == "Sheet1!A1:A2" {
+                    Some(CellValue::Array(vec![
+                        vec![CellValue::Number(10.0)],
+                        vec![CellValue::Number(20.0)],
+                    ]))
+                } else {
+                    None
+                }
+            }
+        }
+
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let resolver = MockResolver;
+
+        // Known file+range returns the data
+        let result = evaluator
+            .evaluate_with_context(
+                r#"IMPORTRANGE("data.xlsx", "Sheet1!A1:A2")"#,
+                &sheet,
+                Some(&resolver),
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(10.0)],
+                vec![CellValue::Number(20.0)],
+            ])
+        );
+
+        // Unknown file returns #REF!
+        let result = evaluator
+            .evaluate_with_context(
+                r#"IMPORTRANGE("other.xlsx", "A1")"#,
+                &sheet,
+                Some(&resolver),
+            )
+            .unwrap();
+        assert_eq!(result, CellValue::Error(CellError::Ref));
+    }
+
     // ===== Date serial number helpers =====
 
     #[test]
@@ -6329,6 +6494,145 @@ mod tests {
         let evaluator = SimpleEvaluator;
         // REDUCE lambda must accept exactly 2 params
         let result = evaluator.evaluate("REDUCE(0, A1:A3, LAMBDA(x, x + 1))", &sheet);
+        assert!(result.is_err());
+    }
+
+    // ── SCAN ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_scan_cumulative_sum() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        sheet.set_value(3, 0, CellValue::Number(4.0));
+        let result = eval("SCAN(0, A1:A4, LAMBDA(a, v, a + v))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![vec![
+                CellValue::Number(1.0),
+                CellValue::Number(3.0),
+                CellValue::Number(6.0),
+                CellValue::Number(10.0),
+            ]])
+        );
+    }
+
+    #[test]
+    fn test_scan_cumulative_product() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(2, 0, CellValue::Number(4.0));
+        let result = eval("SCAN(1, A1:A3, LAMBDA(a, v, a * v))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![vec![
+                CellValue::Number(2.0),
+                CellValue::Number(6.0),
+                CellValue::Number(24.0),
+            ]])
+        );
+    }
+
+    #[test]
+    fn test_scan_single_element() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(5.0));
+        let result = eval("SCAN(10, A1:A1, LAMBDA(a, v, a + v))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![vec![CellValue::Number(15.0)]])
+        );
+    }
+
+    #[test]
+    fn test_scan_wrong_arg_count() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("SCAN(0, A1:A3)", &sheet);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scan_wrong_lambda_params() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("SCAN(0, A1:A3, LAMBDA(x, x + 1))", &sheet);
+        assert!(result.is_err());
+    }
+
+    // ── MAKEARRAY ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_makearray_multiplication_table() {
+        let sheet = Sheet::new("T");
+        let result = eval("MAKEARRAY(3, 3, LAMBDA(r, c, r * c))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![
+                    CellValue::Number(1.0),
+                    CellValue::Number(2.0),
+                    CellValue::Number(3.0),
+                ],
+                vec![
+                    CellValue::Number(2.0),
+                    CellValue::Number(4.0),
+                    CellValue::Number(6.0),
+                ],
+                vec![
+                    CellValue::Number(3.0),
+                    CellValue::Number(6.0),
+                    CellValue::Number(9.0),
+                ],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_makearray_single_cell() {
+        let sheet = Sheet::new("T");
+        let result = eval("MAKEARRAY(1, 1, LAMBDA(r, c, r + c))", &sheet);
+        assert_eq!(result, CellValue::Array(vec![vec![CellValue::Number(2.0)]]));
+    }
+
+    #[test]
+    fn test_makearray_row_vector() {
+        let sheet = Sheet::new("T");
+        let result = eval("MAKEARRAY(1, 4, LAMBDA(r, c, c))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![vec![
+                CellValue::Number(1.0),
+                CellValue::Number(2.0),
+                CellValue::Number(3.0),
+                CellValue::Number(4.0),
+            ]])
+        );
+    }
+
+    #[test]
+    fn test_makearray_zero_rows_errors() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("MAKEARRAY(0, 3, LAMBDA(r, c, r + c))", &sheet);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_makearray_wrong_arg_count() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("MAKEARRAY(3, 3)", &sheet);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_makearray_wrong_lambda_params() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        let result = evaluator.evaluate("MAKEARRAY(3, 3, LAMBDA(x, x + 1))", &sheet);
         assert!(result.is_err());
     }
 }

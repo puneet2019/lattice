@@ -6,9 +6,11 @@ pub mod query_exec;
 
 use crate::cell::CellValue;
 use crate::error::Result;
+use crate::named_function::NamedFunction;
 use crate::sheet::Sheet;
 
-/// A resolver that provides read-only access to cells across sheets.
+/// A resolver that provides read-only access to cells across sheets
+/// and workbook-level named functions.
 ///
 /// This is used by the formula evaluator to look up cross-sheet references
 /// like `Sheet2!A1`. Implementations are typically provided by the `Workbook`.
@@ -18,6 +20,23 @@ pub trait SheetResolver {
     /// Returns `Ok(CellValue)` on success. Returns an error if the sheet is
     /// not found. Returns `CellValue::Empty` if the cell does not exist.
     fn resolve_cell(&self, sheet_name: &str, row: u32, col: u32) -> Result<CellValue>;
+
+    /// Look up a user-defined named function by name (case-insensitive).
+    ///
+    /// Returns `Some(&NamedFunction)` if the function exists, `None` otherwise.
+    /// The default implementation always returns `None`.
+    fn resolve_named_function(&self, _name: &str) -> Option<&NamedFunction> {
+        None
+    }
+
+    /// Import a range of cell values from an external spreadsheet file.
+    ///
+    /// This is used by the `IMPORTRANGE` formula function. The core engine
+    /// has no I/O access, so the default implementation returns `None`.
+    /// The Tauri/MCP layer can provide an implementation that reads the file.
+    fn import_range(&self, _file_path: &str, _range_string: &str) -> Option<CellValue> {
+        None
+    }
 }
 
 /// Trait that all formula-evaluation backends must implement.

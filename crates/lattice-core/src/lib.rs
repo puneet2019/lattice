@@ -17,6 +17,7 @@ pub mod find_replace;
 pub mod format;
 pub mod formula;
 pub mod history;
+pub mod named_function;
 pub mod named_range;
 pub mod pivot;
 pub mod selection;
@@ -45,6 +46,7 @@ pub use format::{
 };
 pub use formula::{FormulaEngine, SheetResolver};
 pub use history::{Operation, UndoStack};
+pub use named_function::{NamedFunction, NamedFunctionStore};
 pub use named_range::{NamedRange, NamedRangeStore};
 pub use pivot::{PivotAggregation, PivotConfig, PivotResult, PivotValue, generate_pivot};
 pub use selection::{CellRef, Range, Selection, col_to_letter, parse_cell_ref};
