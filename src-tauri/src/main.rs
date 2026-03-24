@@ -437,6 +437,11 @@ fn main() {
             commands::filter::clear_filter,
             commands::filter::get_filter_info,
             commands::filter::get_hidden_rows,
+            // Filter view commands
+            commands::filter::save_filter_view,
+            commands::filter::list_filter_views,
+            commands::filter::apply_filter_view,
+            commands::filter::delete_filter_view,
             // Export / import commands
             commands::export::export_csv,
             commands::export::export_tsv,

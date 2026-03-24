@@ -356,6 +356,7 @@ fn cell_value_as_text(value: &CellValue) -> String {
         CellValue::Date(s) => s.clone(),
         CellValue::Empty => String::new(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 

@@ -64,6 +64,17 @@ pub enum CellValue {
     /// columns. When displayed in a single cell, the first element is
     /// shown (or `"{array}"`).
     Array(Vec<Vec<CellValue>>),
+    /// A lambda (anonymous function) created by `LAMBDA(param1, ..., body)`.
+    ///
+    /// `params` are the parameter names and `body` is the unevaluated
+    /// formula text. The lambda is "called" by MAP, REDUCE, BYROW, BYCOL,
+    /// or by immediate invocation like `LAMBDA(x, x+1)(5)`.
+    Lambda {
+        /// Parameter names (uppercase for case-insensitive matching).
+        params: Vec<String>,
+        /// The formula body text (not yet evaluated).
+        body: String,
+    },
 }
 
 impl CellValue {
@@ -75,6 +86,11 @@ impl CellValue {
     /// Returns `true` if this value is an [`CellValue::Array`].
     pub fn is_array(&self) -> bool {
         matches!(self, Self::Array(_))
+    }
+
+    /// Returns `true` if this value is a [`CellValue::Lambda`].
+    pub fn is_lambda(&self) -> bool {
+        matches!(self, Self::Lambda { .. })
     }
 }
 

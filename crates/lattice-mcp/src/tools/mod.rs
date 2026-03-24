@@ -6,6 +6,7 @@ pub mod chart_ops;
 pub mod conditional_format_ops;
 pub mod data_ops;
 pub mod file_ops;
+pub mod filter_view_ops;
 pub mod find_replace_ops;
 pub mod format_ops;
 pub mod formula_ops;
@@ -125,6 +126,11 @@ impl ToolRegistry {
             reg.register(tool);
         }
 
+        // Filter view operations
+        for tool in filter_view_ops::tool_definitions() {
+            reg.register(tool);
+        }
+
         reg
     }
 }
@@ -148,5 +154,6 @@ pub fn tool_definitions() -> Vec<ToolDef> {
     all.extend(file_ops::tool_definitions());
     all.extend(conditional_format_ops::tool_definitions());
     all.extend(sparkline_ops::tool_definitions());
+    all.extend(filter_view_ops::tool_definitions());
     all
 }

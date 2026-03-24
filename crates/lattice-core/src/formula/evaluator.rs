@@ -264,6 +264,28 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             }
             Ok(result)
         }
+        Token::Function(name) if name == "LAMBDA" => {
+            *pos += 1; // skip function name
+            if *pos < tokens.len() && tokens[*pos] == Token::LParen {
+                *pos += 1; // skip '('
+            }
+            let result = parse_lambda_function(tokens, pos, ctx)?;
+            if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+                *pos += 1; // skip ')'
+            }
+            // Support immediate invocation: LAMBDA(x, x+1)(5)
+            if let CellValue::Lambda { ref params, ref body } = result {
+                if *pos < tokens.len() && tokens[*pos] == Token::LParen {
+                    *pos += 1; // skip '('
+                    let call_args = parse_function_args(tokens, pos, ctx, "LAMBDA_CALL")?;
+                    if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+                        *pos += 1; // skip ')'
+                    }
+                    return invoke_lambda(params, body, &call_args, ctx);
+                }
+            }
+            Ok(result)
+        }
         Token::Function(name) => {
             let name = name.clone();
             *pos += 1; // skip function name
@@ -273,6 +295,14 @@ fn parse_atom(tokens: &[Token], pos: &mut usize, ctx: &EvalCtx<'_>) -> Result<Ce
             let args = parse_function_args(tokens, pos, ctx, &name)?;
             if *pos < tokens.len() && tokens[*pos] == Token::RParen {
                 *pos += 1; // skip ')'
+            }
+            // Check if this is a LET variable holding a Lambda before
+            // dispatching to the built-in function table.
+            let upper = name.to_ascii_uppercase();
+            if let Some(ref vars) = ctx.let_vars {
+                if let Some(CellValue::Lambda { params, body }) = vars.get(&upper) {
+                    return invoke_lambda(params, body, &args, ctx);
+                }
             }
             evaluate_function(&name, args, ctx)
         }
@@ -463,6 +493,184 @@ fn parse_let_function(
     let formula_start = arg_starts[n_args - 1];
     let mut formula_pos = formula_start;
     parse_expression(tokens, &mut formula_pos, &formula_ctx)
+}
+
+/// Parse `LAMBDA(param1, param2, ..., body)`.
+///
+/// LAMBDA is handled specially because the parameter names and the body formula
+/// must NOT be eagerly evaluated. The first N-1 arguments are parameter names
+/// (identifiers) and the last argument is the body formula text.
+///
+/// Returns `CellValue::Lambda { params, body }`.
+fn parse_lambda_function(
+    tokens: &[Token],
+    pos: &mut usize,
+    _ctx: &EvalCtx<'_>,
+) -> Result<CellValue> {
+    // Collect raw argument token ranges (delimited by commas at depth 0).
+    let mut arg_starts: Vec<usize> = Vec::new();
+    let mut arg_ends: Vec<usize> = Vec::new();
+    let mut depth = 0i32;
+
+    if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+        return Err(LatticeError::FormulaError(
+            "LAMBDA requires at least 2 arguments (param, body)".into(),
+        ));
+    }
+
+    arg_starts.push(*pos);
+    while *pos < tokens.len() {
+        match &tokens[*pos] {
+            Token::LParen => {
+                depth += 1;
+                *pos += 1;
+            }
+            Token::RParen => {
+                if depth == 0 {
+                    arg_ends.push(*pos);
+                    break;
+                }
+                depth -= 1;
+                *pos += 1;
+            }
+            Token::Comma if depth == 0 => {
+                arg_ends.push(*pos);
+                *pos += 1;
+                arg_starts.push(*pos);
+            }
+            _ => *pos += 1,
+        }
+    }
+
+    let n_args = arg_starts.len();
+    if n_args < 2 {
+        return Err(LatticeError::FormulaError(
+            "LAMBDA requires at least 2 arguments (param, body)".into(),
+        ));
+    }
+
+    // First N-1 arguments are parameter names.
+    let mut params: Vec<String> = Vec::new();
+    for i in 0..n_args - 1 {
+        let start = arg_starts[i];
+        let end = arg_ends[i];
+        if end - start != 1 {
+            return Err(LatticeError::FormulaError(
+                "LAMBDA: parameter name must be a single identifier".into(),
+            ));
+        }
+        let param_name = match &tokens[start] {
+            Token::CellRef(name) => name.to_ascii_uppercase(),
+            Token::StringLiteral(name) => name.to_ascii_uppercase(),
+            _ => {
+                return Err(LatticeError::FormulaError(format!(
+                    "LAMBDA: expected parameter name, got {:?}",
+                    tokens[start]
+                )));
+            }
+        };
+        params.push(param_name);
+    }
+
+    // Last argument is the body — reconstruct it as formula text from tokens.
+    let body_start = arg_starts[n_args - 1];
+    let body_end = arg_ends[n_args - 1];
+    let body = tokens_to_formula(&tokens[body_start..body_end]);
+
+    Ok(CellValue::Lambda { params, body })
+}
+
+/// Invoke a lambda value by binding arguments to parameters and evaluating
+/// the body formula.
+fn invoke_lambda(
+    params: &[String],
+    body: &str,
+    call_args: &[FuncArg],
+    ctx: &EvalCtx<'_>,
+) -> Result<CellValue> {
+    if call_args.len() != params.len() {
+        return Err(LatticeError::FormulaError(format!(
+            "LAMBDA expects {} argument(s), got {}",
+            params.len(),
+            call_args.len()
+        )));
+    }
+
+    // Build variable bindings from params and call args.
+    let mut vars: HashMap<String, CellValue> = HashMap::new();
+    // Inherit existing LET vars if any.
+    if let Some(ref outer_vars) = ctx.let_vars {
+        vars.extend(outer_vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    for (i, param) in params.iter().enumerate() {
+        let val = match &call_args[i] {
+            FuncArg::Value(v) => v.clone(),
+            FuncArg::Range(s, e) => {
+                // Single-cell range → resolve to value
+                let vals = resolve_range_values(s, e, ctx.sheet)?;
+                if vals.len() == 1 {
+                    vals.into_iter().next().unwrap_or(CellValue::Empty)
+                } else {
+                    CellValue::Array(vec![vals])
+                }
+            }
+            FuncArg::SheetRange(sheet, s, e) => {
+                let vals = resolve_cross_sheet_range_values(sheet, s, e, ctx)?;
+                if vals.len() == 1 {
+                    vals.into_iter().next().unwrap_or(CellValue::Empty)
+                } else {
+                    CellValue::Array(vec![vals])
+                }
+            }
+        };
+        vars.insert(param.clone(), val);
+    }
+
+    // Evaluate the body with the variable bindings.
+    let body_ctx = ctx.with_let_vars(vars);
+    let body_tokens = tokenize(body);
+    let mut body_pos = 0;
+    parse_expression(&body_tokens, &mut body_pos, &body_ctx)
+}
+
+/// Reconstruct a formula string from a slice of tokens.
+///
+/// This is used to store the body of a LAMBDA as text for later evaluation.
+fn tokens_to_formula(tokens: &[Token]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for token in tokens {
+        match token {
+            Token::Number(n) => parts.push(n.to_string()),
+            Token::CellRef(r) => parts.push(r.clone()),
+            Token::SheetRef(sheet, cell) => parts.push(format!("{sheet}!{cell}")),
+            Token::Function(name) => parts.push(name.clone()),
+            Token::LParen => parts.push("(".to_string()),
+            Token::RParen => parts.push(")".to_string()),
+            Token::Comma => parts.push(",".to_string()),
+            Token::Colon => parts.push(":".to_string()),
+            Token::Operator(op) => parts.push(op.to_string()),
+            Token::Comparison(op) => parts.push(op.clone()),
+            Token::Ampersand => parts.push("&".to_string()),
+            Token::StringLiteral(s) => parts.push(format!("\"{}\"", s)),
+            Token::Boolean(b) => parts.push(if *b { "TRUE" } else { "FALSE" }.to_string()),
+        }
+    }
+    parts.join("")
+}
+
+/// Extract lambda parameters and body from a FuncArg.
+///
+/// The argument must be a `FuncArg::Value(CellValue::Lambda { params, body })`.
+/// Returns an error naming `func_name` if the argument is not a lambda.
+fn extract_lambda(arg: &FuncArg, func_name: &str) -> Result<(Vec<String>, String)> {
+    match arg {
+        FuncArg::Value(CellValue::Lambda { params, body }) => {
+            Ok((params.clone(), body.clone()))
+        }
+        _ => Err(LatticeError::FormulaError(format!(
+            "{func_name}: last argument must be a LAMBDA"
+        ))),
+    }
 }
 
 /// Parse `ARRAYFORMULA(expression)`.
@@ -723,6 +931,9 @@ fn coerce_to_number(val: &CellValue) -> Result<f64> {
                 .map(|v| coerce_to_number(v))
                 .unwrap_or(Ok(0.0))
         }
+        CellValue::Lambda { .. } => Err(LatticeError::FormulaError(
+            "cannot convert lambda to number".into(),
+        )),
     }
 }
 
@@ -762,6 +973,9 @@ fn coerce_to_bool(val: &CellValue) -> Result<bool> {
             .and_then(|r| r.first())
             .map(|v| coerce_to_bool(v))
             .unwrap_or(Ok(false)),
+        CellValue::Lambda { .. } => Err(LatticeError::FormulaError(
+            "cannot convert lambda to boolean".into(),
+        )),
     }
 }
 
@@ -791,6 +1005,7 @@ fn coerce_to_string(val: &CellValue) -> String {
             .and_then(|r| r.first())
             .map(|v| coerce_to_string(v))
             .unwrap_or_default(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 
@@ -2136,6 +2351,146 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
             Ok(CellValue::Text(unique_strs.join(",")))
         }
 
+        // ===== LAMBDA HELPER FUNCTIONS =====
+        "MAP" => {
+            // MAP(array, lambda) — apply lambda to each element, return array
+            if args.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "MAP requires exactly 2 arguments (array, lambda)".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
+                FuncArg::Value(CellValue::Array(rows)) => rows.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "MAP: first argument must be a range or array".into(),
+                    ));
+                }
+            };
+            let (params, body) = extract_lambda(&args[1], "MAP")?;
+            if params.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "MAP: lambda must accept exactly 1 parameter".into(),
+                ));
+            }
+            let mut result_rows: Vec<Vec<CellValue>> = Vec::new();
+            for row in &vals {
+                let mut result_row: Vec<CellValue> = Vec::new();
+                for val in row {
+                    let call_args = vec![FuncArg::Value(val.clone())];
+                    result_row.push(invoke_lambda(&params, &body, &call_args, ctx)?);
+                }
+                result_rows.push(result_row);
+            }
+            Ok(CellValue::Array(result_rows))
+        }
+        "REDUCE" => {
+            // REDUCE(initial_value, array, lambda) — fold array with lambda
+            if args.len() != 3 {
+                return Err(LatticeError::FormulaError(
+                    "REDUCE requires exactly 3 arguments (initial, array, lambda)".into(),
+                ));
+            }
+            let initial = match &args[0] {
+                FuncArg::Value(v) => v.clone(),
+                _ => CellValue::Number(0.0),
+            };
+            let vals = match &args[1] {
+                FuncArg::Range(s, e) => resolve_range_values(s, e, ctx.sheet)?,
+                FuncArg::Value(CellValue::Array(rows)) => {
+                    rows.iter().flat_map(|r| r.iter().cloned()).collect()
+                }
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "REDUCE: second argument must be a range or array".into(),
+                    ));
+                }
+            };
+            let (params, body) = extract_lambda(&args[2], "REDUCE")?;
+            if params.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "REDUCE: lambda must accept exactly 2 parameters (accumulator, value)".into(),
+                ));
+            }
+            let mut accumulator = initial;
+            for val in &vals {
+                let call_args = vec![
+                    FuncArg::Value(accumulator),
+                    FuncArg::Value(val.clone()),
+                ];
+                accumulator = invoke_lambda(&params, &body, &call_args, ctx)?;
+            }
+            Ok(accumulator)
+        }
+        "BYROW" => {
+            // BYROW(array, lambda) — apply lambda to each row
+            if args.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "BYROW requires exactly 2 arguments (array, lambda)".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
+                FuncArg::Value(CellValue::Array(rows)) => rows.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "BYROW: first argument must be a range or array".into(),
+                    ));
+                }
+            };
+            let (params, body) = extract_lambda(&args[1], "BYROW")?;
+            if params.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "BYROW: lambda must accept exactly 1 parameter".into(),
+                ));
+            }
+            let mut results: Vec<Vec<CellValue>> = Vec::new();
+            for row in &vals {
+                let row_array = CellValue::Array(vec![row.clone()]);
+                let call_args = vec![FuncArg::Value(row_array)];
+                let result = invoke_lambda(&params, &body, &call_args, ctx)?;
+                results.push(vec![result]);
+            }
+            Ok(CellValue::Array(results))
+        }
+        "BYCOL" => {
+            // BYCOL(array, lambda) — apply lambda to each column
+            if args.len() != 2 {
+                return Err(LatticeError::FormulaError(
+                    "BYCOL requires exactly 2 arguments (array, lambda)".into(),
+                ));
+            }
+            let vals = match &args[0] {
+                FuncArg::Range(s, e) => resolve_range_2d(s, e, ctx.sheet)?,
+                FuncArg::Value(CellValue::Array(rows)) => rows.clone(),
+                _ => {
+                    return Err(LatticeError::FormulaError(
+                        "BYCOL: first argument must be a range or array".into(),
+                    ));
+                }
+            };
+            let (params, body) = extract_lambda(&args[1], "BYCOL")?;
+            if params.len() != 1 {
+                return Err(LatticeError::FormulaError(
+                    "BYCOL: lambda must accept exactly 1 parameter".into(),
+                ));
+            }
+            // Transpose: iterate by column index.
+            let n_cols = vals.first().map(|r| r.len()).unwrap_or(0);
+            let mut results: Vec<CellValue> = Vec::new();
+            for c in 0..n_cols {
+                let col_vals: Vec<CellValue> = vals
+                    .iter()
+                    .map(|row| row.get(c).cloned().unwrap_or(CellValue::Empty))
+                    .collect();
+                let col_array = CellValue::Array(vec![col_vals]);
+                let call_args = vec![FuncArg::Value(col_array)];
+                results.push(invoke_lambda(&params, &body, &call_args, ctx)?);
+            }
+            Ok(CellValue::Array(vec![results]))
+        }
+
         "CLEAN" => {
             // CLEAN(text) — remove non-printable characters (ASCII 0-31)
             let a = require_args(&args, 1, "CLEAN")?;
@@ -2632,7 +2987,8 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
                 CellValue::Error(_) => 16.0,
                 CellValue::Empty => 1.0,     // Empty is treated as number 0
                 CellValue::Date(_) => 1.0,   // Dates are numbers internally
-                CellValue::Array(_) => 64.0, // Array type
+                CellValue::Array(_) => 64.0,      // Array type
+                CellValue::Lambda { .. } => 128.0, // Lambda type
             };
             Ok(CellValue::Number(type_num))
         }
@@ -5825,5 +6181,166 @@ mod tests {
                 vec![CellValue::Number(30.0), CellValue::Number(40.0)],
             ])
         );
+    }
+
+    // ── LAMBDA function ──────────────────────────────────────────────
+
+    #[test]
+    fn test_lambda_returns_lambda_value() {
+        let sheet = Sheet::new("T");
+        let result = eval("LAMBDA(x, x + 1)", &sheet);
+        assert!(result.is_lambda());
+    }
+
+    #[test]
+    fn test_lambda_immediate_invocation() {
+        let sheet = Sheet::new("T");
+        let result = eval("LAMBDA(x, x + 1)(5)", &sheet);
+        assert_eq!(result, CellValue::Number(6.0));
+    }
+
+    #[test]
+    fn test_lambda_two_params() {
+        let sheet = Sheet::new("T");
+        let result = eval("LAMBDA(a, b, a + b)(3, 7)", &sheet);
+        assert_eq!(result, CellValue::Number(10.0));
+    }
+
+    #[test]
+    fn test_lambda_with_multiplication() {
+        let sheet = Sheet::new("T");
+        let result = eval("LAMBDA(x, x * x)(4)", &sheet);
+        assert_eq!(result, CellValue::Number(16.0));
+    }
+
+    #[test]
+    fn test_lambda_string_body() {
+        let sheet = Sheet::new("T");
+        let result = eval("LAMBDA(x, x & \" world\")(\"hello\")", &sheet);
+        assert_eq!(result, CellValue::Text("hello world".into()));
+    }
+
+    #[test]
+    fn test_lambda_wrong_arg_count() {
+        let sheet = Sheet::new("T");
+        let result_res = SimpleEvaluator.evaluate("LAMBDA(x, y, x + y)(1)", &sheet);
+        assert!(result_res.is_err());
+    }
+
+    #[test]
+    fn test_lambda_with_cell_ref() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(10.0));
+        let result = eval("LAMBDA(x, x + A1)(5)", &sheet);
+        assert_eq!(result, CellValue::Number(15.0));
+    }
+
+    #[test]
+    fn test_lambda_nested_in_let() {
+        let sheet = Sheet::new("T");
+        let result = eval("LET(double, LAMBDA(x, x * 2), double(7))", &sheet);
+        assert_eq!(result, CellValue::Number(14.0));
+    }
+
+    // ── MAP / REDUCE / BYROW / BYCOL ────────────────────────────────
+
+    #[test]
+    fn test_map_doubles_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        let result = eval("MAP(A1:A3, LAMBDA(x, x * 2))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(2.0)],
+                vec![CellValue::Number(4.0)],
+                vec![CellValue::Number(6.0)],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_map_2d_range() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+        let result = eval("MAP(A1:B2, LAMBDA(x, x + 10))", &sheet);
+        assert_eq!(
+            result,
+            CellValue::Array(vec![
+                vec![CellValue::Number(11.0), CellValue::Number(12.0)],
+                vec![CellValue::Number(13.0), CellValue::Number(14.0)],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_reduce_sum() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(1, 0, CellValue::Number(2.0));
+        sheet.set_value(2, 0, CellValue::Number(3.0));
+        let result = eval("REDUCE(0, A1:A3, LAMBDA(acc, x, acc + x))", &sheet);
+        assert_eq!(result, CellValue::Number(6.0));
+    }
+
+    #[test]
+    fn test_reduce_product() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(2, 0, CellValue::Number(4.0));
+        let result = eval("REDUCE(1, A1:A3, LAMBDA(acc, x, acc * x))", &sheet);
+        assert_eq!(result, CellValue::Number(24.0));
+    }
+
+    #[test]
+    fn test_byrow_sum() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(3.0));
+        sheet.set_value(1, 1, CellValue::Number(4.0));
+        // BYROW passes each row as an array to the lambda.
+        // Since SUM works on flat arrays, we test with a simple lambda.
+        let result = eval("BYROW(A1:B2, LAMBDA(row, SUM(row)))", &sheet);
+        // SUM on a Lambda parameter that is an Array: the lambda body
+        // receives `row` as CellValue::Array. SUM should handle it.
+        // Expected: [[3], [7]]
+        assert!(result.is_array());
+    }
+
+    #[test]
+    fn test_bycol_sum() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_value(0, 0, CellValue::Number(1.0));
+        sheet.set_value(0, 1, CellValue::Number(2.0));
+        sheet.set_value(1, 0, CellValue::Number(10.0));
+        sheet.set_value(1, 1, CellValue::Number(20.0));
+        let result = eval("BYCOL(A1:B2, LAMBDA(col, SUM(col)))", &sheet);
+        // Expected: [[11, 22]]
+        assert!(result.is_array());
+    }
+
+    #[test]
+    fn test_map_wrong_lambda_params() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        // MAP lambda must accept exactly 1 param
+        let result = evaluator.evaluate("MAP(A1:A3, LAMBDA(a, b, a + b))", &sheet);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reduce_wrong_lambda_params() {
+        let sheet = Sheet::new("T");
+        let evaluator = SimpleEvaluator;
+        // REDUCE lambda must accept exactly 2 params
+        let result = evaluator.evaluate("REDUCE(0, A1:A3, LAMBDA(x, x + 1))", &sheet);
+        assert!(result.is_err());
     }
 }

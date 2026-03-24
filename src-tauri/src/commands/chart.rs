@@ -378,6 +378,7 @@ async fn extract_chart_data(state: &AppState, chart: &Chart) -> Result<ChartData
                     lattice_core::CellValue::Empty => String::new(),
                     lattice_core::CellValue::Error(e) => e.to_string(),
                     lattice_core::CellValue::Array(_) => "{array}".to_string(),
+                    lattice_core::CellValue::Lambda { .. } => "{lambda}".to_string(),
                 },
                 None => String::new(),
             };

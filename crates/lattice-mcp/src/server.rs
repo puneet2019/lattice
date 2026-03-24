@@ -9,8 +9,9 @@ use lattice_core::{ConditionalFormatStore, Workbook};
 
 use crate::tools::ToolRegistry;
 use crate::tools::{
-    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops, find_replace_ops,
-    format_ops, formula_ops, named_range_ops, sheet_ops, sparkline_ops, validation_ops,
+    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops,
+    filter_view_ops, find_replace_ops, format_ops, formula_ops, named_range_ops, sheet_ops,
+    sparkline_ops, validation_ops,
 };
 
 /// The MCP protocol version we implement.
@@ -455,6 +456,24 @@ impl McpServer {
             "list_sparklines" => {
                 let wb = self.workbook.read().await;
                 sparkline_ops::handle_list_sparklines(&wb, arguments)
+            }
+
+            // ── Filter view operations ────────────────────────────────────
+            "save_filter_view" => {
+                let mut wb = self.workbook.write().await;
+                filter_view_ops::handle_save_filter_view(&mut wb, arguments)
+            }
+            "list_filter_views" => {
+                let wb = self.workbook.read().await;
+                filter_view_ops::handle_list_filter_views(&wb)
+            }
+            "apply_filter_view" => {
+                let mut wb = self.workbook.write().await;
+                filter_view_ops::handle_apply_filter_view(&mut wb, arguments)
+            }
+            "delete_filter_view" => {
+                let mut wb = self.workbook.write().await;
+                filter_view_ops::handle_delete_filter_view(&mut wb, arguments)
             }
 
             // ── File operations ──────────────────────────────────────────

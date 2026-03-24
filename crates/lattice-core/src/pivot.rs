@@ -305,6 +305,7 @@ fn cell_value_sort_key(value: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(d) => d.clone(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 

@@ -114,6 +114,11 @@ fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
                         .write_string_with_format(row, col as u16, "{array}", &fmt)
                         .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
                 }
+                CellValue::Lambda { .. } => {
+                    worksheet
+                        .write_string_with_format(row, col as u16, "{lambda}", &fmt)
+                        .map_err(|e| IoError::XlsxWrite(e.to_string()))?;
+                }
             }
 
             // Write cell comment/note if present.

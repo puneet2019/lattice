@@ -247,6 +247,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
                 .collect();
             Value::Array(arr)
         }
+        CellValue::Lambda { .. } => Value::String("{lambda}".to_string()),
     }
 }
 

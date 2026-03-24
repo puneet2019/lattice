@@ -144,6 +144,7 @@ pub(crate) fn cell_value_to_csv_string(value: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 

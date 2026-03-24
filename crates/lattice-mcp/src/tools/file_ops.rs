@@ -202,6 +202,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
                 .collect();
             Value::Array(arr)
         }
+        CellValue::Lambda { .. } => Value::String("{lambda}".to_string()),
     }
 }
 
@@ -222,6 +223,7 @@ fn cell_value_to_csv_field(cv: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 

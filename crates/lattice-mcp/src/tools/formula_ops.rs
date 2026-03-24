@@ -399,6 +399,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
                 .collect();
             Value::Array(arr)
         }
+        CellValue::Lambda { .. } => Value::String("{lambda}".to_string()),
     }
 }
 
@@ -412,6 +413,7 @@ fn cell_value_type_name(cv: &CellValue) -> &'static str {
         CellValue::Error(_) => "error",
         CellValue::Date(_) => "date",
         CellValue::Array(_) => "array",
+        CellValue::Lambda { .. } => "lambda",
     }
 }
 

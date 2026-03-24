@@ -312,6 +312,7 @@ fn cell_to_string(val: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Array(_) => "{array}".into(),
+        CellValue::Lambda { .. } => "{lambda}".into(),
     }
 }
 

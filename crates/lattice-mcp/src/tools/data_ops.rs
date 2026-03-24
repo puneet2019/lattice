@@ -810,6 +810,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
                 .collect();
             json!(rows)
         }
+        CellValue::Lambda { .. } => json!("{lambda}"),
     }
 }
 
@@ -933,6 +934,7 @@ fn cell_value_to_string(cv: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 
@@ -949,6 +951,7 @@ fn compare_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
             CellValue::Date(_) => 4,
             CellValue::Error(_) => 5,
             CellValue::Array(_) => 6,
+            CellValue::Lambda { .. } => 7,
         }
     }
 

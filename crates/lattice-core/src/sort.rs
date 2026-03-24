@@ -119,6 +119,7 @@ fn compare_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
             CellValue::Date(_) => 4,
             CellValue::Error(_) => 5,
             CellValue::Array(_) => 6,
+            CellValue::Lambda { .. } => 7,
         }
     }
 

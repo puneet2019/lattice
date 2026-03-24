@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 
 use crate::cell::{Cell, CellValue};
 use crate::error::{LatticeError, Result};
+use crate::filter_view::FilterViewStore;
 use crate::formula::SheetResolver;
 use crate::named_range::NamedRangeStore;
 use crate::sheet::Sheet;
@@ -16,6 +17,8 @@ pub struct Workbook {
     pub active_sheet: String,
     /// Named ranges defined in this workbook.
     pub named_ranges: NamedRangeStore,
+    /// Named filter views for quickly switching row visibility.
+    pub filter_views: FilterViewStore,
     /// Data validation rules defined in this workbook.
     pub validations: ValidationStore,
 }
@@ -30,6 +33,7 @@ impl Workbook {
             sheets,
             active_sheet: default_name,
             named_ranges: NamedRangeStore::new(),
+            filter_views: FilterViewStore::new(),
             validations: ValidationStore::new(),
         }
     }

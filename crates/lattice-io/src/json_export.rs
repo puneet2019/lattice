@@ -167,6 +167,7 @@ fn cell_value_to_json(value: &CellValue) -> Option<serde_json::Value> {
                 .collect();
             Some(serde_json::Value::Array(arr))
         }
+        CellValue::Lambda { .. } => Some(serde_json::Value::String("{lambda}".to_string())),
     }
 }
 

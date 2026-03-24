@@ -442,6 +442,7 @@ pub fn format_value(value: &CellValue, format: &NumberFormat) -> String {
                 .map(|v| format_value(v, format))
                 .unwrap_or_else(|| "{array}".to_string())
         }
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }
 

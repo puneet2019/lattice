@@ -201,6 +201,80 @@ pub async fn get_hidden_rows(
     Ok(rows)
 }
 
+// ---------------------------------------------------------------------------
+// Filter Views — saved named filter configurations
+// ---------------------------------------------------------------------------
+
+/// Serialized filter view info returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterViewInfo {
+    /// Name of the filter view.
+    pub name: String,
+    /// Column filters: maps column index to list of allowed values.
+    pub column_filters: std::collections::HashMap<u32, Vec<String>>,
+}
+
+/// Save a named filter view to the workbook.
+#[tauri::command]
+pub async fn save_filter_view(
+    state: State<'_, AppState>,
+    name: String,
+    column_filters: std::collections::HashMap<u32, Vec<String>>,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    wb.filter_views
+        .add(name, column_filters)
+        .map_err(|e| e.to_string())
+}
+
+/// List all saved filter views.
+#[tauri::command]
+pub async fn list_filter_views(
+    state: State<'_, AppState>,
+) -> Result<Vec<FilterViewInfo>, String> {
+    let wb = state.workbook.read().await;
+    Ok(wb
+        .filter_views
+        .list()
+        .iter()
+        .map(|v| FilterViewInfo {
+            name: v.name.clone(),
+            column_filters: v.column_filters.clone(),
+        })
+        .collect())
+}
+
+/// Apply a saved filter view to a sheet, hiding non-matching rows.
+///
+/// Returns the number of rows hidden.
+#[tauri::command]
+pub async fn apply_filter_view(
+    state: State<'_, AppState>,
+    sheet: String,
+    name: String,
+) -> Result<u32, String> {
+    let mut wb = state.workbook.write().await;
+    // We need to borrow filter_views immutably and the sheet mutably,
+    // so clone the filter view first.
+    let view = wb
+        .filter_views
+        .get(&name)
+        .cloned()
+        .ok_or_else(|| format!("filter view '{}' not found", name))?;
+    let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+    lattice_core::filter_view::apply_filter_view(s, &view).map_err(|e| e.to_string())
+}
+
+/// Delete a saved filter view by name.
+#[tauri::command]
+pub async fn delete_filter_view(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    let mut wb = state.workbook.write().await;
+    wb.filter_views.remove(&name).map_err(|e| e.to_string())
+}
+
 /// Convert a CellValue to a display string.
 fn cell_value_to_display(val: &CellValue) -> String {
     match val {
@@ -212,5 +286,6 @@ fn cell_value_to_display(val: &CellValue) -> String {
         CellValue::Error(e) => e.to_string(),
         CellValue::Date(s) => s.clone(),
         CellValue::Array(_) => "{array}".to_string(),
+        CellValue::Lambda { .. } => "{lambda}".to_string(),
     }
 }

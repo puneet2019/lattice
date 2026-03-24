@@ -204,6 +204,7 @@ fn cell_value_display_len(value: &CellValue) -> usize {
         CellValue::Error(e) => e.to_string().len(),
         CellValue::Date(s) => s.len(),
         CellValue::Array(_) => 7, // "{array}"
+        CellValue::Lambda { .. } => 8, // "{lambda}"
     }
 }
 

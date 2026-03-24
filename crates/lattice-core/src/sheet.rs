@@ -1222,6 +1222,7 @@ fn cell_value_to_key(value: &CellValue) -> String {
         CellValue::Error(e) => format!("E:{e}"),
         CellValue::Date(d) => format!("D:{d}"),
         CellValue::Array(_) => "ARR".to_string(),
+        CellValue::Lambda { .. } => "LAMBDA".to_string(),
     }
 }
 

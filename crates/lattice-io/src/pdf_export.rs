@@ -341,6 +341,7 @@ fn cell_value_to_html(value: &CellValue) -> String {
         CellValue::Error(e) => escape_html(&e.to_string()),
         CellValue::Date(s) => escape_html(s),
         CellValue::Array(_) => escape_html("{array}"),
+        CellValue::Lambda { .. } => escape_html("{lambda}"),
     }
 }
 

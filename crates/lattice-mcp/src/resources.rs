@@ -237,6 +237,7 @@ fn read_sheet_summary(
             CellValue::Error(_) => error_count += 1,
             CellValue::Date(_) => date_count += 1,
             CellValue::Array(_) => number_count += 1,
+            CellValue::Lambda { .. } => {}
         }
         if cell.formula.is_some() {
             formula_count += 1;
@@ -353,6 +354,7 @@ fn cell_value_to_json(cv: &CellValue) -> Value {
                 .collect();
             Value::Array(arr)
         }
+        CellValue::Lambda { .. } => Value::String("{lambda}".to_string()),
     }
 }
 

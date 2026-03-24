@@ -12,6 +12,7 @@ pub mod clipboard;
 pub mod conditional_format;
 pub mod error;
 pub mod filter;
+pub mod filter_view;
 pub mod find_replace;
 pub mod format;
 pub mod formula;
@@ -36,6 +37,7 @@ pub use conditional_format::{
 };
 pub use error::{LatticeError, Result};
 pub use filter::{AutoFilter, ColumnFilter, FilterCondition};
+pub use filter_view::{FilterView, FilterViewStore};
 pub use find_replace::{FindOptions, MatchLocation, ReplaceResult};
 pub use format::{
     Border, BorderStyle, CellBorders, CellFormat, HAlign, NumberFormat, TextWrap, VAlign,
