@@ -572,8 +572,12 @@ const App: Component = () => {
       if (active) {
         setActiveSheetLocal(active.name);
       }
+      // A workbook already exists in the backend — mark as loaded so the
+      // grid renders instead of staying stuck on the WelcomeScreen.
+      setWorkbookLoaded(true);
     } catch {
       // If Tauri is not available (e.g. running in browser for dev), use defaults.
+      // workbookLoaded stays false so the WelcomeScreen is shown.
       console.warn('Tauri not available, using default state');
     }
 
@@ -1447,6 +1451,17 @@ const App: Component = () => {
 
   return (
     <div class="app-container">
+      <Show
+        when={workbookLoaded()}
+        fallback={
+          <WelcomeScreen
+            recentFiles={recentFiles()}
+            onNewWorkbook={handleFileNew}
+            onOpenFile={handleFileOpen}
+            onOpenRecent={(path) => void handleOpenRecentFile(path)}
+          />
+        }
+      >
       <Toolbar
         onBold={handleBold}
         onItalic={handleItalic}
@@ -1520,17 +1535,6 @@ const App: Component = () => {
           }}
         />
       </Show>
-      <Show
-        when={workbookLoaded()}
-        fallback={
-          <WelcomeScreen
-            recentFiles={recentFiles()}
-            onNewWorkbook={handleFileNew}
-            onOpenFile={handleFileOpen}
-            onOpenRecent={(path) => void handleOpenRecentFile(path)}
-          />
-        }
-      >
       <div style={{ position: 'relative', flex: '1', overflow: 'hidden', display: 'flex', "flex-direction": 'column' }}>
         <VirtualGrid
           activeSheet={activeSheetName()}
@@ -1592,7 +1596,6 @@ const App: Component = () => {
           onEditChart={(id) => void handleEditChart(id)}
         />
       </div>
-      </Show>
       <Show when={showChartDialog()}>
         <ChartDialog
           activeSheet={activeSheetName()}
@@ -1764,6 +1767,7 @@ const App: Component = () => {
         filterSummary={filterInfo() ? `${filterInfo()!.visible_rows} of ${filterInfo()!.total_rows} rows displayed` : undefined}
         saveStatus={saveStatus()}
       />
+      </Show>
     </div>
   );
 };
