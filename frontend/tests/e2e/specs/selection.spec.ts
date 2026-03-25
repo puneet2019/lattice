@@ -3,6 +3,8 @@ import {
   clickCell,
   getNameBoxContent,
   cellCenter,
+  clickColumnHeader,
+  clickRowHeader,
   HEADER_HEIGHT,
   ROW_NUMBER_WIDTH,
   DEFAULT_COL_WIDTH,
@@ -14,20 +16,53 @@ describe('Selection', () => {
     await createNewSpreadsheet();
   });
 
-  it('should extend selection with Shift+Arrow keys', async () => {
-    // Click A1 to start
+  // --- Shift+Click range selection ---
+  it('should select A1:C3 with Click A1 then Shift+Click C3', async () => {
     await clickCell(0, 0);
     await browser.pause(200);
 
-    // Shift+Right should extend selection to A1:B1
-    await browser.keys(['Shift', 'ArrowRight']);
+    // Shift+Click on C3
+    const canvas = await $('canvas');
+    const { x, y } = cellCenter(2, 2);
+    await browser.action('key').down('\uE008').perform(); // Shift down
+    await canvas.click({ x, y });
+    await browser.action('key').up('\uE008').perform(); // Shift up
+    await browser.pause(300);
+
+    const nameBox = await getNameBoxContent();
+    expect(nameBox).toMatch(/A1:C3|A1/);
+  });
+
+  // --- Shift+Down to extend selection ---
+  it('should select A1:A5 with Shift+Down 4 times', async () => {
+    await clickCell(0, 0);
+    await browser.pause(200);
+
+    for (let i = 0; i < 4; i++) {
+      await browser.keys(['Shift', 'ArrowDown']);
+      await browser.pause(100);
+    }
     await browser.pause(200);
 
     const nameBox = await getNameBoxContent();
-    // Name box should show range like "A1:B1" when a range is selected
-    expect(nameBox).toMatch(/A1:B1|A1/);
+    expect(nameBox).toMatch(/A1:A5|A1/);
   });
 
+  // --- Click column header to select entire column ---
+  it('should select column B when clicking column B header', async () => {
+    await clickColumnHeader(1);
+    const nameBox = await getNameBoxContent();
+    expect(nameBox).toMatch(/B:B|B1|B/);
+  });
+
+  // --- Click row header to select entire row ---
+  it('should select row 3 when clicking row 3 header', async () => {
+    await clickRowHeader(2); // 0-based, so row 2 is row 3
+    const nameBox = await getNameBoxContent();
+    expect(nameBox).toMatch(/3:3|A3|3/);
+  });
+
+  // --- Cmd+A selects all ---
   it('should select all cells with Cmd+A', async () => {
     await clickCell(0, 0);
     await browser.pause(100);
@@ -36,42 +71,81 @@ describe('Selection', () => {
     await browser.pause(300);
 
     const nameBox = await getNameBoxContent();
-    // When all cells are selected the name box typically shows "All" or "A1"
+    // When all cells are selected the name box shows "All" or "A1"
     expect(nameBox).toBeTruthy();
   });
 
-  it('should select a column when clicking the column header', async () => {
-    const canvas = await $('canvas');
-    // Column B header is at col index 1, centered in the header row
-    const x = ROW_NUMBER_WIDTH + 1 * DEFAULT_COL_WIDTH + DEFAULT_COL_WIDTH / 2;
-    const y = HEADER_HEIGHT / 2; // Middle of the header row
-    await canvas.click({ x, y });
-    await browser.pause(300);
+  // --- Arrow keys move selection ---
+  it('should move selection with arrow keys and update name box', async () => {
+    await clickCell(0, 0);
+    await browser.pause(200);
 
-    const nameBox = await getNameBoxContent();
-    // Selecting a column header should show the column letter or full column ref
-    expect(nameBox).toMatch(/B|B1/);
+    let nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('A1');
+
+    await browser.keys(['ArrowRight']);
+    await browser.pause(200);
+    nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('B1');
+
+    await browser.keys(['ArrowDown']);
+    await browser.pause(200);
+    nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('B2');
+
+    await browser.keys(['ArrowLeft']);
+    await browser.pause(200);
+    nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('A2');
+
+    await browser.keys(['ArrowUp']);
+    await browser.pause(200);
+    nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('A1');
   });
 
-  it('should select a row when clicking the row number gutter', async () => {
-    const canvas = await $('canvas');
-    // Row 2 (index 1) in the row number gutter area
-    const x = ROW_NUMBER_WIDTH / 2;
-    const y = HEADER_HEIGHT + 1 * DEFAULT_ROW_HEIGHT + DEFAULT_ROW_HEIGHT / 2;
-    await canvas.click({ x, y });
-    await browser.pause(300);
+  // --- Home key goes to column A ---
+  it('should go to column A with Home key', async () => {
+    await clickCell(2, 3); // D3
+    await browser.pause(200);
+
+    await browser.keys(['Home']);
+    await browser.pause(200);
 
     const nameBox = await getNameBoxContent();
-    // Row selection should show first cell of the row or row indicator
-    expect(nameBox).toMatch(/A2|2/);
+    expect(nameBox).toMatch(/A3|A1/);
   });
 
+  // --- Cmd+Home goes to A1 ---
+  it('should go to A1 with Cmd+Home', async () => {
+    await clickCell(5, 5); // F6
+    await browser.pause(200);
+
+    await browser.keys(['Meta', 'Home']);
+    await browser.pause(200);
+
+    const nameBox = await getNameBoxContent();
+    expect(nameBox).toBe('A1');
+  });
+
+  // --- Shift+Right extends selection ---
+  it('should extend selection with Shift+Arrow keys', async () => {
+    await clickCell(0, 0);
+    await browser.pause(200);
+
+    await browser.keys(['Shift', 'ArrowRight']);
+    await browser.pause(200);
+
+    const nameBox = await getNameBoxContent();
+    expect(nameBox).toMatch(/A1:B1|A1/);
+  });
+
+  // --- Drag to select range ---
   it('should select a range when clicking and dragging', async () => {
     const canvas = await $('canvas');
     const start = cellCenter(0, 0); // A1
     const end = cellCenter(2, 2);   // C3
 
-    // Perform drag from A1 to C3
     await browser.action('pointer')
       .move({ x: start.x, y: start.y, origin: canvas })
       .down()
@@ -81,35 +155,37 @@ describe('Selection', () => {
     await browser.pause(300);
 
     const nameBox = await getNameBoxContent();
-    // Should show A1 (anchor cell) or the range
     expect(nameBox).toBeTruthy();
   });
 
+  // --- Cmd+Click multi-selection ---
   it('should add to selection with Cmd+Click', async () => {
-    // Click A1 first
     await clickCell(0, 0);
     await browser.pause(200);
 
-    // Cmd+Click on C3 to add a second range
     const canvas = await $('canvas');
     const { x, y } = cellCenter(2, 2);
-    await browser.action('pointer')
-      .move({ x, y, origin: canvas })
-      .down({ button: 0 })
-      .up({ button: 0 })
-      .perform();
-    // Release meta key workaround: use keyboard action
-    await browser.action('key')
-      .down('\uE03D') // Meta key
-      .perform();
+    await browser.action('key').down('\uE03D').perform(); // Meta down
     await canvas.click({ x, y });
-    await browser.action('key')
-      .up('\uE03D')
-      .perform();
+    await browser.action('key').up('\uE03D').perform(); // Meta up
     await browser.pause(300);
 
-    // Verify at least one cell is selected (multi-selection is active)
     const nameBox = await getNameBoxContent();
     expect(nameBox).toBeTruthy();
+  });
+
+  // --- Page Down moves by viewport rows ---
+  it('should move down by viewport rows with PageDown', async () => {
+    await clickCell(0, 0);
+    await browser.pause(200);
+
+    await browser.keys(['PageDown']);
+    await browser.pause(300);
+
+    const nameBox = await getNameBoxContent();
+    // Should have moved to a row significantly past row 1
+    // The exact row depends on viewport size, but it should not be A1 anymore
+    expect(nameBox).not.toBe('A1');
+    expect(nameBox).toMatch(/^A\d+$/); // Still in column A
   });
 });

@@ -133,3 +133,111 @@ export async function waitForText(
     { timeout, timeoutMsg: `Expected "${selector}" to contain "${text}"` },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Cell typing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Type a value into a cell and commit with Enter.
+ * Handles click, double-click to enter edit mode, typing, and Enter.
+ */
+export async function typeInCell(
+  row: number,
+  col: number,
+  value: string,
+): Promise<void> {
+  await clickCell(row, col);
+  await doubleClickCell(row, col);
+  await browser.pause(100);
+  const chars = value.split('');
+  await browser.keys([...chars, 'Enter']);
+  await browser.pause(300);
+}
+
+/**
+ * Click a cell and read the formula bar content.
+ * Returns the formula bar text for the given cell.
+ */
+export async function readCellContent(
+  row: number,
+  col: number,
+): Promise<string> {
+  await clickCell(row, col);
+  await browser.pause(200);
+  return getFormulaBarContent();
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a toolbar button identified by aria-label has the "active" class.
+ */
+export async function isToolbarButtonActive(
+  ariaLabel: string,
+): Promise<boolean> {
+  const btn = await $(`[aria-label="${ariaLabel}"]`);
+  const cls = await btn.getAttribute('class');
+  return (cls ?? '').includes('active');
+}
+
+/**
+ * Click a toolbar button by aria-label.
+ */
+export async function clickToolbarButton(
+  ariaLabel: string,
+): Promise<void> {
+  const btn = await $(`[aria-label="${ariaLabel}"]`);
+  await btn.waitForDisplayed({ timeout: 3_000 });
+  await btn.click();
+  await browser.pause(200);
+}
+
+// ---------------------------------------------------------------------------
+// Status bar helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the text content of the status bar selection summary.
+ */
+export async function getStatusBarSummary(): Promise<string> {
+  const el = await $('.status-selection-summary');
+  if (!(await el.isExisting())) return '';
+  return el.getText();
+}
+
+/**
+ * Read the mode indicator text from the status bar (e.g. "Ready" or "Edit").
+ */
+export async function getStatusBarMode(): Promise<string> {
+  const el = await $('.status-mode');
+  return el.getText();
+}
+
+// ---------------------------------------------------------------------------
+// Column / Row header click helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Click a column header (0-based column index).
+ */
+export async function clickColumnHeader(col: number): Promise<void> {
+  const canvas = await $('canvas');
+  const x = ROW_NUMBER_WIDTH + col * DEFAULT_COL_WIDTH + DEFAULT_COL_WIDTH / 2;
+  const y = HEADER_HEIGHT / 2;
+  await canvas.click({ x, y });
+  await browser.pause(300);
+}
+
+/**
+ * Click a row number header (0-based row index).
+ */
+export async function clickRowHeader(row: number): Promise<void> {
+  const canvas = await $('canvas');
+  const x = ROW_NUMBER_WIDTH / 2;
+  const y = HEADER_HEIGHT + row * DEFAULT_ROW_HEIGHT + DEFAULT_ROW_HEIGHT / 2;
+  await canvas.click({ x, y });
+  await browser.pause(300);
+}
