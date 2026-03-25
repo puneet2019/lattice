@@ -221,14 +221,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [splitScrollX, setSplitScrollX] = createSignal(0);
   const [splitScrollY, setSplitScrollY] = createSignal(0);
 
-  // Split pane divider drag state
-  let splitDrag: {
-    kind: 'row' | 'col';
-    startMouse: number;
-    startSplitRow: number;
-    startSplitCol: number;
-  } | null = null;
-
   // Selection state
   const [selectedRow, setSelectedRow] = createSignal(0);
   const [selectedCol, setSelectedCol] = createSignal(0);
@@ -273,7 +265,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
 
   // Validation cache: maps "row:col" to ValidationData for the current sheet.
   const validationCache = new Map<string, ValidationData>();
-  let validationsFetched = false;
 
   // Conditional format rules for the current sheet.
   let conditionalFormatRules: ConditionalFormatOutput[] = [];
@@ -611,7 +602,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       for (const [r, c, data] of rules) {
         validationCache.set(`${r}:${c}`, data);
       }
-      validationsFetched = true;
     } catch {
       // Backend may not support this yet
     }
@@ -1169,7 +1159,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       'font-family': fontFamily,
       'font-weight': fontWeight,
       'font-style': fontStyleCss,
-      'text-align': textAlign,
+      'text-align': textAlign as 'left' | 'right' | 'center',
       color: cell?.font_color || undefined,
     };
   }
@@ -1971,8 +1961,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               ctx.setLineDash([]);
               ctx.lineWidth = 1;
               ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-              const dx = x2 === x1 ? 0 : 0;
-              const dy = y2 === y1 ? 0 : 0;
               const off = x1 === x2 ? 2 : 0;
               const offY = y1 === y2 ? 2 : 0;
               ctx.beginPath(); ctx.moveTo(x1 + off, y1 + offY); ctx.lineTo(x2 + off, y2 + offY); ctx.stroke();
@@ -2060,7 +2048,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         // Backend default is "left", so treat "left" as auto (allows number right-align).
         const isNumber = !isNaN(Number(cell.value)) && cell.value.trim() !== '';
         const userSetAlign = cell.h_align && cell.h_align !== 'left';
-        const align = userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left');
+        const align: CanvasTextAlign = (userSetAlign ? cell.h_align : (isNumber ? 'right' : 'left')) as CanvasTextAlign;
         const maxTextW = cw - PADDING * 2;
         // In formula view, show raw formula instead of computed value
         let displayText = showFormulas() && cell.formula ? `=${cell.formula}` : cell.value;
@@ -5053,7 +5041,6 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     fetchVisibleData();
     // Reload persisted sizes and validations for new sheet
     loadPersistedSizes();
-    validationsFetched = false;
     fetchValidations();
     fetchHiddenRows();
     fetchHiddenCols();

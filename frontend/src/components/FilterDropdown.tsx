@@ -50,7 +50,7 @@ const FilterDropdown: Component<FilterDropdownProps> = (props) => {
   };
 
   const handleClearAll = () => {
-    setCheckedValues(new Set());
+    setCheckedValues(new Set<string>());
   };
 
   const handleApply = async () => {

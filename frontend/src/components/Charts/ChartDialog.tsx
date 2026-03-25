@@ -87,9 +87,6 @@ const CHART_TYPE_GROUPS: ChartTypeGroup[] = [
   },
 ];
 
-/** Flat list of all chart types (for backward compat). */
-const _CHART_TYPES = CHART_TYPE_GROUPS.flatMap((g) => g.types);
-
 export interface ChartDialogProps {
   /** Current active sheet name. */
   activeSheet: string;

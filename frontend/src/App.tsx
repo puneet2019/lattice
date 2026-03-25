@@ -71,7 +71,7 @@ import {
   getComment,
   textToColumns,
 } from './bridge/tauri';
-import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData } from './bridge/tauri';
+import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData, BordersUpdate } from './bridge/tauri';
 import type { ChartInfo, ChartTypeStr } from './bridge/tauri';
 import { parse_cell_ref, col_to_letter } from './bridge/tauri_helpers';
 import { TOTAL_ROWS, TOTAL_COLS } from './components/Grid/constants';
@@ -906,23 +906,23 @@ const App: Component = () => {
     }
   };
 
-  const handleBold = () => {
+  function handleBold() {
     setBoldActive(!boldActive());
     applyFormat({ bold: boldActive() });
     setStatusMessage(boldActive() ? 'Bold on' : 'Bold off');
-  };
+  }
 
-  const handleItalic = () => {
+  function handleItalic() {
     setItalicActive(!italicActive());
     applyFormat({ italic: italicActive() });
     setStatusMessage(italicActive() ? 'Italic on' : 'Italic off');
-  };
+  }
 
-  const handleUnderline = () => {
+  function handleUnderline() {
     setUnderlineActive(!underlineActive());
     applyFormat({ underline: underlineActive() });
     setStatusMessage(underlineActive() ? 'Underline on' : 'Underline off');
-  };
+  }
 
   const handleStrikethrough = () => {
     setStrikethroughActive(!strikethroughActive());
@@ -1034,7 +1034,7 @@ const App: Component = () => {
     setStatusMessage(color ? `Fill color: ${color}` : 'Fill removed');
   };
 
-  const handleBorders = (borders: Record<string, unknown>) => {
+  const handleBorders = (borders: BordersUpdate) => {
     applyFormat({ borders });
     setStatusMessage('Borders applied');
   };
@@ -1042,6 +1042,11 @@ const App: Component = () => {
   const handleAlign = (align: 'left' | 'center' | 'right') => {
     applyFormat({ h_align: align });
     setStatusMessage(`Align: ${align}`);
+  };
+
+  const handleVAlign = (align: 'top' | 'middle' | 'bottom') => {
+    applyFormat({ v_align: align });
+    setStatusMessage(`Vertical align: ${align}`);
   };
 
   const handleNumberFormat = (fmt: string) => {
@@ -1099,7 +1104,7 @@ const App: Component = () => {
     }
   };
 
-  const handleFilterToggle = async () => {
+  async function handleFilterToggle() {
     if (filterActive()) {
       // Remove filter
       try {
@@ -1123,7 +1128,7 @@ const App: Component = () => {
         setStatusMessage(`Failed to create filter: ${e}`);
       }
     }
-  };
+  }
 
   const handleFilterColumnClick = (col: number, x: number, y: number) => {
     setFilterDropdownCol(col);
@@ -1143,17 +1148,17 @@ const App: Component = () => {
     setZoom(Math.max(0.25, Math.min(2.0, z)));
   };
 
-  const handleZoomIn = () => {
+  function handleZoomIn() {
     handleZoomChange(Math.round((zoom() + 0.1) * 10) / 10);
-  };
+  }
 
-  const handleZoomOut = () => {
+  function handleZoomOut() {
     handleZoomChange(Math.round((zoom() - 0.1) * 10) / 10);
-  };
+  }
 
-  const handleZoomReset = () => {
+  function handleZoomReset() {
     handleZoomChange(1.0);
-  };
+  }
 
   // Find bar state
   const [showFindBar, setShowFindBar] = createSignal(false);
@@ -1204,7 +1209,7 @@ const App: Component = () => {
     }
   };
 
-  const handleMerge = async () => {
+  async function handleMerge() {
     const [minR, minC, maxR, maxC] = selRange();
     // Need at least 2 cells to merge
     if (minR === maxR && minC === maxC) {
@@ -1220,7 +1225,7 @@ const App: Component = () => {
     } catch (e) {
       setStatusMessage(`Merge failed: ${e}`);
     }
-  };
+  }
 
   const handleUnmerge = async () => {
     const [row, col] = selectedCell();
@@ -1255,7 +1260,7 @@ const App: Component = () => {
     }
   };
 
-  const handleAlternatingColors = async () => {
+  async function handleAlternatingColors() {
     const current = bandedRows();
     if (current && current.enabled) {
       // Toggle off
@@ -1280,15 +1285,15 @@ const App: Component = () => {
         setStatusMessage(`Failed to apply alternating colors: ${e}`);
       }
     }
-  };
+  }
 
-  const handleInsertChart = () => {
+  function handleInsertChart() {
     setEditChartId(undefined);
     setEditChartType(undefined);
     setEditDataRange(undefined);
     setEditTitle(undefined);
     setShowChartDialog(true);
-  };
+  }
 
   const handleEditChart = async (chartId: string) => {
     try {
@@ -1311,7 +1316,7 @@ const App: Component = () => {
       void (async () => {
         try {
           const config = await getChartConfig(chartId);
-          const svg = await renderChartSvg(chartId);
+          await renderChartSvg(chartId);
           setChartOverlays(
             chartOverlays().map((c) =>
               c.info.id === chartId
@@ -1453,6 +1458,7 @@ const App: Component = () => {
         onBgColor={handleBgColor}
         onBorders={handleBorders}
         onAlign={handleAlign}
+        onVAlign={handleVAlign}
         onTextWrap={handleTextWrap}
         onNumberFormat={handleNumberFormat}
         onUndo={handleUndo}

@@ -56,7 +56,7 @@ const DataCleanupDialog: Component<DataCleanupDialogProps> = (props) => {
   };
 
   const deselectAllDupColumns = () => {
-    setDupColumns(new Set());
+    setDupColumns(new Set<number>());
   };
 
   /** Trim whitespace from all text cells in the selection. */

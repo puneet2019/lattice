@@ -31,6 +31,7 @@ export interface CellData {
   font_size: number;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: CellBordersData | null;
+  indent?: number;
 }
 
 /** Sheet summary information. */
@@ -74,6 +75,8 @@ export interface FormatOptions {
   number_format?: string;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
   borders?: BordersUpdate;
+  text_rotation?: number;
+  indent?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -746,6 +749,7 @@ export interface RowGroupData {
   start: number;
   end: number;
   collapsed: boolean;
+  level: number;
 }
 
 export async function addRowGroup(
@@ -815,11 +819,20 @@ export async function resolveNamedRange(
 
 /** Rule type input for adding conditional format rules. */
 export interface RuleTypeInput {
-  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error'
+  kind: string; // 'cell_value' | 'text_contains' | 'is_blank' | 'is_not_blank' | 'is_error' | 'color_scale' | 'data_bar' | 'icon_set'
   operator?: string; // '>' | '<' | '>=' | '<=' | '=' | '!=' | 'between'
   value1?: number;
   value2?: number;
   text?: string;
+  // color_scale fields
+  min_color?: string;
+  max_color?: string;
+  mid_color?: string;
+  // data_bar fields
+  bar_color?: string;
+  // icon_set fields
+  icons?: string[];
+  thresholds?: number[];
 }
 
 /** Style to apply when a conditional format rule matches. */
@@ -965,4 +978,85 @@ export async function applyFilterView(
 
 export async function deleteFilterView(name: string): Promise<void> {
   return invoke('delete_filter_view', { name });
+}
+
+// ---------------------------------------------------------------------------
+// Pivot table commands
+// ---------------------------------------------------------------------------
+
+/** Input for a pivot table value field. */
+export interface PivotValueInput {
+  col: number;
+  aggregation: string;
+}
+
+export async function getSheetHeaders(
+  sheet: string,
+  headerRow: number,
+): Promise<string[]> {
+  return invoke('get_sheet_headers', { sheet, headerRow });
+}
+
+export async function createPivotTable(
+  sheet: string,
+  sourceRange: string,
+  rowFields: number[],
+  valueFields: PivotValueInput[],
+  targetSheet: string,
+): Promise<void> {
+  return invoke('create_pivot_table', {
+    sheet,
+    sourceRange,
+    rowFields,
+    valueFields,
+    targetSheet,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Print commands
+// ---------------------------------------------------------------------------
+
+/** Parameters for print/export HTML. */
+export interface PrintSettingsParams {
+  paperSize: string;
+  orientation: string;
+  showGridlines: boolean;
+  showHeaders: boolean;
+  scale: number;
+  margins: string;
+  customMargins?: [number, number, number, number];
+}
+
+export async function exportPrintHtml(
+  sheet: string,
+  settings: PrintSettingsParams,
+): Promise<string> {
+  return invoke('export_print_html', { sheet, settings });
+}
+
+// ---------------------------------------------------------------------------
+// Version history commands
+// ---------------------------------------------------------------------------
+
+/** Version info returned from the backend. */
+export interface VersionInfo {
+  index: number;
+  description: string;
+  timestamp: number;
+  size: number;
+}
+
+export async function saveVersion(description: string): Promise<void> {
+  return invoke('save_version', { description });
+}
+
+export async function listVersions(): Promise<VersionInfo[]> {
+  return invoke('list_versions');
+}
+
+export async function restoreVersion(
+  index: number,
+): Promise<{ sheets: string[]; active_sheet: string }> {
+  return invoke('restore_version', { index });
 }

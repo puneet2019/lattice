@@ -5,7 +5,6 @@ import {
   getValidation,
   removeValidation,
 } from '../bridge/tauri';
-import type { ValidationData } from '../bridge/tauri';
 
 export interface DataValidationDialogProps {
   activeSheet: string;
