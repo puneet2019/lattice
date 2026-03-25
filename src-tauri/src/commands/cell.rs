@@ -1,10 +1,100 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use lattice_core::formula::evaluator::SimpleEvaluator;
-use lattice_core::{BorderStyle, CellValue, FormulaEngine, NumberFormat, Operation, format_value};
+use lattice_core::named_function::NamedFunction;
+use lattice_core::{
+    BorderStyle, CellRef, CellValue, FormulaEngine, NumberFormat, Operation, SheetResolver,
+    Workbook, format_value,
+};
 
 use crate::state::AppState;
+
+/// A [`SheetResolver`] wrapper around a [`Workbook`] that provides a real
+/// `import_range` implementation using `lattice_io::read_xlsx`.
+///
+/// The core engine (`lattice-core`) is I/O-free, so its `Workbook`
+/// implementation of `import_range` always returns `None`.  This wrapper
+/// is used by the Tauri layer to resolve `IMPORTRANGE` formulas by
+/// reading the external file from disk.
+struct ImportRangeResolver<'a> {
+    workbook: &'a Workbook,
+}
+
+impl<'a> SheetResolver for ImportRangeResolver<'a> {
+    fn resolve_cell(
+        &self,
+        sheet_name: &str,
+        row: u32,
+        col: u32,
+    ) -> lattice_core::Result<CellValue> {
+        self.workbook.resolve_cell(sheet_name, row, col)
+    }
+
+    fn resolve_named_function(&self, name: &str) -> Option<&NamedFunction> {
+        self.workbook.resolve_named_function(name)
+    }
+
+    fn import_range(&self, file_path: &str, range_string: &str) -> Option<CellValue> {
+        import_range_from_file(file_path, range_string)
+    }
+}
+
+/// Open an xlsx file and extract the requested range as a `CellValue::Array`.
+///
+/// The `range_string` should be in `"SheetName!A1:C10"` format.  Returns
+/// `None` if the file cannot be read or the range is invalid.
+fn import_range_from_file(file_path: &str, range_string: &str) -> Option<CellValue> {
+    // Parse "SheetName!A1:C10" -> (sheet_name, start_ref, end_ref)
+    let excl = range_string.find('!')?;
+    let sheet_name = range_string[..excl].trim();
+    if sheet_name.is_empty() {
+        return None;
+    }
+    let cell_range = &range_string[excl + 1..];
+
+    // Split on ':' for start and end refs.  If there is no colon, treat
+    // the whole string as a single cell reference (start == end).
+    let (start_str, end_str) = if let Some(colon) = cell_range.find(':') {
+        (
+            cell_range[..colon].trim().to_string(),
+            cell_range[colon + 1..].trim().to_string(),
+        )
+    } else {
+        let single = cell_range.trim().to_string();
+        (single.clone(), single)
+    };
+
+    let start = CellRef::parse(&start_str).ok()?;
+    let end = CellRef::parse(&end_str).ok()?;
+
+    // Read the workbook from disk.
+    let path = Path::new(file_path);
+    let ext_wb = lattice_io::xlsx_reader::read_xlsx(path).ok()?;
+    let ext_sheet = ext_wb.get_sheet(sheet_name).ok()?;
+
+    let min_row = start.row.min(end.row);
+    let max_row = start.row.max(end.row);
+    let min_col = start.col.min(end.col);
+    let max_col = start.col.max(end.col);
+
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    for r in min_row..=max_row {
+        let mut row_vals: Vec<CellValue> = Vec::new();
+        for c in min_col..=max_col {
+            let val = ext_sheet
+                .get_cell(r, c)
+                .map(|cell| cell.value.clone())
+                .unwrap_or(CellValue::Empty);
+            row_vals.push(val);
+        }
+        rows.push(row_vals);
+    }
+
+    Some(CellValue::Array(rows))
+}
 
 /// A single border edge serialized for the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,9 +198,12 @@ pub async fn set_cell(
     let new_value = if let Some(ref formula_text) = formula {
         // Evaluate the formula to get the computed value.
         let evaluator = SimpleEvaluator;
+        let resolver = ImportRangeResolver {
+            workbook: &workbook,
+        };
         let eval_result = {
             let s = workbook.get_sheet(&sheet).map_err(|e| e.to_string())?;
-            evaluator.evaluate_with_context(formula_text, s, Some(&*workbook))
+            evaluator.evaluate_with_context(formula_text, s, Some(&resolver))
         };
         match eval_result {
             Ok(v) => v,
@@ -171,11 +264,12 @@ fn recalculate_formulas(workbook: &mut lattice_core::Workbook, sheet_name: &str)
     let evaluator = SimpleEvaluator;
 
     for (r, c, formula_text) in formula_cells {
+        let resolver = ImportRangeResolver { workbook };
         let result = {
             let Ok(s) = workbook.get_sheet(sheet_name) else {
                 continue;
             };
-            evaluator.evaluate_with_context(&formula_text, s, Some(&*workbook))
+            evaluator.evaluate_with_context(&formula_text, s, Some(&resolver))
         };
         let new_val = match result {
             Ok(v) => v,

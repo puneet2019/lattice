@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: Phase 4 — Feature Parity Complete
+**Status**: v0.1.0 Release Candidate
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-22 (feature parity session complete)
+**Last Updated**: 2026-03-26 (v0.1.0 RC -- IMPORTRANGE complete, final cleanup)
 
 ---
 
@@ -429,7 +429,7 @@ lattice/
 - [x] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE _(TRANSPOSE/SEQUENCE/FLATTEN done; ARRAYFORMULA pending)_
 - [x] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
 - [x] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
-- [x] Google-specific equivalents: QUERY (implemented with SQL-like syntax), IMPORTRANGE (pending)
+- [x] Google-specific equivalents: QUERY (SQL-like syntax), IMPORTRANGE (local file import via Tauri layer)
 
 ### Data Operations
 - [x] Sort (single and multi-column)
@@ -570,20 +570,20 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Candlestick charts | M | Done | OHLC SVG renderer for financial data |
 | Chart customization | L | Done | Titles, legends, axis labels, gridlines |
 | Sparklines | M | Done | Line/Bar/WinLoss SVG rendering, SparklineStore on Sheet |
-| MCP chart tools | M | | create/update/delete via AI |
-| MCP streamable HTTP transport | L | | Multi-client HTTP server |
-| Dark mode | M | | System theme detection |
-| Drag and drop | M | | Files, rows, columns |
+| MCP chart tools | M | Done | create/update/delete via AI (3 tools) |
+| MCP streamable HTTP transport | L | Deferred | Multi-client HTTP server (v0.2.0) |
+| Dark mode | M | Deferred | System theme detection (v0.2.0) |
+| Drag and drop | M | Deferred | Files, rows, columns (v0.2.0) |
 | Cell borders (all styles) | M | Done | BorderStyle enum, CellBorders struct, all edge combinations |
-| Images in cells | M | | Image insertion |
+| Images in cells | M | Deferred | Image insertion (v0.2.0) |
 | Hyperlinks | S | Done | Hyperlink field on Cell, set/get/remove on Sheet |
-| Performance optimization (100k+ rows) | L | | Profiling, lazy eval |
+| Performance optimization (100k+ rows) | L | Deferred | Profiling, lazy eval (v0.2.0) |
 | Auto-save | S | Done | Config module with periodic saves |
 | Recent files | S | Done | RecentFileStore with persistence |
 | Alternating row colors | S | Done | BandedRows on Sheet |
 | Zoom (25%-200%) | M | Done | Frontend zoom control, Cmd+=/-, StatusBar slider |
 
-### Phase 4: Advanced Features (8-12 weeks, ongoing) -- IN PROGRESS
+### Phase 4: Advanced Features (8-12 weeks, ongoing) -- COMPLETE (v0.1.0 scope)
 
 | Feature | Size | Status | Description |
 |---------|------|--------|-------------|
@@ -600,7 +600,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Treemap charts | M | Done | Squarified algorithm SVG renderer |
 | Text to columns | M | Done | Moved up from Phase 4 |
 | Checkboxes / dropdown chips | M | Done | CellValue::Checkbox, DropdownConfig on Cell |
-| QUERY function equivalent | L | | SQL-like querying |
+| QUERY function equivalent | L | Done | SQL-like querying (SELECT, WHERE, ORDER BY, GROUP BY, LIMIT) |
 | Array formulas | M | Done | CellValue::Array variant, set_array_formula, spill support |
 | Cell links (hyperlinks) | S | Done | Hyperlink field on Cell, set/get/remove |
 | Remove duplicates | S | Done | Sheet::remove_duplicates |
@@ -609,7 +609,31 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 
 ---
 
-## Next Steps (Pending — Require External Setup)
+## What's Next: v0.2.0
+
+### Performance & Scale
+- Performance optimization for 100k+ rows (lazy evaluation, Apache Arrow backing)
+- MCP streamable HTTP transport for multi-client / networked agents
+
+### UX Polish
+- Dark mode with system theme detection
+- Drag and drop (files, rows, columns)
+- Images in cells
+- Chart themes / color palette switching
+- Trendlines: polynomial, exponential, moving average
+
+### Platform
+- Real-time collaboration (CRDT-based multi-user editing)
+- Plugin system (WASM-based user-extensible functions)
+- Database connectivity (Postgres, SQLite queries as data sources)
+- Macro recording / scripting automation layer
+- Version history with diff
+- Template gallery (financial analysis templates)
+- Localization / i18n
+
+---
+
+## Next Steps (Pending -- Require External Setup)
 
 These items are architecturally ready (stubs, traits, and docs exist) but need external credentials or manual setup before they can be completed.
 
