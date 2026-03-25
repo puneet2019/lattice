@@ -19,8 +19,10 @@ test-mcp:
 	cargo test -p lattice-mcp
 
 test-e2e:
-	@echo "E2E tests require a running app; run 'make dev' first"
-	cd frontend && npm run test:e2e 2>/dev/null || echo "E2E test runner not yet configured"
+	cd frontend && npm install
+	cd frontend && npm run build
+	cargo build
+	cd frontend && npm run test:e2e
 
 lint:
 	cargo fmt --all -- --check
