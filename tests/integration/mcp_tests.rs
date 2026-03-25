@@ -2698,3 +2698,877 @@ async fn test_chart_with_options() {
     let id = result["chart_id"].as_str().unwrap();
     call_tool(&mut server, "delete_chart", json!({"chart_id": id})).await;
 }
+
+// ── 22. Multiplication table of 14 (1 to 15) ─────────────────────────────────
+
+/// Build a 14× multiplication table (rows 1-15), verify every product,
+/// then verify SUM and AVERAGE totals at the bottom.
+#[tokio::test]
+async fn test_mcp_multiplication_table_14() {
+    let mut server = McpServer::new_default();
+
+    // Header in A1.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "14 Times Table"}),
+    )
+    .await;
+
+    // Column headers in row 2.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2", "value": "Number"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2", "value": "Result"}),
+    )
+    .await;
+
+    // Write numbers 1-15 in A3:A17 and formulas =A_n*14 in B3:B17.
+    for n in 1u32..=15 {
+        let row = n + 2; // row 3 = n=1, row 17 = n=15
+        let a_ref = format!("A{}", row);
+        let b_ref = format!("B{}", row);
+        let formula = format!("A{}*14", row);
+
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": a_ref, "value": n}),
+        )
+        .await;
+
+        call_tool(
+            &mut server,
+            "insert_formula",
+            json!({"sheet": "Sheet1", "cell_ref": b_ref, "formula": formula}),
+        )
+        .await;
+    }
+
+    // Read back all B3:B17 values and verify n * 14.
+    for n in 1u32..=15 {
+        let row = n + 2;
+        let b_ref = format!("B{}", row);
+        let expected = (n * 14) as f64;
+
+        let cell = call_tool(
+            &mut server,
+            "read_cell",
+            json!({"sheet": "Sheet1", "cell_ref": b_ref}),
+        )
+        .await;
+
+        assert_eq!(
+            cell["value"].as_f64().unwrap(),
+            expected,
+            "B{} ({}×14) must equal {}",
+            row,
+            n,
+            expected
+        );
+    }
+
+    // Insert SUM(B3:B17) in B18 — expected: 14*(1+2+...+15) = 14*120 = 1680.
+    let sum_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "B18", "formula": "SUM(B3:B17)"}),
+    )
+    .await;
+    assert_eq!(
+        sum_result["result"].as_f64().unwrap(),
+        1680.0,
+        "SUM of 14× table (1-15) must equal 1680"
+    );
+
+    // Verify via read_cell too.
+    let b18 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B18"}),
+    )
+    .await;
+    assert_eq!(b18["value"].as_f64().unwrap(), 1680.0);
+    assert_eq!(b18["formula"], "SUM(B3:B17)");
+
+    // Insert AVERAGE(B3:B17) in B19 — expected: 1680/15 = 112.
+    let avg_result = call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "B19", "formula": "AVERAGE(B3:B17)"}),
+    )
+    .await;
+    assert_eq!(
+        avg_result["result"].as_f64().unwrap(),
+        112.0,
+        "AVERAGE of 14× table (1-15) must equal 112"
+    );
+
+    let b19 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B19"}),
+    )
+    .await;
+    assert_eq!(b19["value"].as_f64().unwrap(), 112.0);
+}
+
+// ── 23. Formatting round-trip ─────────────────────────────────────────────────
+
+/// Incrementally apply and verify every supported format property on a single
+/// cell: bold, font_color, bg_color, font_size, italic, underline-like combos.
+#[tokio::test]
+async fn test_mcp_formatting_roundtrip() {
+    let mut server = McpServer::new_default();
+
+    // Write a value so the cell exists.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "Test"}),
+    )
+    .await;
+
+    // Step 1 — set bold=true and red font_color.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bold": true,
+            "font_color": "#ff0000"
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(
+        fmt["format"]["bold"], true,
+        "bold must be true after step 1"
+    );
+    assert_eq!(
+        fmt["format"]["font_color"], "#ff0000",
+        "font_color must be #ff0000 after step 1"
+    );
+
+    // Step 2 — set yellow bg_color; bold and font_color must remain.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bg_color": "#ffff00"
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(
+        fmt["format"]["bg_color"], "#ffff00",
+        "bg_color must be #ffff00 after step 2"
+    );
+    // Previously-set properties must be preserved.
+    assert_eq!(
+        fmt["format"]["bold"], true,
+        "bold must be preserved through step 2"
+    );
+    assert_eq!(
+        fmt["format"]["font_color"], "#ff0000",
+        "font_color must be preserved through step 2"
+    );
+
+    // Step 3 — set font_size=18.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "font_size": 18.0
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(
+        fmt["format"]["font_size"].as_f64().unwrap(),
+        18.0,
+        "font_size must be 18 after step 3"
+    );
+
+    // Step 4 — set italic=true.  All prior properties must still hold.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "italic": true
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    let f = &fmt["format"];
+    assert_eq!(f["bold"], true, "bold must still be true at step 4");
+    assert_eq!(f["italic"], true, "italic must be true at step 4");
+    assert_eq!(
+        f["font_size"].as_f64().unwrap(),
+        18.0,
+        "font_size must still be 18 at step 4"
+    );
+    assert_eq!(
+        f["font_color"], "#ff0000",
+        "font_color must still be #ff0000 at step 4"
+    );
+    assert_eq!(
+        f["bg_color"], "#ffff00",
+        "bg_color must still be #ffff00 at step 4"
+    );
+
+    // Step 5 — clear bg_color by setting it to null.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "bg_color": null
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert!(
+        fmt["format"]["bg_color"].is_null(),
+        "bg_color must be null after explicit null clear"
+    );
+    // Other properties must still be set.
+    assert_eq!(
+        fmt["format"]["bold"], true,
+        "bold must be unaffected by bg_color clear"
+    );
+    assert_eq!(
+        fmt["format"]["italic"], true,
+        "italic must be unaffected by bg_color clear"
+    );
+}
+
+// ── 24. Full realistic agent workflow ─────────────────────────────────────────
+
+/// Simulate a realistic Claude Desktop session: create an "Analysis" sheet,
+/// write 4-quarter financial data, insert profit formulas and totals, describe
+/// revenue, sort by revenue descending, apply formatting, create a bar chart,
+/// verify workbook info, and export as CSV.
+#[tokio::test]
+async fn test_mcp_realistic_agent_workflow() {
+    let mut server = McpServer::new_default();
+
+    // Step 1: initialize the MCP session.
+    let init_raw = server
+        .handle_message(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#)
+        .await
+        .unwrap();
+    let init: Value = serde_json::from_str(&init_raw).unwrap();
+    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
+
+    // Step 2: create a dedicated "Analysis" sheet.
+    let create = call_tool(&mut server, "create_sheet", json!({"name": "Analysis"})).await;
+    assert_eq!(create["success"], true);
+
+    // Step 3: write the header row.
+    for (cell, val) in &[
+        ("A1", "Quarter"),
+        ("B1", "Revenue"),
+        ("C1", "Costs"),
+        ("D1", "Profit"),
+    ] {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Analysis", "cell_ref": cell, "value": val}),
+        )
+        .await;
+    }
+
+    // Step 4: write quarter labels.
+    for (i, q) in ["Q1", "Q2", "Q3", "Q4"].iter().enumerate() {
+        let cell = format!("A{}", i + 2);
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Analysis", "cell_ref": cell, "value": q}),
+        )
+        .await;
+    }
+
+    // Step 5: write Revenue (B2:B5) and Costs (C2:C5).
+    let revenues = [50000, 65000, 72000, 80000];
+    let costs = [30000, 35000, 40000, 42000];
+    for (i, (rev, cost)) in revenues.iter().zip(costs.iter()).enumerate() {
+        let row = i + 2;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Analysis", "cell_ref": format!("B{}", row), "value": rev}),
+        )
+        .await;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Analysis", "cell_ref": format!("C{}", row), "value": cost}),
+        )
+        .await;
+    }
+
+    // Step 6: insert Profit formulas D2:D5 = revenue - costs.
+    for row in 2..=5usize {
+        let formula = format!("B{}-C{}", row, row);
+        call_tool(
+            &mut server,
+            "insert_formula",
+            json!({"sheet": "Analysis", "cell_ref": format!("D{}", row), "formula": formula}),
+        )
+        .await;
+    }
+
+    // Verify each profit value.
+    let expected_profits = [20000.0, 30000.0, 32000.0, 38000.0];
+    for (i, expected) in expected_profits.iter().enumerate() {
+        let row = i + 2;
+        let cell = call_tool(
+            &mut server,
+            "read_cell",
+            json!({"sheet": "Analysis", "cell_ref": format!("D{}", row)}),
+        )
+        .await;
+        assert_eq!(
+            cell["value"].as_f64().unwrap(),
+            *expected,
+            "D{} profit must equal {}",
+            row,
+            expected
+        );
+    }
+
+    // Step 7: insert totals row (row 6).
+    for col in &["B", "C", "D"] {
+        let formula = format!("SUM({}2:{}5)", col, col);
+        let cell_ref = format!("{}6", col);
+        call_tool(
+            &mut server,
+            "insert_formula",
+            json!({"sheet": "Analysis", "cell_ref": cell_ref, "formula": formula}),
+        )
+        .await;
+    }
+
+    // Verify totals: revenue=267000, costs=147000, profit=120000.
+    let b6 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Analysis", "cell_ref": "B6"}),
+    )
+    .await;
+    assert_eq!(
+        b6["value"].as_f64().unwrap(),
+        267000.0,
+        "Total revenue must be 267000"
+    );
+
+    let c6 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Analysis", "cell_ref": "C6"}),
+    )
+    .await;
+    assert_eq!(
+        c6["value"].as_f64().unwrap(),
+        147000.0,
+        "Total costs must be 147000"
+    );
+
+    let d6 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Analysis", "cell_ref": "D6"}),
+    )
+    .await;
+    assert_eq!(
+        d6["value"].as_f64().unwrap(),
+        120000.0,
+        "Total profit must be 120000"
+    );
+
+    // Step 8: describe_data on revenue B2:B5.
+    let stats = call_tool(
+        &mut server,
+        "describe_data",
+        json!({"sheet": "Analysis", "range": "B2:B5"}),
+    )
+    .await;
+    assert_eq!(stats["numeric_count"], 4, "4 revenue values");
+    let s = &stats["statistics"];
+    assert_eq!(
+        s["sum"].as_f64().unwrap(),
+        267000.0,
+        "revenue sum must be 267000"
+    );
+    assert_eq!(
+        s["min"].as_f64().unwrap(),
+        50000.0,
+        "min revenue must be 50000"
+    );
+    assert_eq!(
+        s["max"].as_f64().unwrap(),
+        80000.0,
+        "max revenue must be 80000"
+    );
+    // mean = 267000/4 = 66750
+    assert_eq!(
+        s["mean"].as_f64().unwrap(),
+        66750.0,
+        "mean revenue must be 66750"
+    );
+
+    // Step 9: sort A2:D5 by Revenue (column B) descending so Q4 (80000) comes first.
+    let sort_result = call_tool(
+        &mut server,
+        "sort_range",
+        json!({
+            "sheet": "Analysis",
+            "range": "A2:D5",
+            "sort_by": [{"column": "B", "ascending": false}]
+        }),
+    )
+    .await;
+    assert_eq!(sort_result["success"], true);
+    assert_eq!(sort_result["rows_sorted"], 4);
+
+    // After descending sort: Q4 (80000) should now be in row 2.
+    let a2_after_sort = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Analysis", "cell_ref": "A2"}),
+    )
+    .await;
+    assert_eq!(
+        a2_after_sort["value"], "Q4",
+        "Q4 must be first row after sort by revenue desc"
+    );
+    let b2_after_sort = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Analysis", "cell_ref": "B2"}),
+    )
+    .await;
+    assert_eq!(
+        b2_after_sort["value"].as_f64().unwrap(),
+        80000.0,
+        "Revenue in first row must be 80000 (Q4)"
+    );
+
+    // Step 10: format header row bold.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Analysis",
+            "cell_ref": "A1:D1",
+            "bold": true
+        }),
+    )
+    .await;
+    let header_fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Analysis", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(header_fmt["format"]["bold"], true, "header A1 must be bold");
+
+    // Step 11: format Profit column D2:D5 with green font.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Analysis",
+            "cell_ref": "D2:D5",
+            "font_color": "#008000"
+        }),
+    )
+    .await;
+    let profit_fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Analysis", "cell_ref": "D2"}),
+    )
+    .await;
+    assert_eq!(
+        profit_fmt["format"]["font_color"], "#008000",
+        "profit cells must have green font"
+    );
+
+    // Step 12: create a bar chart from the revenue data.
+    let chart = call_tool(
+        &mut server,
+        "create_chart",
+        json!({
+            "sheet": "Analysis",
+            "chart_type": "bar",
+            "data_range": "A1:B5",
+            "title": "Quarterly Revenue"
+        }),
+    )
+    .await;
+    assert_eq!(chart["success"], true);
+    assert!(
+        chart["chart_id"].is_string(),
+        "chart_id must be present in response"
+    );
+    let chart_id = chart["chart_id"].as_str().unwrap().to_string();
+
+    // Step 13: get_workbook_info — verify 2 sheets, sufficient cells.
+    let info = call_tool(&mut server, "get_workbook_info", json!({})).await;
+    assert_eq!(info["sheet_count"], 2, "must have Sheet1 and Analysis");
+    let analysis_info = info["sheets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "Analysis")
+        .expect("Analysis sheet must appear in workbook info");
+    assert!(
+        analysis_info["cell_count"].as_u64().unwrap() >= 20,
+        "Analysis sheet must have at least 20 cells (headers + data)"
+    );
+
+    // Step 14: export CSV from Analysis and verify key values appear.
+    let csv_result = call_tool(&mut server, "export_csv", json!({"sheet": "Analysis"})).await;
+    let csv = csv_result["csv"].as_str().unwrap();
+    assert!(csv.contains("Quarter"), "CSV must contain 'Quarter' header");
+    assert!(csv.contains("Revenue"), "CSV must contain 'Revenue' header");
+    assert!(csv.contains("Q4"), "CSV must contain Q4 data");
+    assert!(csv.contains("80000"), "CSV must contain 80000 revenue");
+
+    // Cleanup the test chart.
+    call_tool(&mut server, "delete_chart", json!({"chart_id": chart_id})).await;
+}
+
+// ── 25. Named functions CRUD via MCP ──────────────────────────────────────────
+
+/// Test the full lifecycle of named functions via MCP tools:
+/// add, list (verify name/params/body), duplicate error, remove, list again.
+#[tokio::test]
+async fn test_mcp_named_functions() {
+    let mut server = McpServer::new_default();
+
+    // Initially the named function list must be empty.
+    let initial_list = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(
+        initial_list["count"], 0,
+        "new workbook must have 0 named functions"
+    );
+
+    // Step 1: add DOUBLE(x) = x*2.
+    let add_result = call_tool(
+        &mut server,
+        "add_named_function",
+        json!({
+            "name": "DOUBLE",
+            "params": ["x"],
+            "body": "x*2",
+            "description": "Returns twice the input value"
+        }),
+    )
+    .await;
+    assert_eq!(add_result["success"], true);
+    assert_eq!(add_result["name"], "DOUBLE");
+    assert_eq!(add_result["params"][0], "x");
+    assert_eq!(add_result["body"], "x*2");
+    assert_eq!(
+        add_result["description"], "Returns twice the input value",
+        "description must round-trip"
+    );
+
+    // Step 2: list — verify DOUBLE is present.
+    let list_after_add = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(
+        list_after_add["count"], 1,
+        "must have 1 named function after adding DOUBLE"
+    );
+    let funcs = list_after_add["named_functions"].as_array().unwrap();
+    assert_eq!(funcs[0]["name"], "DOUBLE");
+    assert_eq!(funcs[0]["params"][0], "x");
+    assert_eq!(funcs[0]["body"], "x*2");
+
+    // Step 3: adding a duplicate (case-insensitive) must fail.
+    let dup_err = call_tool_expect_error(
+        &mut server,
+        "add_named_function",
+        json!({
+            "name": "double",
+            "params": ["x"],
+            "body": "x*99"
+        }),
+    )
+    .await;
+    assert!(
+        !dup_err.is_empty(),
+        "duplicate named function must return an error"
+    );
+
+    // Step 4: add a second function TRIPLE(x) = x*3.
+    call_tool(
+        &mut server,
+        "add_named_function",
+        json!({"name": "TRIPLE", "params": ["x"], "body": "x*3"}),
+    )
+    .await;
+
+    let list_two = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(
+        list_two["count"], 2,
+        "must have 2 named functions after adding TRIPLE"
+    );
+
+    // Step 5: remove DOUBLE.
+    let remove_result = call_tool(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "DOUBLE"}),
+    )
+    .await;
+    assert_eq!(remove_result["success"], true);
+    assert_eq!(remove_result["name"], "DOUBLE");
+
+    // Step 6: list after removal — only TRIPLE should remain.
+    let list_after_remove = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(
+        list_after_remove["count"], 1,
+        "must have 1 named function after removing DOUBLE"
+    );
+    let remaining = list_after_remove["named_functions"].as_array().unwrap();
+    assert_eq!(remaining[0]["name"], "TRIPLE", "TRIPLE must remain");
+
+    // Step 7: removing a non-existent function must fail.
+    let not_found_err = call_tool_expect_error(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "DOUBLE"}),
+    )
+    .await;
+    assert!(
+        !not_found_err.is_empty(),
+        "removing non-existent function must return an error"
+    );
+
+    // Step 8: remove TRIPLE and verify the list is empty again.
+    call_tool(
+        &mut server,
+        "remove_named_function",
+        json!({"name": "TRIPLE"}),
+    )
+    .await;
+
+    let final_list = call_tool(&mut server, "list_named_functions", json!({})).await;
+    assert_eq!(
+        final_list["count"], 0,
+        "named function list must be empty after removing all functions"
+    );
+}
+
+// ── 26. Conditional formatting + filter view ──────────────────────────────────
+
+/// Write numbers 1-20, apply a conditional format rule for values > 10,
+/// verify the rule is listed, then save and apply a filter view that shows
+/// only the values > 10 (i.e., 11-20), verify the hidden row count, clear
+/// the filter by deleting the view, and finally remove the conditional format.
+#[tokio::test]
+async fn test_mcp_conditional_format_and_filter() {
+    let mut server = McpServer::new_default();
+
+    // Write values 1-20 in A1:A20.
+    for n in 1u32..=20 {
+        let cell_ref = format!("A{}", n);
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": cell_ref, "value": n}),
+        )
+        .await;
+    }
+
+    // Step 1: add conditional format — cell_value > 10 → bold + red font.
+    let cf_add = call_tool(
+        &mut server,
+        "add_conditional_format",
+        json!({
+            "sheet": "Sheet1",
+            "range": "A1:A20",
+            "rule_type": {
+                "kind": "cell_value",
+                "operator": ">",
+                "value1": 10.0
+            },
+            "style": {
+                "bold": true,
+                "font_color": "#ff0000"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(cf_add["success"], true);
+
+    // Step 2: list conditional formats — verify the rule is present.
+    let cf_list = call_tool(
+        &mut server,
+        "list_conditional_formats",
+        json!({"sheet": "Sheet1"}),
+    )
+    .await;
+    assert_eq!(
+        cf_list["count"], 1,
+        "must have 1 conditional format after adding"
+    );
+    let cf_entry = &cf_list["conditional_formats"][0];
+    assert_eq!(cf_entry["range"], "A1:A20", "range must match");
+    assert_eq!(cf_entry["rules"][0]["rule_type"]["kind"], "cell_value");
+    assert_eq!(cf_entry["rules"][0]["rule_type"]["operator"], ">");
+    assert_eq!(
+        cf_entry["rules"][0]["rule_type"]["value1"]
+            .as_f64()
+            .unwrap(),
+        10.0
+    );
+    assert_eq!(
+        cf_entry["rules"][0]["style"]["bold"], true,
+        "style bold must be true"
+    );
+    assert_eq!(
+        cf_entry["rules"][0]["style"]["font_color"], "#ff0000",
+        "style font_color must be #ff0000"
+    );
+
+    // Step 3: save a filter view that shows only values 11-20.
+    // The filter view uses column 0 (A), allowing string values "11".."20".
+    let allowed_values: Vec<Value> = (11u32..=20).map(|n| json!(n.to_string())).collect();
+    let fv_save = call_tool(
+        &mut server,
+        "save_filter_view",
+        json!({
+            "name": "HighValues",
+            "column_filters": {
+                "0": allowed_values
+            }
+        }),
+    )
+    .await;
+    assert_eq!(fv_save["success"], true);
+    assert_eq!(fv_save["name"], "HighValues");
+
+    // Step 4: list filter views — verify HighValues is present.
+    let fv_list = call_tool(&mut server, "list_filter_views", json!({})).await;
+    assert_eq!(fv_list["count"], 1, "must have 1 filter view after saving");
+    assert_eq!(fv_list["filter_views"][0]["name"], "HighValues");
+
+    // Step 5: apply HighValues to Sheet1 — rows with values <= 10 should be hidden.
+    // Row 0 (A1 = value 1) is treated as the header row and is never hidden.
+    // Data rows 1-19 contain values 2-20. Values 2-10 (rows 1-9) do NOT match
+    // the allowed list (11-20) → 9 rows hidden.
+    let fv_apply = call_tool(
+        &mut server,
+        "apply_filter_view",
+        json!({"sheet": "Sheet1", "name": "HighValues"}),
+    )
+    .await;
+    assert_eq!(fv_apply["success"], true);
+    assert_eq!(
+        fv_apply["rows_hidden"].as_u64().unwrap(),
+        9,
+        "values 2-10 in rows 1-9 must be hidden (row 0 is the implicit header)"
+    );
+
+    // Step 6: delete the filter view (clears the named filter, but rows stay hidden
+    // until unhidden explicitly — the delete only removes the saved view definition).
+    let fv_delete = call_tool(
+        &mut server,
+        "delete_filter_view",
+        json!({"name": "HighValues"}),
+    )
+    .await;
+    assert_eq!(fv_delete["success"], true);
+
+    // Verify the filter view is gone from the list.
+    let fv_list_after = call_tool(&mut server, "list_filter_views", json!({})).await;
+    assert_eq!(
+        fv_list_after["count"], 0,
+        "filter view list must be empty after deletion"
+    );
+
+    // Step 7: unhide the 9 hidden rows (rows 2-10 in 1-based, which are rows 1-9
+    // in 0-based) to reset the sheet state.
+    call_tool(
+        &mut server,
+        "unhide_rows",
+        json!({"sheet": "Sheet1", "start_row": 2, "count": 9}),
+    )
+    .await;
+
+    // Step 8: remove the conditional format rule.
+    let cf_remove = call_tool(
+        &mut server,
+        "remove_conditional_format",
+        json!({
+            "sheet": "Sheet1",
+            "range": "A1:A20",
+            "rule_index": 0
+        }),
+    )
+    .await;
+    assert_eq!(cf_remove["success"], true);
+
+    // Step 9: verify the conditional format list is now empty.
+    let cf_list_after = call_tool(
+        &mut server,
+        "list_conditional_formats",
+        json!({"sheet": "Sheet1"}),
+    )
+    .await;
+    assert_eq!(
+        cf_list_after["count"], 0,
+        "conditional format list must be empty after removal"
+    );
+}
