@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable, universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Import Apple signing certificate
+        if: ${{ env.APPLE_CERTIFICATE != '' }}
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/certificate.p12 \
+            -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm /tmp/certificate.p12
+
+      - name: Build Tauri app (aarch64)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          CI=true cargo tauri build --target aarch64-apple-darwin
+
+      - name: Build Tauri app (x86_64)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          CI=true cargo tauri build --target x86_64-apple-darwin
+
+      - name: Notarize DMGs
+        if: ${{ env.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          for dmg in target/aarch64-apple-darwin/release/bundle/dmg/Lattice_*.dmg \
+                     target/x86_64-apple-darwin/release/bundle/dmg/Lattice_*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "Notarizing $dmg"
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait
+            xcrun stapler staple "$dmg"
+          done
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Collect DMG artifacts
+        id: artifacts
+        run: |
+          AARCH64_DMG=$(ls target/aarch64-apple-darwin/release/bundle/dmg/Lattice_*.dmg 2>/dev/null | head -1 || echo "")
+          X86_DMG=$(ls target/x86_64-apple-darwin/release/bundle/dmg/Lattice_*.dmg 2>/dev/null | head -1 || echo "")
+          echo "AARCH64_DMG=$AARCH64_DMG" >> "$GITHUB_OUTPUT"
+          echo "X86_DMG=$X86_DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Lattice ${{ steps.version.outputs.VERSION }}"
+          draft: true
+          generate_release_notes: true
+          files: |
+            ${{ steps.artifacts.outputs.AARCH64_DMG }}
+            ${{ steps.artifacts.outputs.X86_DMG }}
+
+      - name: Update Homebrew cask SHA-256
+        if: ${{ steps.artifacts.outputs.AARCH64_DMG != '' }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          DMG="${{ steps.artifacts.outputs.AARCH64_DMG }}"
+          NEW_SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          sed -i '' \
+            -e "s/version \".*\"/version \"$VERSION\"/" \
+            -e "s/sha256 \".*\"/sha256 \"$NEW_SHA\"/" \
+            homebrew/lattice.rb
+          echo "Updated homebrew/lattice.rb: version=$VERSION sha256=$NEW_SHA"
+          echo "--- homebrew/lattice.rb ---"
+          cat homebrew/lattice.rb
