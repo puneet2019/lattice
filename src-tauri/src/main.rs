@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod mcp_bridge;
+mod socket_server;
 mod state;
 
 use state::AppState;
@@ -345,6 +347,17 @@ fn main() {
                 }
             });
 
+            // Start the Unix socket server for MCP bridge connections.
+            // This allows `lattice --mcp-stdio` to connect to this GUI
+            // instance and proxy MCP commands so changes appear live.
+            let app_state: tauri::State<'_, AppState> = app.state();
+            let workbook = app_state.workbook.clone();
+            let conditional_formats = app_state.conditional_formats.clone();
+            let app_handle = app.handle().clone();
+            tokio::spawn(async move {
+                socket_server::start_socket_server(workbook, conditional_formats, app_handle).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -452,21 +465,44 @@ fn main() {
             commands::export::get_recent_files,
             commands::export::add_recent_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Lattice");
+        .build(tauri::generate_context!())
+        .expect("error while building Lattice")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Clean up the Unix socket on shutdown to avoid stale sockets.
+                socket_server::remove_socket();
+            }
+        });
 }
 
-/// Run the MCP server in headless stdio mode.
+/// Run the MCP server in stdio mode.
 ///
-/// This bypasses Tauri entirely and runs a simple stdin/stdout loop
-/// for use with Claude Desktop, Claude Code, or other MCP clients.
+/// If a GUI instance is running (detected via the Unix socket at
+/// `~/Library/Application Support/Lattice/lattice.sock`), enters
+/// **bridge mode**: proxies JSON-RPC messages from stdin to the GUI
+/// socket so changes appear live in the GUI window.
+///
+/// If no GUI is running, falls back to **headless mode**: runs a
+/// standalone MCP server over stdin/stdout.
 fn run_mcp_stdio() {
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
     rt.block_on(async {
-        let mut server = lattice_mcp::McpServer::new_default();
-        if let Err(e) = server.run_stdio().await {
-            eprintln!("lattice: MCP server error: {}", e);
-            std::process::exit(1);
+        let sock_path = socket_server::socket_path();
+        if sock_path.exists() {
+            // Bridge mode: proxy to the live GUI instance.
+            eprintln!("lattice: GUI detected, entering bridge mode");
+            if let Err(e) = mcp_bridge::run_mcp_bridge(&sock_path).await {
+                eprintln!("lattice: bridge error: {}", e);
+                std::process::exit(1);
+            }
+        } else {
+            // Headless mode: standalone MCP server.
+            eprintln!("lattice: no GUI detected, entering headless mode");
+            let mut server = lattice_mcp::McpServer::new_default();
+            if let Err(e) = server.run_stdio().await {
+                eprintln!("lattice: MCP server error: {}", e);
+                std::process::exit(1);
+            }
         }
     });
 }

@@ -2046,6 +2046,7 @@ dependencies = [
 name = "lattice-app"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "lattice-analysis",
  "lattice-charts",
  "lattice-core",

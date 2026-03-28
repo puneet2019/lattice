@@ -21,3 +21,4 @@ lattice-mcp = { path = "../crates/lattice-mcp" }
 lattice-charts = { path = "../crates/lattice-charts" }
 lattice-analysis = { path = "../crates/lattice-analysis" }
 uuid = { workspace = true }
+dirs = "6"

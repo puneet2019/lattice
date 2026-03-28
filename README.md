@@ -1,53 +1,47 @@
-# Lattice
+<p align="center">
+  <h1 align="center">Lattice</h1>
+  <p align="center">The AI-native spreadsheet for macOS. Built in Rust, powered by MCP.</p>
+</p>
 
-AI-native macOS spreadsheet with built-in MCP server.
-
-[![CI](https://github.com/puneet2019/lattice/actions/workflows/ci.yml/badge.svg)](https://github.com/puneet2019/lattice/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/puneet2019/lattice/actions/workflows/ci.yml"><img src="https://github.com/puneet2019/lattice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/puneet2019/lattice/releases/latest"><img src="https://img.shields.io/github/v/release/puneet2019/lattice?label=release" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/puneet2019/lattice/stargazers"><img src="https://img.shields.io/github/stars/puneet2019/lattice?style=flat" alt="Stars"></a>
+</p>
 
 ---
+
+<!-- TODO: Add screenshot/GIF -->
+
+## Why Lattice
+
+- **AI-native from day one.** A built-in [MCP](https://modelcontextprotocol.io/) server with 66 tools lets Claude Desktop and Claude Code read, write, sort, chart, and analyze your spreadsheets directly. No plugins, no export/import loops.
+- **Pure Rust, native speed.** 128 formula functions, dependency-graph recalculation, and a Canvas-rendered grid -- all compiled to a single native binary. No Electron, no GC pauses.
+- **18 MB macOS app.** A lightweight `.dmg` that launches instantly and works offline. Single-file `.xlsx` format syncs cleanly with Google Drive, Dropbox, and iCloud.
+
+## Quick Demo
+
+Connect Lattice to Claude Desktop, then ask:
+
+> "Create a new sheet called Q1 Revenue. Add columns for Month, Product, Units, Price, and Revenue. Fill in sample data for Jan--Mar with 3 products. Add a SUM row at the bottom and create a bar chart of revenue by product."
+
+Claude calls Lattice MCP tools (`write_cell`, `create_chart`, `sort_range`, ...) and builds the spreadsheet live -- no copy-pasting, no manual formatting.
 
 ## Features
 
-- **128 formula functions** -- SUM, VLOOKUP, QUERY, IMPORTRANGE, XIRR, LAMBDA, and more
-- **66 MCP tools** -- AI agents (Claude Desktop, Claude Code) can read, write, sort, chart, and analyze spreadsheets programmatically
-- **13 chart types** -- bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge
-- **Native macOS app** -- ~15 MB `.dmg`, no Electron, no GC languages
-- **Cloud sync** -- single-file `.xlsx` format works with Google Drive, Dropbox, iCloud
-- **Full Rust core** -- 1,272 tests, formula evaluation, dependency graph with cycle detection, topological recalculation
+| Category | Highlights |
+|----------|-----------|
+| **Core** | Cell editing, undo/redo, clipboard, merge cells, freeze panes, auto-fill, find & replace, conditional formatting, data validation, pivot tables |
+| **Formulas** | 128 functions -- SUM, VLOOKUP, XLOOKUP, INDEX/MATCH, QUERY, IMPORTRANGE, XIRR, LAMBDA, LET, ARRAYFORMULA, and more |
+| **Charts** | 13 types -- bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge |
+| **AI / MCP** | 66 tools, 5 resources, 5 prompts -- cell ops, sheet ops, data analysis, charting, formatting, file I/O, sorting, filtering |
+| **File I/O** | Read/write: `.xlsx`, `.xls`, `.ods`, `.csv`, `.tsv`. Export: JSON, PDF |
+| **App** | macOS menu bar, auto-save, file watcher, dark mode, SF Pro typography |
 
----
+## Install
 
-## Screenshot
-
-<!-- TODO: add screenshot after first public release -->
-
----
-
-## Current Status
-
-**v0.1.0 Release Candidate**
-
-| Component | Status | Details |
-|-----------|--------|---------|
-| Core Engine | Done | 128 formulas, dependency graph, sort, filter, clipboard, merge cells, undo/redo, pivot tables, QUERY, IMPORTRANGE |
-| MCP Server | Done | JSON-RPC 2.0, 66 tools, 5 resources, 5 prompts (cell, sheet, data, analysis, chart, file, format, validation ops) |
-| File I/O | Done | .xlsx read/write (calamine + rust_xlsxwriter), .csv, .tsv, .ods, .xls, JSON export, PDF export |
-| Frontend | Done | Canvas grid, toolbar, formula bar, sheet tabs, status bar, conditional format rendering, chart overlays |
-| Tauri App | Done | macOS menu bar, IPC commands, file watcher, auto-save |
-| MCP stdio | Done | stdio transport for Claude Desktop / Claude Code |
-| Tests | Passing | 1,272 tests across 5 crates, 0 warnings |
-
----
-
-## Quick Start
-
-### Requirements
-
-- macOS 13 (Ventura) or later
-- Rust stable (via [rustup](https://rustup.rs))
-- Node 20 (for frontend)
-
-### Install via Homebrew
+### Homebrew
 
 ```sh
 brew tap puneet2019/lattice
@@ -56,22 +50,19 @@ brew install --cask lattice
 
 ### Download DMG
 
-Download the latest `.dmg` from [Releases](https://github.com/puneet2019/lattice/releases).
+Grab the latest `.dmg` from [Releases](https://github.com/puneet2019/lattice/releases/latest).
 
-### Build from source
+### Build from Source
+
+Requires macOS 13+, Rust stable ([rustup](https://rustup.rs)), and Node.js 20+.
 
 ```sh
-# Install dependencies and run in dev mode
-make dev
-
-# Run tests
-make test
-
-# Build release .dmg
-make bundle
+git clone https://github.com/puneet2019/lattice.git
+cd lattice
+make dev        # Start dev server with hot reload
+make test       # Run all 1,272 tests
+make bundle     # Build release .dmg
 ```
-
----
 
 ## MCP Setup
 
@@ -96,52 +87,29 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 claude mcp add lattice /Applications/Lattice.app/Contents/MacOS/lattice --args --mcp-stdio
 ```
 
-Once connected, Claude can call tools like `read_range`, `write_cell`, `describe_data`, `sort_range`, `create_chart`, `import_range`, and others directly against your open spreadsheet.
-
----
+Once connected, Claude can call tools like `read_range`, `write_cell`, `describe_data`, `sort_range`, `create_chart`, and `import_range` directly against your open spreadsheet.
 
 ## Architecture
 
 ```
-macOS App (.dmg)
-  Tauri shell (WKWebView + Rust backend)
+macOS App (.dmg, ~18 MB)
+  Tauri v2 (WKWebView + Rust backend)
     Frontend -- SolidJS + Canvas grid
     Rust backend
-      lattice-core      Spreadsheet engine (128 formulas, dependency graph, cell storage)
-      lattice-io        File I/O -- xlsx, xls, ods, csv, tsv, json, pdf
-      lattice-mcp       MCP server -- 66 tools, 5 resources, 5 prompts
-      lattice-charts    SVG chart generation (13 chart types)
-      lattice-analysis  Statistical and financial analysis
+      lattice-core       Spreadsheet engine (128 formulas, dependency graph, cell storage)
+      lattice-io         File I/O (xlsx, xls, ods, csv, tsv, json, pdf)
+      lattice-mcp        MCP server (66 tools, 5 resources, 5 prompts)
+      lattice-charts     SVG chart generation (13 chart types)
+      lattice-analysis   Statistical and financial analysis
 ```
 
-The Rust backend is the single source of truth. Frontend communicates via Tauri `invoke()`. MCP and GUI share state through `Arc<RwLock<Workbook>>` with a tokio broadcast channel event bus for live sync.
+The Rust backend is the single source of truth. The frontend communicates via Tauri `invoke()`. MCP and GUI share state through `Arc<RwLock<Workbook>>` with a tokio broadcast channel for live sync.
 
----
+## Contributing
 
-## Makefile Targets
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code style, and PR process.
 
-| Target | Description |
-|--------|-------------|
-| `make dev` | Start Tauri dev server with hot reload |
-| `make build` | Build release app |
-| `make test` | Run all Rust tests |
-| `make test-mcp` | Run MCP integration tests |
-| `make lint` | cargo fmt check + clippy |
-| `make fmt` | Auto-format all Rust code |
-| `make bench` | Run benchmarks |
-| `make clean` | Remove build artifacts |
-| `make bundle` | Build release .dmg |
-
----
-
-## Documentation
-
-- [Master Plan](docs/PLAN.md) -- full feature list, architecture, phase breakdown
-- [Changelog](docs/CHANGELOG.md) -- plan revision history
-- [References](docs/REFERENCES.md) -- IronCalc, LibreOffice, ONLYOFFICE, HyperFormula
-- [MCP References](docs/MCP_REFERENCES.md) -- MCP integration patterns
-
----
+Looking for a place to start? Check out [good first issues](https://github.com/puneet2019/lattice/labels/good%20first%20issue).
 
 ## License
 

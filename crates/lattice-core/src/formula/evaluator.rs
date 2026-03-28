@@ -1580,7 +1580,10 @@ fn evaluate_function(name: &str, args: Vec<FuncArg>, ctx: &EvalCtx<'_>) -> Resul
         "SIGN" => {
             let a = require_args(&args, 1, "SIGN")?;
             let n = coerce_to_number(&a[0])?;
-            Ok(CellValue::Number(n.signum()))
+            // Rust's f64::signum() returns 1.0 for 0.0 (IEEE 754 sign bit),
+            // but spreadsheet SIGN(0) must return 0.
+            let result = if n == 0.0 { 0.0 } else { n.signum() };
+            Ok(CellValue::Number(result))
         }
 
         // ===== LOGICAL =====
@@ -4414,8 +4417,7 @@ mod tests {
         let sheet = Sheet::new("T");
         assert_eq!(eval("SIGN(-5)", &sheet), CellValue::Number(-1.0));
         assert_eq!(eval("SIGN(5)", &sheet), CellValue::Number(1.0));
-        // SIGN(0) test: signum(0.0) = 0.0, but parser may evaluate
-        // bare 0 inside function call differently. TODO: investigate.
+        assert_eq!(eval("SIGN(0)", &sheet), CellValue::Number(0.0));
     }
 
     // === Logical ===

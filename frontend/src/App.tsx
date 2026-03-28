@@ -616,6 +616,19 @@ const App: Component = () => {
     } catch {
       // Tauri event system not available (browser dev mode).
     }
+
+    // Listen for MCP bridge workbook changes.
+    // When Claude writes to the workbook via the MCP socket bridge,
+    // the backend emits this event so the frontend repaints the grid.
+    let unlistenWorkbookChanged: (() => void) | undefined;
+    try {
+      unlistenWorkbookChanged = await listen('workbook-changed', () => {
+        setRefreshTrigger((n) => n + 1);
+      });
+    } catch {
+      // Tauri event system not available (browser dev mode).
+    }
+
     // Auto-save every 60 seconds if there are unsaved changes and a file path exists.
     const autoSaveInterval = setInterval(() => {
       if (isDirty() && currentFilePath()) {
@@ -634,6 +647,7 @@ const App: Component = () => {
 
     onCleanup(() => {
       unlisten?.();
+      unlistenWorkbookChanged?.();
       clearInterval(autoSaveInterval);
       window.removeEventListener('beforeunload', beforeUnloadHandler);
     });
