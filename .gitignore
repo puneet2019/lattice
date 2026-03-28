@@ -43,3 +43,6 @@ credentials.json
 # Claude settings and worktrees (keep agents and skills)
 .claude/settings*
 .claude/worktrees/
+
+# Local TODO (not committed)
+TODO.md
