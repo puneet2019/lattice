@@ -354,7 +354,7 @@ fn main() {
             let workbook = app_state.workbook.clone();
             let conditional_formats = app_state.conditional_formats.clone();
             let app_handle = app.handle().clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 socket_server::start_socket_server(workbook, conditional_formats, app_handle).await;
             });
 
