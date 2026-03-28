@@ -814,7 +814,7 @@ mod tests {
 
         let parsed: Value = serde_json::from_str(&response).unwrap();
         let prompts = parsed["result"]["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 5);
+        assert_eq!(prompts.len(), 6);
     }
 
     #[tokio::test]

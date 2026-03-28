@@ -66,6 +66,11 @@ pub fn handle_list_prompts() -> Result<Value, (i32, String)> {
                     },
                 ],
             },
+            {
+                "name": "lattice-guide",
+                "description": "Learn how to use Lattice spreadsheet tools effectively. Returns a comprehensive guide with all 65 tools, best practices, and examples.",
+                "arguments": [],
+            },
         ],
     }))
 }
@@ -92,6 +97,7 @@ pub fn handle_get_prompt(params: Value) -> Result<Value, (i32, String)> {
         "create-dashboard" => Ok(prompt_create_dashboard(&prompt_args)),
         "explain-formulas" => Ok(prompt_explain_formulas(&prompt_args)),
         "financial-model" => Ok(prompt_financial_model(&prompt_args)),
+        "lattice-guide" => Ok(prompt_lattice_guide()),
         _ => Err((-32602, format!("Unknown prompt: {}", args.name))),
     }
 }
@@ -268,6 +274,61 @@ fn prompt_financial_model(args: &Value) -> Value {
     })
 }
 
+fn prompt_lattice_guide() -> Value {
+    json!({
+        "description": "Comprehensive guide to using Lattice spreadsheet via MCP",
+        "messages": [
+            {
+                "role": "user",
+                "content": {
+                    "type": "text",
+                    "text": concat!(
+                        "You are connected to Lattice, an AI-native spreadsheet. Here is how to use the 65+ tools:\n\n",
+                        "## Writing Data\n",
+                        "- `write_cell(sheet, cell_ref, value)` — write to a cell. Values auto-parsed: '42'→number, 'true'→boolean\n",
+                        "- `insert_formula(sheet, cell_ref, formula)` — write formula (no = prefix). Example: `insert_formula('Sheet1', 'A6', 'SUM(A1:A5)')`\n",
+                        "- `write_range(sheet, range, values)` — write 2D array\n\n",
+                        "## Reading Data\n",
+                        "- `read_cell(sheet, cell_ref)` → {value, formula}\n",
+                        "- `read_range(sheet, range)` → 2D array\n",
+                        "- `describe_data(sheet, range)` → {mean, median, min, max, sum, std_dev, count}\n\n",
+                        "## Formatting\n",
+                        "- `set_cell_format(sheet, cell_ref, bold, italic, font_color, bg_color, font_size)` — ranges work: cell_ref='A1:C10'\n",
+                        "- Colors as hex: font_color='#ff0000', bg_color='#ffff00'\n\n",
+                        "## Charts (13 types)\n",
+                        "- `create_chart(sheet, chart_type, data_range, title)` — types: bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge\n",
+                        "- Charts need headers in row 1. First column = labels, rest = data series\n\n",
+                        "## Data Operations\n",
+                        "- `sort_range(sheet, range, sort_by)` — multi-column sort\n",
+                        "- `find_in_workbook(query)` — search across sheets\n",
+                        "- `remove_duplicates(sheet, start_row, end_row, columns)` — dedup\n",
+                        "- `generate_pivot(sheet, source_range, row_fields, value_fields)` — pivot table\n",
+                        "- `auto_fill(sheet, source_range, target_range, direction)` — fill patterns\n\n",
+                        "## Sheets\n",
+                        "- `list_sheets()`, `create_sheet(name)`, `rename_sheet(old, new)`, `delete_sheet(name)`\n\n",
+                        "## Analysis\n",
+                        "- `correlate(sheet, range_x, range_y)` — Pearson correlation\n",
+                        "- `trend_analysis(sheet, range)` — linear trend + forecast\n\n",
+                        "## Advanced\n",
+                        "- Named ranges: `add_named_range(name, range)`, `resolve_named_range(name)`\n",
+                        "- Named functions: `add_named_function(name, params, body)`\n",
+                        "- Conditional formatting: `add_conditional_format(sheet, ...)`\n",
+                        "- Data validation: `set_validation(sheet, row, col, ...)`\n",
+                        "- Sparklines: `add_sparkline(sheet, row, col, type, data_range)`\n",
+                        "- Filter views: `save_filter_view(name, ...)`, `apply_filter_view(name)`\n",
+                        "- Protection: `protect_sheet(sheet)`, `unprotect_sheet(sheet)`\n\n",
+                        "## Tips\n",
+                        "- Set formatting AFTER writing data\n",
+                        "- Use `describe_data` first to understand data shape\n",
+                        "- The Lattice GUI shows changes live if the app is running\n",
+                        "- 150+ formula functions available (SUM, VLOOKUP, IF, LET, LAMBDA, QUERY, XIRR, etc.)\n",
+                    ),
+                },
+            },
+        ],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,7 +337,7 @@ mod tests {
     fn test_list_prompts() {
         let result = handle_list_prompts().unwrap();
         let prompts = result["prompts"].as_array().unwrap();
-        assert_eq!(prompts.len(), 5);
+        assert_eq!(prompts.len(), 6);
 
         let names: Vec<&str> = prompts
             .iter()
