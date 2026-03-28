@@ -98,20 +98,24 @@ pub fn render(data: &ChartData, options: &ChartOptions) -> String {
             "end"
         };
 
-        if let Some(label) = data.labels.get(i) {
-            svg.push_str(&svg_text(
-                outer_lx,
-                outer_ly,
-                anchor,
-                10,
-                "#333333",
-                &xml_escape(label),
-            ));
-            svg.push('\n');
-        }
+        // Show label + percentage outside the pie (like Google Sheets)
+        let label_text = if let Some(label) = data.labels.get(i) {
+            format!("{} ({})", xml_escape(label), pct)
+        } else {
+            pct.clone()
+        };
+        svg.push_str(&svg_text(
+            outer_lx,
+            outer_ly,
+            anchor,
+            10,
+            "#333333",
+            &label_text,
+        ));
+        svg.push('\n');
 
-        // Percentage inside the wedge
-        if fraction >= 0.04 {
+        // Percentage inside the wedge (for larger slices)
+        if fraction >= 0.06 {
             svg.push_str(&svg_text(lx, ly + 4.0, "middle", 11, "#ffffff", &pct));
             svg.push('\n');
         }
