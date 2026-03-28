@@ -2090,9 +2090,11 @@ version = "0.1.0"
 dependencies = [
  "calamine",
  "csv",
+ "lattice-charts",
  "lattice-core",
  "libc",
  "notify",
+ "quick-xml 0.31.0",
  "rust_xlsxwriter",
  "serde",
  "serde_json",

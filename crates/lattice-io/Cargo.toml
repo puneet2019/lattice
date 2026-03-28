@@ -9,8 +9,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+lattice-charts = { path = "../lattice-charts" }
 calamine = { version = "0.26", features = ["dates"] }
 rust_xlsxwriter = "0.94"
+quick-xml = "0.31"
 csv = "1"
 notify = "7"
 sha2 = "0.10"

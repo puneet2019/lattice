@@ -13,6 +13,8 @@ pub mod pdf_export;
 pub mod recent_files;
 pub mod tsv_io;
 pub mod watcher;
+pub mod xlsx_chart_parser;
+pub mod xlsx_chart_reader;
 pub mod xlsx_reader;
 pub mod xlsx_writer;
 
@@ -83,5 +85,6 @@ pub use pdf_export::{PrintSettings, export_print_html};
 pub use recent_files::{RecentFile, RecentFileStore};
 pub use tsv_io::{read_tsv, write_tsv};
 pub use watcher::FileWatcher;
+pub use xlsx_chart_reader::ImportedChart;
 pub use xlsx_reader::{read_ods, read_spreadsheet, read_xls, read_xlsx};
 pub use xlsx_writer::{write_xlsx, write_xlsx_to_buffer};
