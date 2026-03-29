@@ -3572,3 +3572,1205 @@ async fn test_mcp_conditional_format_and_filter() {
         "conditional format list must be empty after removal"
     );
 }
+
+// ── 27. clear_range ───────────────────────────────────────────────────────────
+
+/// Write 4 cells, clear 2 of them, verify cleared cells return null and the
+/// others are unaffected.
+#[tokio::test]
+async fn test_clear_range_basic() {
+    let mut server = McpServer::new_default();
+
+    for i in 1..=4u32 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "clear_range",
+        json!({"sheet": "Sheet1", "range": "A2:A3"}),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["cells_cleared"], 2, "should clear 2 cells");
+    assert_eq!(result["range"], "A2:A3");
+
+    // A1 and A4 must still have their values.
+    let a1 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(a1["value"].as_f64().unwrap(), 1.0, "A1 must be intact");
+
+    let a4 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A4"}),
+    )
+    .await;
+    assert_eq!(a4["value"].as_f64().unwrap(), 4.0, "A4 must be intact");
+
+    // A2 and A3 must be null.
+    let a2 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2"}),
+    )
+    .await;
+    assert!(a2["value"].is_null(), "A2 must be null after clear");
+
+    let a3 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A3"}),
+    )
+    .await;
+    assert!(a3["value"].is_null(), "A3 must be null after clear");
+}
+
+/// Clearing an already-empty range should succeed with cells_cleared = 0.
+#[tokio::test]
+async fn test_clear_range_already_empty() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "clear_range",
+        json!({"sheet": "Sheet1", "range": "B1:C5"}),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["cells_cleared"], 0, "empty range clears 0 cells");
+}
+
+// ── 28. write_range with readback ────────────────────────────────────────────
+
+/// Write a 3x2 block via write_range then verify every cell with read_range.
+#[tokio::test]
+async fn test_write_range_and_verify() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "write_range",
+        json!({
+            "sheet": "Sheet1",
+            "start_cell": "B2",
+            "values": [
+                [10, "alpha", true],
+                [20, "beta", false]
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["cells_written"], 6, "3x2 = 6 cells");
+
+    let range = call_tool(
+        &mut server,
+        "read_range",
+        json!({"sheet": "Sheet1", "range": "B2:D3"}),
+    )
+    .await;
+
+    let data = &range["data"];
+    assert_eq!(data[0][0].as_f64().unwrap(), 10.0);
+    assert_eq!(data[0][1], "alpha");
+    assert_eq!(data[0][2], true);
+    assert_eq!(data[1][0].as_f64().unwrap(), 20.0);
+    assert_eq!(data[1][1], "beta");
+    assert_eq!(data[1][2], false);
+}
+
+// ── 29. deduplicate ───────────────────────────────────────────────────────────
+
+/// Write rows with duplicates, deduplicate, verify only unique rows remain.
+#[tokio::test]
+async fn test_deduplicate_removes_duplicates() {
+    let mut server = McpServer::new_default();
+
+    // Rows: apple, banana, apple, cherry, banana  → unique: apple, banana, cherry
+    let fruits = ["apple", "banana", "apple", "cherry", "banana"];
+    for (i, f) in fruits.iter().enumerate() {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 1), "value": f}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "deduplicate",
+        json!({"sheet": "Sheet1", "range": "A1:A5", "columns": ["A"]}),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["original_rows"], 5);
+    assert_eq!(result["unique_rows"], 3);
+    assert_eq!(result["duplicates_removed"], 2);
+
+    // Verify unique values in A1:A3.
+    let range = call_tool(
+        &mut server,
+        "read_range",
+        json!({"sheet": "Sheet1", "range": "A1:A3"}),
+    )
+    .await;
+    let data = range["data"].as_array().unwrap();
+    assert_eq!(data[0][0], "apple");
+    assert_eq!(data[1][0], "banana");
+    assert_eq!(data[2][0], "cherry");
+
+    // A4 and A5 must be cleared (were duplicates).
+    let a4 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A4"}),
+    )
+    .await;
+    assert!(a4["value"].is_null(), "A4 should be cleared after dedup");
+}
+
+/// Deduplicate with all-unique data keeps everything.
+#[tokio::test]
+async fn test_deduplicate_no_duplicates() {
+    let mut server = McpServer::new_default();
+
+    for (i, v) in [1, 2, 3].iter().enumerate() {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 1), "value": v}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "deduplicate",
+        json!({"sheet": "Sheet1", "range": "A1:A3"}),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["duplicates_removed"], 0);
+    assert_eq!(result["unique_rows"], 3);
+}
+
+// ── 30. transpose ─────────────────────────────────────────────────────────────
+
+/// Write a 1x3 row (A1:C1), transpose to E1, verify columns become rows.
+#[tokio::test]
+async fn test_transpose_row_to_column() {
+    let mut server = McpServer::new_default();
+
+    // Write a row: A1=10, B1=20, C1=30
+    for (i, v) in [10, 20, 30].iter().enumerate() {
+        let col = (b'A' + i as u8) as char;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("{}1", col), "value": v}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "transpose",
+        json!({
+            "sheet": "Sheet1",
+            "source_range": "A1:C1",
+            "target_cell": "E1"
+        }),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["original_dimensions"], "1x3");
+    assert_eq!(result["transposed_dimensions"], "3x1");
+
+    // E1=10, E2=20, E3=30 (column from transposed row).
+    for (i, expected) in [10.0, 20.0, 30.0].iter().enumerate() {
+        let cell = call_tool(
+            &mut server,
+            "read_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("E{}", i + 1)}),
+        )
+        .await;
+        assert_eq!(
+            cell["value"].as_f64().unwrap(),
+            *expected,
+            "E{} should be {}",
+            i + 1,
+            expected
+        );
+    }
+}
+
+// ── 31. auto_fill via MCP ────────────────────────────────────────────────────
+
+/// Write 1, 2, 3 in A1:A3 and auto_fill down to A4:A6 → should produce 4, 5, 6.
+#[tokio::test]
+async fn test_auto_fill_mcp_linear_down() {
+    let mut server = McpServer::new_default();
+
+    for i in 1..=3u32 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "auto_fill",
+        json!({
+            "sheet": "Sheet1",
+            "source_range": "A1:A3",
+            "target_range": "A4:A6",
+            "direction": "down"
+        }),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["cells_filled"], 3);
+
+    // Verify A4=4, A5=5, A6=6.
+    for (i, expected) in [4.0, 5.0, 6.0].iter().enumerate() {
+        let cell = call_tool(
+            &mut server,
+            "read_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 4)}),
+        )
+        .await;
+        assert_eq!(
+            cell["value"].as_f64().unwrap(),
+            *expected,
+            "A{} should be {}",
+            i + 4,
+            expected
+        );
+    }
+}
+
+/// Invalid fill direction must return an error.
+#[tokio::test]
+async fn test_auto_fill_invalid_direction() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 1}),
+    )
+    .await;
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "auto_fill",
+        json!({
+            "sheet": "Sheet1",
+            "source_range": "A1:A1",
+            "target_range": "A2:A3",
+            "direction": "diagonal"
+        }),
+    )
+    .await;
+    assert!(
+        err.contains("Invalid direction"),
+        "bad direction must error"
+    );
+}
+
+// ── 32. hide_rows / unhide_rows ───────────────────────────────────────────────
+
+/// Hide 2 rows, verify success, then unhide them.
+#[tokio::test]
+async fn test_hide_and_unhide_rows() {
+    let mut server = McpServer::new_default();
+
+    let hide_result = call_tool(
+        &mut server,
+        "hide_rows",
+        json!({"sheet": "Sheet1", "start_row": 3, "count": 2}),
+    )
+    .await;
+
+    assert_eq!(hide_result["success"], true);
+    assert_eq!(hide_result["rows_hidden"], 2);
+
+    let unhide_result = call_tool(
+        &mut server,
+        "unhide_rows",
+        json!({"sheet": "Sheet1", "start_row": 3, "count": 2}),
+    )
+    .await;
+
+    assert_eq!(unhide_result["success"], true);
+    assert_eq!(unhide_result["rows_unhidden"], 2);
+}
+
+/// hide_rows with start_row=0 must fail (must be 1-based).
+#[tokio::test]
+async fn test_hide_rows_zero_start_errors() {
+    let mut server = McpServer::new_default();
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "hide_rows",
+        json!({"sheet": "Sheet1", "start_row": 0, "count": 1}),
+    )
+    .await;
+    assert!(
+        err.contains("1-based"),
+        "start_row=0 must produce a 1-based error"
+    );
+}
+
+// ── 33. hide_cols / unhide_cols ───────────────────────────────────────────────
+
+/// Hide column B, then unhide it.
+#[tokio::test]
+async fn test_hide_and_unhide_cols() {
+    let mut server = McpServer::new_default();
+
+    let hide_result = call_tool(
+        &mut server,
+        "hide_cols",
+        json!({"sheet": "Sheet1", "start_col": "B", "count": 1}),
+    )
+    .await;
+
+    assert_eq!(hide_result["success"], true);
+    assert_eq!(hide_result["cols_hidden"], 1);
+
+    let unhide_result = call_tool(
+        &mut server,
+        "unhide_cols",
+        json!({"sheet": "Sheet1", "start_col": "B", "count": 1}),
+    )
+    .await;
+
+    assert_eq!(unhide_result["success"], true);
+    assert_eq!(unhide_result["cols_unhidden"], 1);
+}
+
+// ── 34. protect_sheet / unprotect_sheet ──────────────────────────────────────
+
+/// Protect a sheet without password, then unprotect it.
+#[tokio::test]
+async fn test_protect_and_unprotect_sheet_no_password() {
+    let mut server = McpServer::new_default();
+
+    let protect_result = call_tool(&mut server, "protect_sheet", json!({"sheet": "Sheet1"})).await;
+
+    assert_eq!(protect_result["success"], true);
+    assert_eq!(protect_result["sheet"], "Sheet1");
+    assert_eq!(protect_result["has_password"], false);
+
+    let unprotect_result =
+        call_tool(&mut server, "unprotect_sheet", json!({"sheet": "Sheet1"})).await;
+
+    assert_eq!(unprotect_result["success"], true);
+    assert_eq!(unprotect_result["sheet"], "Sheet1");
+}
+
+/// Protect with password, unprotect with correct password.
+#[tokio::test]
+async fn test_protect_sheet_with_password() {
+    let mut server = McpServer::new_default();
+
+    let protect_result = call_tool(
+        &mut server,
+        "protect_sheet",
+        json!({"sheet": "Sheet1", "password": "secret123"}),
+    )
+    .await;
+
+    assert_eq!(protect_result["success"], true);
+    assert_eq!(protect_result["has_password"], true);
+
+    // Unprotect with wrong password must fail.
+    let bad_unprotect = call_tool_expect_error(
+        &mut server,
+        "unprotect_sheet",
+        json!({"sheet": "Sheet1", "password": "wrongpass"}),
+    )
+    .await;
+    assert!(
+        !bad_unprotect.is_empty(),
+        "wrong password must produce an error"
+    );
+
+    // Unprotect with correct password must succeed.
+    let good_unprotect = call_tool(
+        &mut server,
+        "unprotect_sheet",
+        json!({"sheet": "Sheet1", "password": "secret123"}),
+    )
+    .await;
+    assert_eq!(good_unprotect["success"], true);
+}
+
+// ── 35. merge_cells / unmerge_cells ──────────────────────────────────────────
+
+/// Merge A1:B2, verify success, then unmerge via any cell in the range.
+#[tokio::test]
+async fn test_merge_and_unmerge_cells() {
+    let mut server = McpServer::new_default();
+
+    // Write a value in A1 — the merge preserves the top-left value.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "merged"}),
+    )
+    .await;
+
+    let merge_result = call_tool(
+        &mut server,
+        "merge_cells",
+        json!({"sheet": "Sheet1", "range": "A1:B2"}),
+    )
+    .await;
+
+    assert_eq!(merge_result["success"], true);
+    assert_eq!(merge_result["range"], "A1:B2");
+
+    // Unmerge via B1 (any cell in the merged region).
+    let unmerge_result = call_tool(
+        &mut server,
+        "unmerge_cells",
+        json!({"sheet": "Sheet1", "cell_ref": "B1"}),
+    )
+    .await;
+
+    assert_eq!(unmerge_result["success"], true);
+}
+
+// ── 36. Validation: set, get, validate_cell, remove ──────────────────────────
+
+/// Full validation lifecycle: set a list rule, get it back, validate a cell
+/// value, remove the rule, verify it's gone.
+#[tokio::test]
+async fn test_validation_list_lifecycle() {
+    let mut server = McpServer::new_default();
+
+    // Set a list validation on B2: allowed = ["Yes", "No", "Maybe"]
+    let set_result = call_tool(
+        &mut server,
+        "set_validation",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "B2",
+            "rule_type": "list",
+            "list_items": ["Yes", "No", "Maybe"],
+            "allow_blank": false,
+            "error_message": "Please choose Yes, No, or Maybe"
+        }),
+    )
+    .await;
+
+    assert_eq!(set_result["success"], true);
+    assert_eq!(set_result["rule_type"], "list");
+
+    // Get the validation back.
+    let get_result = call_tool(
+        &mut server,
+        "get_validation",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+
+    assert_eq!(get_result["has_validation"], true);
+    let rule = &get_result["rule"];
+    // format_rule wraps the type info under "validation_type".
+    let vtype = &rule["validation_type"];
+    assert_eq!(vtype["type"], "list", "validation_type.type must be 'list'");
+    let items = vtype["items"].as_array().unwrap();
+    assert!(items.iter().any(|v| v == "Yes"), "Yes must be in list");
+    assert!(items.iter().any(|v| v == "No"), "No must be in list");
+
+    // Write "Yes" → validate_cell should return valid=true.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2", "value": "Yes"}),
+    )
+    .await;
+    let validate_valid = call_tool(
+        &mut server,
+        "validate_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+    assert_eq!(
+        validate_valid["valid"], true,
+        "\"Yes\" must pass list validation"
+    );
+
+    // Write "Invalid" → validate_cell should return valid=false.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2", "value": "Invalid"}),
+    )
+    .await;
+    let validate_invalid = call_tool(
+        &mut server,
+        "validate_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+    assert_eq!(
+        validate_invalid["valid"], false,
+        "\"Invalid\" must fail list validation"
+    );
+
+    // Remove the rule and verify it's gone.
+    let remove_result = call_tool(
+        &mut server,
+        "remove_validation",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+    assert_eq!(remove_result["success"], true);
+
+    let get_after_remove = call_tool(
+        &mut server,
+        "get_validation",
+        json!({"sheet": "Sheet1", "cell_ref": "B2"}),
+    )
+    .await;
+    assert_eq!(
+        get_after_remove["has_validation"], false,
+        "validation must be gone after remove"
+    );
+}
+
+/// Number range validation: values must be between 1 and 100.
+#[tokio::test]
+async fn test_validation_number_range() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "set_validation",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "C3",
+            "rule_type": "number_range",
+            "min": 1.0,
+            "max": 100.0
+        }),
+    )
+    .await;
+
+    // Write 50 → should pass.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "C3", "value": 50}),
+    )
+    .await;
+    let valid = call_tool(
+        &mut server,
+        "validate_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "C3"}),
+    )
+    .await;
+    assert_eq!(valid["valid"], true, "50 must pass number_range 1-100");
+
+    // Write 200 → should fail.
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "C3", "value": 200}),
+    )
+    .await;
+    let invalid = call_tool(
+        &mut server,
+        "validate_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "C3"}),
+    )
+    .await;
+    assert_eq!(invalid["valid"], false, "200 must fail number_range 1-100");
+}
+
+/// validate_cell on a cell with no validation rule always returns valid=true.
+#[tokio::test]
+async fn test_validate_cell_no_rule_is_valid() {
+    let mut server = McpServer::new_default();
+
+    let result = call_tool(
+        &mut server,
+        "validate_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "Z50"}),
+    )
+    .await;
+
+    assert_eq!(result["valid"], true, "no rule means always valid");
+    assert_eq!(result["has_validation"], false);
+}
+
+// ── 37. correlate + trend_analysis ───────────────────────────────────────────
+
+/// Perfect positive correlation: X = [1,2,3,4,5], Y = [2,4,6,8,10].
+/// Expected r = 1.0.
+#[tokio::test]
+async fn test_correlate_perfect_positive() {
+    let mut server = McpServer::new_default();
+
+    let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let y = [2.0, 4.0, 6.0, 8.0, 10.0];
+    for (i, (xi, yi)) in x.iter().zip(y.iter()).enumerate() {
+        let row = i + 1;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", row), "value": xi}),
+        )
+        .await;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("B{}", row), "value": yi}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "correlate",
+        json!({"sheet": "Sheet1", "range_x": "A1:A5", "range_y": "B1:B5"}),
+    )
+    .await;
+
+    let r = result["correlation"].as_f64().unwrap();
+    assert!(
+        (r - 1.0).abs() < 1e-10,
+        "perfect positive correlation must be ~1.0, got {}",
+        r
+    );
+    assert_eq!(result["n"], 5);
+    // r_squared must also be ~1.0
+    let r2 = result["r_squared"].as_f64().unwrap();
+    assert!(
+        (r2 - 1.0).abs() < 1e-10,
+        "r_squared must be ~1.0, got {}",
+        r2
+    );
+}
+
+/// Trend analysis on Y = 2X + 1 must yield slope~2, intercept~1, r_squared~1.
+#[tokio::test]
+async fn test_trend_analysis_linear() {
+    let mut server = McpServer::new_default();
+
+    // Y = 2X + 1: X=[1,2,3,4,5], Y=[3,5,7,9,11]
+    let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let y = [3.0, 5.0, 7.0, 9.0, 11.0];
+    for (i, (xi, yi)) in x.iter().zip(y.iter()).enumerate() {
+        let row = i + 1;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", row), "value": xi}),
+        )
+        .await;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("B{}", row), "value": yi}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "trend_analysis",
+        json!({"sheet": "Sheet1", "range_x": "A1:A5", "range_y": "B1:B5"}),
+    )
+    .await;
+
+    // Regression stats are nested under "linear_regression".
+    let lr = &result["linear_regression"];
+    let slope = lr["slope"]
+        .as_f64()
+        .expect("linear_regression.slope must be present");
+    let intercept = lr["intercept"]
+        .as_f64()
+        .expect("linear_regression.intercept must be present");
+    let r2 = lr["r_squared"]
+        .as_f64()
+        .expect("linear_regression.r_squared must be present");
+
+    assert!(
+        (slope - 2.0).abs() < 1e-10,
+        "slope must be ~2.0, got {}",
+        slope
+    );
+    assert!(
+        (intercept - 1.0).abs() < 1e-10,
+        "intercept must be ~1.0, got {}",
+        intercept
+    );
+    assert!(
+        (r2 - 1.0).abs() < 1e-10,
+        "r_squared must be ~1.0, got {}",
+        r2
+    );
+}
+
+/// correlate with mismatched range sizes must return an error.
+#[tokio::test]
+async fn test_correlate_mismatched_lengths_errors() {
+    let mut server = McpServer::new_default();
+
+    for i in 1..=3u32 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i), "value": i}),
+        )
+        .await;
+    }
+    for i in 1..=5u32 {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("B{}", i), "value": i}),
+        )
+        .await;
+    }
+
+    let err = call_tool_expect_error(
+        &mut server,
+        "correlate",
+        json!({"sheet": "Sheet1", "range_x": "A1:A3", "range_y": "B1:B5"}),
+    )
+    .await;
+    assert!(!err.is_empty(), "mismatched lengths must produce an error");
+}
+
+// ── 38. export_json ───────────────────────────────────────────────────────────
+
+/// Write cells, export as JSON, verify structure and values.
+#[tokio::test]
+async fn test_export_json_single_sheet() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "Name"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2", "value": "Alice"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B1", "value": "Score"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B2", "value": 95}),
+    )
+    .await;
+
+    let result = call_tool(&mut server, "export_json", json!({"sheet": "Sheet1"})).await;
+
+    assert!(
+        result["sheets"].is_object() || result["rows"].is_array() || result.is_object(),
+        "export_json must return a JSON object with sheet data"
+    );
+    // The result must contain the string "Alice" somewhere in the JSON.
+    let result_str = result.to_string();
+    assert!(result_str.contains("Alice"), "JSON must contain 'Alice'");
+    assert!(result_str.contains("95"), "JSON must contain score 95");
+}
+
+/// export_json with no sheet argument exports the whole workbook.
+#[tokio::test]
+async fn test_export_json_whole_workbook() {
+    let mut server = McpServer::new_default();
+
+    call_tool(&mut server, "create_sheet", json!({"name": "Sheet2"})).await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "s1data"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet2", "cell_ref": "A1", "value": "s2data"}),
+    )
+    .await;
+
+    let result = call_tool(&mut server, "export_json", json!({})).await;
+    let result_str = result.to_string();
+    assert!(
+        result_str.contains("s1data"),
+        "whole workbook JSON must contain Sheet1 data"
+    );
+    assert!(
+        result_str.contains("s2data"),
+        "whole workbook JSON must contain Sheet2 data"
+    );
+}
+
+// ── 39. set_sheet_tab_color ───────────────────────────────────────────────────
+
+/// Set a tab color on Sheet1, verify success, then clear it with null.
+#[tokio::test]
+async fn test_set_sheet_tab_color() {
+    let mut server = McpServer::new_default();
+
+    let set_result = call_tool(
+        &mut server,
+        "set_sheet_tab_color",
+        json!({"sheet": "Sheet1", "color": "#FF0000"}),
+    )
+    .await;
+    assert_eq!(set_result["success"], true);
+    assert_eq!(set_result["tab_color"], "#FF0000");
+
+    // Clear the tab color with null.
+    let clear_result = call_tool(
+        &mut server,
+        "set_sheet_tab_color",
+        json!({"sheet": "Sheet1", "color": null}),
+    )
+    .await;
+    assert_eq!(clear_result["success"], true);
+    assert!(
+        clear_result["tab_color"].is_null(),
+        "tab_color must be null after clearing"
+    );
+}
+
+// ── 40. text_to_columns ───────────────────────────────────────────────────────
+
+/// Write "a,b,c" in A1:A3, split on ",", verify adjacent columns are created.
+#[tokio::test]
+async fn test_text_to_columns_comma_delimiter() {
+    let mut server = McpServer::new_default();
+
+    let values = ["alpha,beta,gamma", "one,two,three", "x,y,z"];
+    for (i, v) in values.iter().enumerate() {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 1), "value": v}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "text_to_columns",
+        json!({
+            "sheet": "Sheet1",
+            "col": "A",
+            "delimiter": ",",
+            "start_row": 1,
+            "end_row": 3
+        }),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(result["column"], "A");
+    let max_cols = result["max_columns_created"].as_u64().unwrap();
+    assert!(
+        max_cols >= 3,
+        "splitting 3-part CSV must create at least 3 columns"
+    );
+
+    // Verify B1 = "alpha", C1 = "beta", D1 = "gamma".
+    let b1 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B1"}),
+    )
+    .await;
+    assert_eq!(
+        b1["value"], "beta",
+        "B1 must be 'beta' after text_to_columns"
+    );
+
+    let c1 = call_tool(
+        &mut server,
+        "read_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "C1"}),
+    )
+    .await;
+    assert_eq!(
+        c1["value"], "gamma",
+        "C1 must be 'gamma' after text_to_columns"
+    );
+}
+
+// ── 41. remove_duplicates (core engine route) ─────────────────────────────────
+
+/// Write 5 rows where rows 2 and 4 are duplicates, run remove_duplicates,
+/// verify the removed count.
+#[tokio::test]
+async fn test_remove_duplicates_mcp() {
+    let mut server = McpServer::new_default();
+
+    // A1=10, A2=20, A3=10, A4=30, A5=20
+    for (i, v) in [10, 20, 10, 30, 20].iter().enumerate() {
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", i + 1), "value": v}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "remove_duplicates",
+        json!({
+            "sheet": "Sheet1",
+            "start_row": 1,
+            "end_row": 5,
+            "columns": ["A"]
+        }),
+    )
+    .await;
+
+    assert_eq!(result["success"], true);
+    assert_eq!(
+        result["rows_removed"], 2,
+        "rows with value 10 (row 3) and 20 (row 5) are duplicates"
+    );
+    assert_eq!(result["rows_remaining"], 3, "3 unique rows remain");
+}
+
+// ── 42. generate_pivot ────────────────────────────────────────────────────────
+
+/// Write a header row + 3 data rows (Category, Value), generate a pivot
+/// summing values per category, verify the result.
+///
+/// Note: generate_pivot treats the first row of source_range as a header row
+/// and starts aggregating from the second row onwards.
+#[tokio::test]
+async fn test_generate_pivot_sum() {
+    let mut server = McpServer::new_default();
+
+    // Row 1 = headers, rows 2-4 = data
+    // A1="Category", B1="Value"
+    // A2="A", B2=10
+    // A3="B", B3=20
+    // A4="A", B4=30
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": "Category"}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "B1", "value": "Value"}),
+    )
+    .await;
+    let data = [("A", 10), ("B", 20), ("A", 30)];
+    for (i, (cat, val)) in data.iter().enumerate() {
+        let row = i + 2;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("A{}", row), "value": cat}),
+        )
+        .await;
+        call_tool(
+            &mut server,
+            "write_cell",
+            json!({"sheet": "Sheet1", "cell_ref": format!("B{}", row), "value": val}),
+        )
+        .await;
+    }
+
+    let result = call_tool(
+        &mut server,
+        "generate_pivot",
+        json!({
+            "sheet": "Sheet1",
+            "source_range": "A1:B4",
+            "row_fields": ["A"],
+            "value_fields": [{"col": "B", "aggregation": "sum"}]
+        }),
+    )
+    .await;
+
+    assert!(
+        result["row_count"].as_u64().unwrap() > 0,
+        "pivot must have rows"
+    );
+    let rows = result["rows"].as_array().unwrap();
+    // Find "A" row in pivot output.
+    let a_row = rows.iter().find(|r| r[0] == "A");
+    assert!(a_row.is_some(), "pivot must have a row for category 'A'");
+    // Sum for A = 10 + 30 = 40
+    let a_sum = a_row.unwrap()[1].as_f64().unwrap();
+    assert_eq!(a_sum, 40.0, "pivot sum for 'A' must be 40");
+
+    // Sum for B = 20
+    let b_row = rows.iter().find(|r| r[0] == "B");
+    assert!(b_row.is_some(), "pivot must have a row for category 'B'");
+    let b_sum = b_row.unwrap()[1].as_f64().unwrap();
+    assert_eq!(b_sum, 20.0, "pivot sum for 'B' must be 20");
+}
+
+// ── 43. get_formula ───────────────────────────────────────────────────────────
+
+/// Insert a formula, then retrieve it via get_formula. Verify formula and value.
+#[tokio::test]
+async fn test_get_formula_after_insert() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 5}),
+    )
+    .await;
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A2", "value": 7}),
+    )
+    .await;
+
+    call_tool(
+        &mut server,
+        "insert_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A3", "formula": "A1+A2"}),
+    )
+    .await;
+
+    let result = call_tool(
+        &mut server,
+        "get_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A3"}),
+    )
+    .await;
+
+    assert_eq!(
+        result["formula"], "A1+A2",
+        "get_formula must return the stored formula"
+    );
+    assert_eq!(result["value"].as_f64().unwrap(), 12.0, "value must be 12");
+}
+
+/// get_formula on a cell with no formula returns null formula.
+#[tokio::test]
+async fn test_get_formula_no_formula_cell() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 99}),
+    )
+    .await;
+
+    let result = call_tool(
+        &mut server,
+        "get_formula",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+
+    assert!(
+        result["formula"].is_null(),
+        "cell without formula must return null formula"
+    );
+    assert_eq!(result["value"].as_f64().unwrap(), 99.0);
+}
+
+// ── 44. number_format in set_cell_format ─────────────────────────────────────
+
+/// Set a number_format on a cell, verify it round-trips via get_cell_format,
+/// then clear it with null.
+#[tokio::test]
+async fn test_number_format_set_and_clear() {
+    let mut server = McpServer::new_default();
+
+    call_tool(
+        &mut server,
+        "write_cell",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "value": 1234567.89}),
+    )
+    .await;
+
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({
+            "sheet": "Sheet1",
+            "cell_ref": "A1",
+            "number_format": "#,##0.00"
+        }),
+    )
+    .await;
+
+    let fmt = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert_eq!(
+        fmt["format"]["number_format"], "#,##0.00",
+        "number_format must round-trip"
+    );
+
+    // Clear the number_format.
+    call_tool(
+        &mut server,
+        "set_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1", "number_format": null}),
+    )
+    .await;
+
+    let fmt_after = call_tool(
+        &mut server,
+        "get_cell_format",
+        json!({"sheet": "Sheet1", "cell_ref": "A1"}),
+    )
+    .await;
+    assert!(
+        fmt_after["format"]["number_format"].is_null(),
+        "number_format must be null after clearing"
+    );
+}
