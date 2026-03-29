@@ -28,6 +28,7 @@ import AboutDialog from './components/AboutDialog';
 import FilterViewDropdown from './components/FilterViewDropdown';
 import NamedFunctionsDialog from './components/NamedFunctionsDialog';
 import PivotDialog from './components/PivotDialog';
+import ColumnStatsPanel from './components/ColumnStatsPanel';
 import WelcomeScreen from './components/WelcomeScreen';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -552,6 +553,10 @@ const App: Component = () => {
     data_remove_duplicates: () => { setShowDataCleanup(true); },
     data_text_to_columns: () => { setShowTextToColumns(true); },
     data_pivot_table: () => { setShowPivotDialog(true); },
+    data_column_stats: () => {
+      setColumnStatsCol(selectedCell()[1]);
+      setShowColumnStats(true);
+    },
 
     // -- Help ---------------------------------------------------------------
     help_shortcuts: () => { setShowKeyboardShortcuts(true); },
@@ -1466,6 +1471,8 @@ const App: Component = () => {
   const [showFilterViews, setShowFilterViews] = createSignal(false);
   const [showNamedFunctions, setShowNamedFunctions] = createSignal(false);
   const [showPivotDialog, setShowPivotDialog] = createSignal(false);
+  const [showColumnStats, setShowColumnStats] = createSignal(false);
+  const [columnStatsCol, setColumnStatsCol] = createSignal(0);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1807,6 +1814,15 @@ const App: Component = () => {
             markDirty();
           }}
           onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showColumnStats()}>
+        <ColumnStatsPanel
+          activeSheet={activeSheetName()}
+          col={columnStatsCol()}
+          totalCols={TOTAL_COLS}
+          onClose={() => setShowColumnStats(false)}
+          onColumnChange={(c) => setColumnStatsCol(c)}
         />
       </Show>
       <Show when={showFilterViews()}>

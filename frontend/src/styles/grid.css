@@ -2424,3 +2424,112 @@ body,
 .welcome-recent-item:hover {
   background: var(--selection-bg);
 }
+
+/* ── Column Statistics Panel ─────────────────────────────────────── */
+
+.column-stats-panel {
+  position: fixed;
+  top: 80px;
+  right: 0;
+  width: 240px;
+  bottom: 40px;
+  background: var(--toolbar-bg, #f5f5f5);
+  border-left: 1px solid var(--border-color, #ccc);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  font-size: 12px;
+}
+
+.column-stats-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color, #ccc);
+}
+
+.column-stats-title {
+  flex: 1;
+  font-weight: 600;
+  text-align: center;
+}
+
+.column-stats-nav {
+  background: none;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.column-stats-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.column-stats-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.column-stats-loading,
+.column-stats-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary, #666);
+}
+
+.column-stats-error {
+  color: var(--danger-color, #d93025);
+}
+
+.column-stats-body {
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.column-stats-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.column-stats-label {
+  color: var(--text-secondary, #666);
+}
+
+.column-stats-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.column-stats-histogram-label {
+  margin-top: 12px;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--text-secondary, #666);
+}
+
+.column-stats-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+  padding: 4px 0;
+}
+
+.column-stats-bar {
+  flex: 1;
+  background: var(--selection-bg, #4285f4);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}

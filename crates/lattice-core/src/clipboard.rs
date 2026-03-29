@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cell::Cell;
 use crate::error::Result;
+use crate::format::CellBorders;
 use crate::sheet::Sheet;
 
 /// Content stored in the internal clipboard after a copy or cut operation.
@@ -64,6 +65,23 @@ pub enum PasteMode {
     /// A cell at source position `(row, col)` is pasted to
     /// `(dest_start_row + col, dest_start_col + row)`.
     Transposed,
+    /// Paste everything except border formatting.
+    ///
+    /// Values, formulas, and non-border formatting are pasted.
+    /// Border properties on the destination cells are preserved.
+    AllExceptBorders,
+    /// Paste only data validation rules from source to destination.
+    ///
+    /// This is a no-op at the cell level since validation rules are
+    /// stored externally in `ValidationStore`. The higher layer (Tauri
+    /// commands / MCP) should copy validation rules separately.
+    DataValidationOnly,
+    /// Paste only conditional formatting rules from source to destination.
+    ///
+    /// This is a no-op at the cell level since conditional formatting
+    /// rules are stored externally in `ConditionalFormatStore`. The
+    /// higher layer should copy conditional format rules separately.
+    ConditionalFormattingOnly,
 }
 
 /// Copy a rectangular range of cells from a sheet into a [`ClipboardContent`].
@@ -166,11 +184,55 @@ pub fn paste(
                         sheet.set_cell(target_row, target_col, new_cell);
                     }
                 }
+                (Some(cell), PasteMode::AllExceptBorders) => {
+                    // Paste everything but preserve destination borders.
+                    let mut new_cell = cell.clone();
+                    if let Some(ref formula) = cell.formula {
+                        new_cell.formula =
+                            Some(adjust_formula_references(formula, row_offset, col_offset));
+                    }
+                    // Preserve existing borders (or default if no cell exists).
+                    let existing_borders = sheet
+                        .get_cell(target_row, target_col)
+                        .map(|c| c.format.borders.clone())
+                        .unwrap_or_default();
+                    new_cell.format.borders = existing_borders;
+                    sheet.set_cell(target_row, target_col, new_cell);
+                }
+                (Some(_), PasteMode::DataValidationOnly) => {
+                    // Validation rules are stored in ValidationStore, not in
+                    // cells. The higher layer is responsible for copying rules.
+                }
+                (Some(_), PasteMode::ConditionalFormattingOnly) => {
+                    // Conditional format rules are stored in
+                    // ConditionalFormatStore, not in cells. The higher layer
+                    // is responsible for copying rules.
+                }
                 (None, PasteMode::All | PasteMode::ValuesOnly | PasteMode::FormulasOnly) => {
                     sheet.clear_cell(target_row, target_col);
                 }
-                (None, PasteMode::FormattingOnly) => {
-                    // Don't clear cells when pasting formatting only
+                (None, PasteMode::AllExceptBorders) => {
+                    // Clear the cell but preserve its borders if it exists.
+                    if let Some(existing) = sheet.get_cell(target_row, target_col) {
+                        let borders = existing.format.borders.clone();
+                        if borders != CellBorders::default() {
+                            let mut empty = Cell::default();
+                            empty.format.borders = borders;
+                            sheet.set_cell(target_row, target_col, empty);
+                        } else {
+                            sheet.clear_cell(target_row, target_col);
+                        }
+                    } else {
+                        sheet.clear_cell(target_row, target_col);
+                    }
+                }
+                (
+                    None,
+                    PasteMode::FormattingOnly
+                    | PasteMode::DataValidationOnly
+                    | PasteMode::ConditionalFormattingOnly,
+                ) => {
+                    // Don't clear cells for these metadata-only modes.
                 }
                 // Transposed is handled above via early return.
                 (_, PasteMode::Transposed) => unreachable!(),
@@ -622,5 +684,112 @@ mod tests {
         assert_eq!(dest.get_cell(0, 0).unwrap().value, CellValue::Number(1.0));
         // (0,1) was empty -> transposed to (1,0), should be cleared
         assert!(dest.get_cell(1, 0).is_none());
+    }
+
+    #[test]
+    fn test_paste_all_except_borders() {
+        use crate::format::{Border, BorderStyle};
+
+        let mut src = Sheet::new("S");
+        let mut cell = Cell::default();
+        cell.value = CellValue::Number(42.0);
+        cell.format.bold = true;
+        cell.format.borders.top = Some(Border {
+            style: BorderStyle::Thick,
+            color: "#ff0000".into(),
+        });
+        src.set_cell(0, 0, cell);
+
+        let clipboard = copy_range(&src, 0, 0, 0, 0, false);
+
+        // Destination cell has a bottom border we want to keep.
+        let mut dest = Sheet::new("D");
+        let mut dest_cell = Cell::default();
+        dest_cell.value = CellValue::Text("old".into());
+        dest_cell.format.borders.bottom = Some(Border {
+            style: BorderStyle::Thin,
+            color: "#000000".into(),
+        });
+        dest.set_cell(0, 0, dest_cell);
+
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::AllExceptBorders).unwrap();
+
+        let pasted = dest.get_cell(0, 0).unwrap();
+        // Value and formatting (bold) should be pasted.
+        assert_eq!(pasted.value, CellValue::Number(42.0));
+        assert!(pasted.format.bold);
+        // Source's top border should NOT be pasted -- destination's bottom border kept.
+        assert!(pasted.format.borders.top.is_none());
+        assert!(pasted.format.borders.bottom.is_some());
+        assert_eq!(
+            pasted.format.borders.bottom.as_ref().unwrap().style,
+            BorderStyle::Thin
+        );
+    }
+
+    #[test]
+    fn test_paste_all_except_borders_empty_source() {
+        use crate::format::{Border, BorderStyle};
+
+        let src = Sheet::new("S");
+        // Copy an empty cell.
+        let clipboard = copy_range(&src, 0, 0, 0, 0, false);
+
+        let mut dest = Sheet::new("D");
+        let mut dest_cell = Cell::default();
+        dest_cell.value = CellValue::Text("keep borders".into());
+        dest_cell.format.borders.left = Some(Border {
+            style: BorderStyle::Medium,
+            color: "#0000ff".into(),
+        });
+        dest.set_cell(0, 0, dest_cell);
+
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::AllExceptBorders).unwrap();
+
+        // Empty source should clear the cell but keep borders.
+        let pasted = dest.get_cell(0, 0).unwrap();
+        assert_eq!(pasted.value, CellValue::Empty);
+        assert!(pasted.format.borders.left.is_some());
+    }
+
+    #[test]
+    fn test_paste_data_validation_only_no_cell_change() {
+        let mut src = Sheet::new("S");
+        src.set_value(0, 0, CellValue::Number(10.0));
+
+        let clipboard = copy_range(&src, 0, 0, 0, 0, false);
+
+        let mut dest = Sheet::new("D");
+        dest.set_value(0, 0, CellValue::Text("untouched".into()));
+
+        paste(&mut dest, &clipboard, 0, 0, &PasteMode::DataValidationOnly).unwrap();
+
+        // Cell value should remain unchanged.
+        let pasted = dest.get_cell(0, 0).unwrap();
+        assert_eq!(pasted.value, CellValue::Text("untouched".into()));
+    }
+
+    #[test]
+    fn test_paste_conditional_formatting_only_no_cell_change() {
+        let mut src = Sheet::new("S");
+        src.set_value(0, 0, CellValue::Number(10.0));
+
+        let clipboard = copy_range(&src, 0, 0, 0, 0, false);
+
+        let mut dest = Sheet::new("D");
+        dest.set_value(0, 0, CellValue::Text("untouched".into()));
+
+        paste(
+            &mut dest,
+            &clipboard,
+            0,
+            0,
+            &PasteMode::ConditionalFormattingOnly,
+        )
+        .unwrap();
+
+        // Cell value should remain unchanged.
+        let pasted = dest.get_cell(0, 0).unwrap();
+        assert_eq!(pasted.value, CellValue::Text("untouched".into()));
     }
 }

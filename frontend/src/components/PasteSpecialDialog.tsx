@@ -8,7 +8,10 @@ export type PasteMode =
   | 'FormulasOnly'
   | 'FormattingOnly'
   | 'Transposed'
-  | 'ColumnWidthsOnly';
+  | 'ColumnWidthsOnly'
+  | 'AllExceptBorders'
+  | 'DataValidationOnly'
+  | 'ConditionalFormattingOnly';
 
 /** Arithmetic operation to apply during paste. */
 export type PasteOperation =
@@ -38,6 +41,9 @@ const PASTE_MODES: PasteModeOption[] = [
   { value: 'FormattingOnly', label: 'Formatting only', description: 'Apply formatting without changing values' },
   { value: 'Transposed', label: 'Transposed', description: 'Swap rows and columns' },
   { value: 'ColumnWidthsOnly', label: 'Column widths only', description: 'Copy column widths to target columns' },
+  { value: 'AllExceptBorders', label: 'All except borders', description: 'Paste everything except border formatting' },
+  { value: 'DataValidationOnly', label: 'Data validation only', description: 'Copy validation rules to target cells' },
+  { value: 'ConditionalFormattingOnly', label: 'Conditional formatting only', description: 'Copy conditional format rules to target cells' },
 ];
 
 const PASTE_OPERATIONS: PasteOperationOption[] = [

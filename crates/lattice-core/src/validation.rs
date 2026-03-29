@@ -13,6 +13,14 @@ use crate::cell::CellValue;
 pub enum ValidationType {
     /// A dropdown list of allowed string values.
     List(Vec<String>),
+    /// A dropdown list whose allowed values come from a cell range reference.
+    ///
+    /// The range string uses A1 notation, optionally with a sheet prefix
+    /// (e.g. `"Sheet1!A1:A20"` or `"A1:A10"`). During validation, the
+    /// range must be resolved by a higher layer that has access to the
+    /// workbook data. When resolved, the values in those cells become
+    /// the allowed list items.
+    ListRange(String),
     /// A numeric range with optional min and max bounds.
     NumberRange { min: Option<f64>, max: Option<f64> },
     /// A date range with optional min and max bounds (ISO 8601 strings).
@@ -190,6 +198,14 @@ pub fn validate(value: &CellValue, rule: &ValidationRule) -> bool {
             {
                 return false;
             }
+            true
+        }
+
+        ValidationType::ListRange(_) => {
+            // ListRange validation requires resolving cell values from the
+            // workbook. This is handled at a higher layer (Tauri / MCP)
+            // that resolves the range and validates against the resolved
+            // values. At the core level, we always pass.
             true
         }
 
@@ -380,6 +396,35 @@ mod tests {
     fn test_enforcement_default_is_warn() {
         let rule = number_rule(Some(0.0), Some(10.0));
         assert_eq!(rule.enforcement, ValidationEnforcement::Warn);
+    }
+
+    #[test]
+    fn test_list_range_always_passes_at_core_level() {
+        let rule = ValidationRule {
+            validation_type: ValidationType::ListRange("Sheet1!A1:A20".into()),
+            allow_blank: false,
+            error_message: None,
+            enforcement: ValidationEnforcement::default(),
+        };
+        // ListRange validation is deferred to the higher layer.
+        assert!(validate(&CellValue::Text("anything".into()), &rule));
+        assert!(validate(&CellValue::Number(42.0), &rule));
+    }
+
+    #[test]
+    fn test_list_range_stores_reference() {
+        let rule = ValidationRule {
+            validation_type: ValidationType::ListRange("Sheet2!B1:B50".into()),
+            allow_blank: true,
+            error_message: Some("Must be from range".into()),
+            enforcement: ValidationEnforcement::Warn,
+        };
+        match &rule.validation_type {
+            ValidationType::ListRange(range_ref) => {
+                assert_eq!(range_ref, "Sheet2!B1:B50");
+            }
+            _ => panic!("Expected ListRange"),
+        }
     }
 
     #[test]

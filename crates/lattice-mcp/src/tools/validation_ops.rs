@@ -149,6 +149,12 @@ pub fn handle_set_validation(workbook: &mut Workbook, args: Value) -> Result<Val
                 .map(|n| n as usize);
             ValidationType::TextLength { min, max }
         }
+        "list_range" => {
+            let range_ref = args
+                .formula
+                .ok_or("formula field is required for rule_type 'list_range' (contains the range reference like 'Sheet1!A1:A20')".to_string())?;
+            ValidationType::ListRange(range_ref)
+        }
         "custom" => {
             let formula = args
                 .formula
@@ -157,7 +163,7 @@ pub fn handle_set_validation(workbook: &mut Workbook, args: Value) -> Result<Val
         }
         other => {
             return Err(format!(
-                "Unknown rule_type '{}'. Must be one of: list, number_range, date_range, text_length, custom",
+                "Unknown rule_type '{}'. Must be one of: list, list_range, number_range, date_range, text_length, custom",
                 other
             ));
         }
@@ -297,6 +303,10 @@ fn format_rule(rule: &ValidationRule) -> Value {
             "type": "text_length",
             "min": min,
             "max": max,
+        }),
+        ValidationType::ListRange(range_ref) => json!({
+            "type": "list_range",
+            "range": range_ref,
         }),
         ValidationType::Custom(formula) => json!({
             "type": "custom",

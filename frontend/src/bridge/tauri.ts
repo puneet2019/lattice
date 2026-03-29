@@ -1046,6 +1046,30 @@ export async function exportPrintHtml(
 }
 
 // ---------------------------------------------------------------------------
+// Column statistics commands
+// ---------------------------------------------------------------------------
+
+/** Column statistics returned from the backend. */
+export interface ColumnStats {
+  count: number;
+  unique: number;
+  sum: number | null;
+  average: number | null;
+  median: number | null;
+  min: number | null;
+  max: number | null;
+  std_dev: number | null;
+  histogram: number[];
+}
+
+export async function getColumnStats(
+  sheet: string,
+  col: number,
+): Promise<ColumnStats> {
+  return invoke('get_column_stats', { sheet, col });
+}
+
+// ---------------------------------------------------------------------------
 // Version history commands
 // ---------------------------------------------------------------------------
 

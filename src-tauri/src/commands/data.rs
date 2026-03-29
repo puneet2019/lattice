@@ -726,3 +726,128 @@ pub async fn list_named_functions(
         })
         .collect())
 }
+
+/// Column statistics returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnStats {
+    /// Total number of cells in the column with data.
+    pub count: u32,
+    /// Number of unique values.
+    pub unique: u32,
+    /// Sum of numeric values (null if no numbers).
+    pub sum: Option<f64>,
+    /// Mean of numeric values.
+    pub average: Option<f64>,
+    /// Median of numeric values.
+    pub median: Option<f64>,
+    /// Minimum numeric value.
+    pub min: Option<f64>,
+    /// Maximum numeric value.
+    pub max: Option<f64>,
+    /// Population standard deviation of numeric values.
+    pub std_dev: Option<f64>,
+    /// Histogram bucket counts for mini visualization (10 buckets).
+    pub histogram: Vec<u32>,
+}
+
+/// Compute descriptive statistics for a single column.
+#[tauri::command]
+pub async fn get_column_stats(
+    state: State<'_, AppState>,
+    sheet: String,
+    col: u32,
+) -> Result<ColumnStats, String> {
+    let wb = state.workbook.read().await;
+    let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
+
+    let mut numbers: Vec<f64> = Vec::new();
+    let mut values_set = std::collections::HashSet::new();
+    let mut count = 0u32;
+
+    for (&(_, c), cell) in s.cells() {
+        if c != col {
+            continue;
+        }
+        match &cell.value {
+            lattice_core::CellValue::Empty => {}
+            lattice_core::CellValue::Number(n) => {
+                count += 1;
+                numbers.push(*n);
+                values_set.insert(n.to_bits().to_string());
+            }
+            lattice_core::CellValue::Text(t) => {
+                count += 1;
+                values_set.insert(t.clone());
+            }
+            lattice_core::CellValue::Boolean(b) | lattice_core::CellValue::Checkbox(b) => {
+                count += 1;
+                values_set.insert(b.to_string());
+            }
+            lattice_core::CellValue::Date(d) => {
+                count += 1;
+                values_set.insert(d.clone());
+            }
+            _ => {
+                count += 1;
+            }
+        }
+    }
+
+    if numbers.is_empty() {
+        return Ok(ColumnStats {
+            count,
+            unique: values_set.len() as u32,
+            sum: None,
+            average: None,
+            median: None,
+            min: None,
+            max: None,
+            std_dev: None,
+            histogram: Vec::new(),
+        });
+    }
+
+    numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let n = numbers.len();
+    let sum: f64 = numbers.iter().sum();
+    let mean = sum / n as f64;
+    let min = numbers[0];
+    let max = numbers[n - 1];
+
+    let median = if n.is_multiple_of(2) {
+        (numbers[n / 2 - 1] + numbers[n / 2]) / 2.0
+    } else {
+        numbers[n / 2]
+    };
+
+    let variance: f64 = numbers.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64;
+    let std_dev = variance.sqrt();
+
+    // Build a 10-bucket histogram.
+    let histogram = if (max - min).abs() < f64::EPSILON {
+        vec![n as u32]
+    } else {
+        let num_buckets = 10usize;
+        let mut buckets = vec![0u32; num_buckets];
+        let range = max - min;
+        for &v in &numbers {
+            let idx = ((v - min) / range * (num_buckets as f64 - 1.0)).round() as usize;
+            let idx = idx.min(num_buckets - 1);
+            buckets[idx] += 1;
+        }
+        buckets
+    };
+
+    Ok(ColumnStats {
+        count,
+        unique: values_set.len() as u32,
+        sum: Some(sum),
+        average: Some(mean),
+        median: Some(median),
+        min: Some(min),
+        max: Some(max),
+        std_dev: Some(std_dev),
+        histogram,
+    })
+}

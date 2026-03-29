@@ -326,6 +326,8 @@ fn main() {
                     .build(app)?;
             let data_pivot_table =
                 MenuItemBuilder::with_id("data_pivot_table", "Pivot Table...").build(app)?;
+            let data_column_stats =
+                MenuItemBuilder::with_id("data_column_stats", "Column Statistics...").build(app)?;
 
             let data_menu = SubmenuBuilder::new(app, "Data")
                 .item(&sort_submenu)
@@ -338,6 +340,7 @@ fn main() {
                 .item(&data_text_to_columns)
                 .separator()
                 .item(&data_pivot_table)
+                .item(&data_column_stats)
                 .build()?;
 
             // -- Help menu --------------------------------------------------
@@ -460,6 +463,8 @@ fn main() {
             commands::data::add_named_function,
             commands::data::remove_named_function,
             commands::data::list_named_functions,
+            // Column stats
+            commands::data::get_column_stats,
             // Chart commands
             commands::chart::create_chart,
             commands::chart::render_chart_svg,

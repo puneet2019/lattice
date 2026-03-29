@@ -15,10 +15,11 @@ export interface DataValidationDialogProps {
   onSaved: () => void;
 }
 
-type RuleType = 'list' | 'number' | 'text_length' | 'date' | 'custom';
+type RuleType = 'list' | 'list_range' | 'number' | 'text_length' | 'date' | 'custom';
 
 const RULE_TYPE_LABELS: { id: RuleType; label: string }[] = [
   { id: 'list', label: 'List of items' },
+  { id: 'list_range', label: 'List from range' },
   { id: 'number', label: 'Number' },
   { id: 'text_length', label: 'Text length' },
   { id: 'date', label: 'Date' },
@@ -28,6 +29,7 @@ const RULE_TYPE_LABELS: { id: RuleType; label: string }[] = [
 const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
   const [ruleType, setRuleType] = createSignal<RuleType>('list');
   const [listItems, setListItems] = createSignal('');
+  const [rangeRef, setRangeRef] = createSignal('');
   const [minVal, setMinVal] = createSignal('');
   const [maxVal, setMaxVal] = createSignal('');
   const [minDate, setMinDate] = createSignal('');
@@ -35,6 +37,7 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
   const [formula, setFormula] = createSignal('');
   const [allowBlank, setAllowBlank] = createSignal(true);
   const [errorMessage, setErrorMessage] = createSignal('');
+  const [enforcement, setEnforcement] = createSignal<'warn' | 'reject'>('warn');
   const [hasExisting, setHasExisting] = createSignal(false);
 
   onMount(async () => {
@@ -44,6 +47,9 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
         setHasExisting(true);
         setRuleType(existing.rule_type as RuleType);
         setListItems(existing.list_items ?? '');
+        if (existing.rule_type === 'list_range') {
+          setRangeRef(existing.formula ?? '');
+        }
         setMinVal(existing.min != null ? String(existing.min) : '');
         setMaxVal(existing.max != null ? String(existing.max) : '');
         setMinDate(existing.min_date ?? '');
@@ -51,6 +57,7 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
         setFormula(existing.formula ?? '');
         setAllowBlank(existing.allow_blank);
         setErrorMessage(existing.error_message ?? '');
+        setEnforcement(existing.enforcement === 'reject' ? 'reject' : 'warn');
       }
     } catch {
       // Backend not available (browser dev mode)
@@ -59,19 +66,23 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
 
   const handleSave = async () => {
     try {
+      const rt = ruleType();
+      // For list_range, the range reference is sent via the formula parameter.
+      const formulaValue = rt === 'list_range' ? (rangeRef() || undefined) : (formula() || undefined);
       await setValidation(
         props.activeSheet,
         props.row,
         props.col,
-        ruleType(),
+        rt,
         listItems() || undefined,
         minVal() ? Number(minVal()) : undefined,
         maxVal() ? Number(maxVal()) : undefined,
         minDate() || undefined,
         maxDate() || undefined,
-        formula() || undefined,
+        formulaValue,
         allowBlank(),
         errorMessage() || undefined,
+        enforcement(),
       );
       props.onSaved();
     } catch (e) {
@@ -135,6 +146,20 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
                 value={listItems()}
                 onInput={(e) => setListItems(e.currentTarget.value)}
                 placeholder="Option 1, Option 2, Option 3"
+              />
+            </div>
+          </Show>
+
+          {/* List from range */}
+          <Show when={ruleType() === 'list_range'}>
+            <div class="format-dialog-section">
+              <label class="format-dialog-label">Range reference</label>
+              <input
+                type="text"
+                class="format-dialog-input"
+                value={rangeRef()}
+                onInput={(e) => setRangeRef(e.currentTarget.value)}
+                placeholder="Sheet1!A1:A20"
               />
             </div>
           </Show>
@@ -240,6 +265,32 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
               />
               Allow blank
             </label>
+          </div>
+
+          <div class="format-dialog-section">
+            <label class="format-dialog-label">On invalid data</label>
+            <div class="format-dialog-row" style={{ gap: '16px' }}>
+              <label class="format-dialog-checkbox">
+                <input
+                  type="radio"
+                  name="enforcement"
+                  value="warn"
+                  checked={enforcement() === 'warn'}
+                  onChange={() => setEnforcement('warn')}
+                />
+                Show warning
+              </label>
+              <label class="format-dialog-checkbox">
+                <input
+                  type="radio"
+                  name="enforcement"
+                  value="reject"
+                  checked={enforcement() === 'reject'}
+                  onChange={() => setEnforcement('reject')}
+                />
+                Reject input
+              </label>
+            </div>
           </div>
 
           <div class="format-dialog-section">
