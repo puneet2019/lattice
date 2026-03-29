@@ -31,6 +31,16 @@ pub enum ValidationType {
     Custom(String),
 }
 
+/// Controls what happens when a validation rule is violated.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ValidationEnforcement {
+    /// Allow the write but show a warning indicator on the cell.
+    #[default]
+    Warn,
+    /// Reject the write entirely and return an error.
+    Reject,
+}
+
 /// A validation rule attached to a cell.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidationRule {
@@ -40,6 +50,8 @@ pub struct ValidationRule {
     pub allow_blank: bool,
     /// Optional error message shown when validation fails.
     pub error_message: Option<String>,
+    /// How to enforce the validation: warn (default) or reject.
+    pub enforcement: ValidationEnforcement,
 }
 
 /// A store of validation rules keyed by `(sheet_name, row, col)`.
@@ -217,6 +229,7 @@ mod tests {
             validation_type: ValidationType::NumberRange { min, max },
             allow_blank: false,
             error_message: None,
+            enforcement: ValidationEnforcement::default(),
         }
     }
 
@@ -225,6 +238,7 @@ mod tests {
             validation_type: ValidationType::List(items.iter().map(|s| s.to_string()).collect()),
             allow_blank: false,
             error_message: None,
+            enforcement: ValidationEnforcement::default(),
         }
     }
 
@@ -277,6 +291,7 @@ mod tests {
             },
             allow_blank: false,
             error_message: None,
+            enforcement: ValidationEnforcement::default(),
         };
         assert!(validate(&CellValue::Text("hello".into()), &rule));
         assert!(!validate(&CellValue::Text("hi".into()), &rule));
@@ -295,6 +310,7 @@ mod tests {
             },
             allow_blank: false,
             error_message: None,
+            enforcement: ValidationEnforcement::default(),
         };
         assert!(validate(&CellValue::Date("2024-06-15".into()), &rule));
         assert!(!validate(&CellValue::Date("2023-12-31".into()), &rule));
@@ -315,6 +331,7 @@ mod tests {
             validation_type: ValidationType::Custom("=A1>0".into()),
             allow_blank: false,
             error_message: None,
+            enforcement: ValidationEnforcement::default(),
         };
         assert!(validate(&CellValue::Number(42.0), &rule));
         assert!(validate(&CellValue::Text("anything".into()), &rule));
@@ -357,5 +374,27 @@ mod tests {
             ValidationType::NumberRange { max, .. } => assert_eq!(*max, Some(100.0)),
             _ => panic!("unexpected type"),
         }
+    }
+
+    #[test]
+    fn test_enforcement_default_is_warn() {
+        let rule = number_rule(Some(0.0), Some(10.0));
+        assert_eq!(rule.enforcement, ValidationEnforcement::Warn);
+    }
+
+    #[test]
+    fn test_enforcement_reject_mode() {
+        let rule = ValidationRule {
+            validation_type: ValidationType::NumberRange {
+                min: Some(0.0),
+                max: Some(10.0),
+            },
+            allow_blank: false,
+            error_message: Some("Must be 0-10".into()),
+            enforcement: ValidationEnforcement::Reject,
+        };
+        assert_eq!(rule.enforcement, ValidationEnforcement::Reject);
+        assert!(!validate(&CellValue::Number(15.0), &rule));
+        assert!(validate(&CellValue::Number(5.0), &rule));
     }
 }

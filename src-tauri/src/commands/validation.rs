@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use lattice_core::{ValidationRule, ValidationType};
+use lattice_core::{ValidationEnforcement, ValidationRule, ValidationType};
 
 use crate::state::AppState;
 
@@ -26,6 +26,8 @@ pub struct ValidationData {
     pub allow_blank: bool,
     /// Error message shown on validation failure.
     pub error_message: Option<String>,
+    /// Enforcement mode: "warn" (default) or "reject".
+    pub enforcement: String,
 }
 
 /// Set a validation rule on a cell.
@@ -45,6 +47,7 @@ pub async fn set_validation(
     formula: Option<String>,
     allow_blank: Option<bool>,
     error_message: Option<String>,
+    enforcement: Option<String>,
 ) -> Result<(), String> {
     let validation_type = match rule_type.as_str() {
         "list" => {
@@ -69,10 +72,16 @@ pub async fn set_validation(
         _ => return Err(format!("Unknown validation type: {}", rule_type)),
     };
 
+    let enforcement_mode = match enforcement.as_deref() {
+        Some("reject") => ValidationEnforcement::Reject,
+        _ => ValidationEnforcement::Warn,
+    };
+
     let rule = ValidationRule {
         validation_type,
         allow_blank: allow_blank.unwrap_or(true),
         error_message,
+        enforcement: enforcement_mode,
     };
 
     let mut wb = state.workbook.write().await;
@@ -122,6 +131,10 @@ pub async fn list_validations(
 
 /// Convert an internal `ValidationRule` to the serializable `ValidationData`.
 fn rule_to_data(rule: &ValidationRule) -> ValidationData {
+    let enforcement_str = match rule.enforcement {
+        ValidationEnforcement::Warn => "warn".to_string(),
+        ValidationEnforcement::Reject => "reject".to_string(),
+    };
     match &rule.validation_type {
         ValidationType::List(items) => ValidationData {
             rule_type: "list".to_string(),
@@ -133,6 +146,7 @@ fn rule_to_data(rule: &ValidationRule) -> ValidationData {
             formula: None,
             allow_blank: rule.allow_blank,
             error_message: rule.error_message.clone(),
+            enforcement: enforcement_str,
         },
         ValidationType::NumberRange { min, max } => ValidationData {
             rule_type: "number".to_string(),
@@ -144,6 +158,7 @@ fn rule_to_data(rule: &ValidationRule) -> ValidationData {
             formula: None,
             allow_blank: rule.allow_blank,
             error_message: rule.error_message.clone(),
+            enforcement: enforcement_str,
         },
         ValidationType::DateRange { min, max } => ValidationData {
             rule_type: "date".to_string(),
@@ -155,6 +170,7 @@ fn rule_to_data(rule: &ValidationRule) -> ValidationData {
             formula: None,
             allow_blank: rule.allow_blank,
             error_message: rule.error_message.clone(),
+            enforcement: enforcement_str,
         },
         ValidationType::TextLength { min, max } => ValidationData {
             rule_type: "text_length".to_string(),
@@ -166,6 +182,7 @@ fn rule_to_data(rule: &ValidationRule) -> ValidationData {
             formula: None,
             allow_blank: rule.allow_blank,
             error_message: rule.error_message.clone(),
+            enforcement: enforcement_str,
         },
         ValidationType::Custom(f) => ValidationData {
             rule_type: "custom".to_string(),
@@ -177,6 +194,7 @@ fn rule_to_data(rule: &ValidationRule) -> ValidationData {
             formula: Some(f.clone()),
             allow_blank: rule.allow_blank,
             error_message: rule.error_message.clone(),
+            enforcement: enforcement_str,
         },
     }
 }

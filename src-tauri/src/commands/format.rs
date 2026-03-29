@@ -246,6 +246,7 @@ pub struct BandedRowsData {
     pub even_color: String,
     pub odd_color: String,
     pub header_color: Option<String>,
+    pub footer_color: Option<String>,
 }
 
 /// Set banded (alternating) row colours on a sheet.
@@ -257,6 +258,7 @@ pub async fn set_banded_rows(
     even_color: String,
     odd_color: String,
     header_color: Option<String>,
+    footer_color: Option<String>,
 ) -> Result<(), String> {
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
@@ -266,6 +268,7 @@ pub async fn set_banded_rows(
             even_color,
             odd_color,
             header_color,
+            footer_color,
         });
     } else {
         s.banded_rows = None;
@@ -286,6 +289,7 @@ pub async fn get_banded_rows(
         even_color: b.even_color.clone(),
         odd_color: b.odd_color.clone(),
         header_color: b.header_color.clone(),
+        footer_color: b.footer_color.clone(),
     }))
 }
 

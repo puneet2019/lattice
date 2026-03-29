@@ -1017,6 +1017,44 @@ const App: Component = () => {
       });
   };
 
+  // Format clipboard for Cmd+Option+C / Cmd+Option+V shortcuts.
+  const [formatClipboard, setFormatClipboard] = createSignal<Record<string, unknown> | null>(null);
+
+  const handleCopyFormat = () => {
+    const [row, col] = selectedCell();
+    getCell(activeSheetName(), row, col)
+      .then((cell) => {
+        if (!cell) return;
+        const fmt: Record<string, unknown> = {};
+        if (cell.bold) fmt.bold = true;
+        if (cell.italic) fmt.italic = true;
+        if (cell.underline) fmt.underline = true;
+        if (cell.strikethrough) fmt.strikethrough = true;
+        if (cell.font_size && cell.font_size !== 11) fmt.font_size = cell.font_size;
+        if (cell.font_family && cell.font_family !== 'Arial') fmt.font_family = cell.font_family;
+        if (cell.font_color) fmt.font_color = cell.font_color;
+        if (cell.bg_color) fmt.bg_color = cell.bg_color;
+        if (cell.h_align && cell.h_align !== 'left') fmt.h_align = cell.h_align;
+        if (cell.number_format) fmt.number_format = cell.number_format;
+        if (cell.text_wrap && cell.text_wrap !== 'Overflow') fmt.text_wrap = cell.text_wrap;
+        setFormatClipboard(fmt);
+        setStatusMessage('Format copied');
+      })
+      .catch(() => {
+        setStatusMessage('Failed to copy cell format');
+      });
+  };
+
+  const handlePasteFormat = () => {
+    const fmt = formatClipboard();
+    if (!fmt) {
+      setStatusMessage('No format copied');
+      return;
+    }
+    applyFormat(fmt);
+    setStatusMessage('Format pasted');
+  };
+
   const handleInsertFunction = (fn: string) => {
     const [row, col] = selectedCell();
     const value = `=${fn}(`;
@@ -1604,6 +1642,8 @@ const App: Component = () => {
           pageBreakPaperSize="letter"
           pageBreakOrientation="portrait"
           navigateTo={navigateTo()}
+          onCopyFormat={handleCopyFormat}
+          onPasteFormat={handlePasteFormat}
         />
         <ChartContainer
           charts={chartOverlays()}

@@ -253,6 +253,7 @@ export interface BandedRowsData {
   even_color: string;
   odd_color: string;
   header_color: string | null;
+  footer_color: string | null;
 }
 
 export async function setBandedRows(
@@ -261,6 +262,7 @@ export async function setBandedRows(
   evenColor: string,
   oddColor: string,
   headerColor?: string | null,
+  footerColor?: string | null,
 ): Promise<void> {
   return invoke('set_banded_rows', {
     sheet,
@@ -268,6 +270,7 @@ export async function setBandedRows(
     evenColor,
     oddColor,
     headerColor: headerColor ?? null,
+    footerColor: footerColor ?? null,
   });
 }
 
@@ -579,6 +582,7 @@ export interface ValidationData {
   formula: string | null;
   allow_blank: boolean;
   error_message: string | null;
+  enforcement: string;
 }
 
 export async function setValidation(
@@ -594,6 +598,7 @@ export async function setValidation(
   formula?: string,
   allowBlank?: boolean,
   errorMessage?: string,
+  enforcement?: string,
 ): Promise<void> {
   return invoke('set_validation', {
     sheet,
@@ -608,6 +613,7 @@ export async function setValidation(
     formula: formula ?? null,
     allowBlank: allowBlank ?? true,
     errorMessage: errorMessage ?? null,
+    enforcement: enforcement ?? 'warn',
   });
 }
 

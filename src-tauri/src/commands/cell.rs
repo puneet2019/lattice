@@ -5,9 +5,10 @@ use tauri::State;
 
 use lattice_core::formula::evaluator::SimpleEvaluator;
 use lattice_core::named_function::NamedFunction;
+use lattice_core::validation::validate;
 use lattice_core::{
     BorderStyle, CellRef, CellValue, FormulaEngine, NumberFormat, Operation, SheetResolver,
-    Workbook, format_value,
+    ValidationEnforcement, Workbook, format_value,
 };
 
 use crate::state::AppState;
@@ -213,6 +214,18 @@ pub async fn set_cell(
         let (val, _) = parse_cell_value(&value);
         val
     };
+
+    // Check validation enforcement before writing.
+    if let Some(rule) = workbook.validations.get_rule(&sheet, row, col)
+        && rule.enforcement == ValidationEnforcement::Reject
+        && !validate(&new_value, rule)
+    {
+        let msg = rule
+            .error_message
+            .clone()
+            .unwrap_or_else(|| "Value does not pass validation".to_string());
+        return Err(msg);
+    }
 
     // Set the cell value on the sheet.
     workbook

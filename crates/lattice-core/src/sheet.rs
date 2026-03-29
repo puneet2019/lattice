@@ -73,8 +73,8 @@ pub struct ProtectedRange {
 /// Alternating row colour configuration for a sheet.
 ///
 /// When enabled, rows are shaded with alternating even/odd colours
-/// to improve readability. An optional header colour can be set
-/// for the first row.
+/// to improve readability. Optional header and footer colours can be
+/// set for the first and last rows respectively.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BandedRows {
     /// Whether banded row colouring is active.
@@ -83,8 +83,11 @@ pub struct BandedRows {
     pub even_color: String,
     /// Background colour for odd rows (0-indexed), e.g. `"#FFFFFF"`.
     pub odd_color: String,
-    /// Optional distinct colour for the header (row 0).
+    /// Optional distinct colour for the header (first row).
     pub header_color: Option<String>,
+    /// Optional distinct colour for the footer (last row).
+    #[serde(default)]
+    pub footer_color: Option<String>,
 }
 
 /// A collapsible row group (outlining / grouping).
@@ -2038,6 +2041,7 @@ mod tests {
             even_color: "#F3F3F3".into(),
             odd_color: "#FFFFFF".into(),
             header_color: Some("#CCCCCC".into()),
+            footer_color: None,
         };
         sheet.set_banded_rows(Some(config.clone()));
         let banded = sheet.get_banded_rows().unwrap();
@@ -2055,6 +2059,7 @@ mod tests {
             even_color: "#F3F3F3".into(),
             odd_color: "#FFFFFF".into(),
             header_color: None,
+            footer_color: None,
         }));
         assert!(sheet.get_banded_rows().is_some());
         sheet.set_banded_rows(None);
@@ -2069,9 +2074,26 @@ mod tests {
             even_color: "#EEEEEE".into(),
             odd_color: "#FFFFFF".into(),
             header_color: None,
+            footer_color: None,
         }));
         let banded = sheet.get_banded_rows().unwrap();
         assert!(banded.header_color.is_none());
+        assert!(banded.footer_color.is_none());
+    }
+
+    #[test]
+    fn test_banded_rows_footer_color() {
+        let mut sheet = Sheet::new("T");
+        sheet.set_banded_rows(Some(BandedRows {
+            enabled: true,
+            even_color: "#F3F3F3".into(),
+            odd_color: "#FFFFFF".into(),
+            header_color: Some("#CCCCCC".into()),
+            footer_color: Some("#AAAAAA".into()),
+        }));
+        let banded = sheet.get_banded_rows().unwrap();
+        assert_eq!(banded.footer_color.as_deref(), Some("#AAAAAA"));
+        assert_eq!(banded.header_color.as_deref(), Some("#CCCCCC"));
     }
 
     // --- Remove Duplicates ---

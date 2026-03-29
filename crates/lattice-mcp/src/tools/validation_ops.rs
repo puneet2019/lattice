@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use lattice_core::{CellRef, ValidationRule, ValidationType, Workbook};
+use lattice_core::{CellRef, ValidationEnforcement, ValidationRule, ValidationType, Workbook};
 
 use super::ToolDef;
 use crate::schema::{bool_prop, object_schema, string_prop};
@@ -44,6 +44,7 @@ pub fn tool_definitions() -> Vec<ToolDef> {
                     ("formula", string_prop("Custom formula string for 'custom' type")),
                     ("allow_blank", bool_prop("Whether blank cells pass validation (default true)")),
                     ("error_message", string_prop("Error message to display when validation fails")),
+                    ("enforcement", string_prop("Enforcement mode: 'warn' (default) or 'reject'")),
                 ],
                 &["sheet", "cell_ref", "rule_type"],
             ),
@@ -97,6 +98,7 @@ struct SetValidationArgs {
     formula: Option<String>,
     allow_blank: Option<bool>,
     error_message: Option<String>,
+    enforcement: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,10 +163,16 @@ pub fn handle_set_validation(workbook: &mut Workbook, args: Value) -> Result<Val
         }
     };
 
+    let enforcement = match args.enforcement.as_deref() {
+        Some("reject") => ValidationEnforcement::Reject,
+        _ => ValidationEnforcement::Warn,
+    };
+
     let rule = ValidationRule {
         validation_type,
         allow_blank: args.allow_blank.unwrap_or(true),
         error_message: args.error_message,
+        enforcement,
     };
 
     workbook
@@ -296,10 +304,16 @@ fn format_rule(rule: &ValidationRule) -> Value {
         }),
     };
 
+    let enforcement_str = match rule.enforcement {
+        ValidationEnforcement::Warn => "warn",
+        ValidationEnforcement::Reject => "reject",
+    };
+
     json!({
         "validation_type": type_info,
         "allow_blank": rule.allow_blank,
         "error_message": rule.error_message,
+        "enforcement": enforcement_str,
     })
 }
 
