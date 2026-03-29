@@ -31,6 +31,8 @@ import {
   addRowGroup,
   removeRowGroup,
   toggleRowGroup,
+  setComment,
+  getComment,
 } from '../../bridge/tauri';
 import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
@@ -300,6 +302,43 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [ctxMenuY, setCtxMenuY] = createSignal(0);
   // Track where the right-click originated: 'cell' | 'row-header' | 'col-header'
   const [ctxMenuTarget, setCtxMenuTarget] = createSignal<'cell' | 'row-header' | 'col-header'>('cell');
+
+  // Inline note/comment editor state (replaces window.prompt)
+  const [noteEditorVisible, setNoteEditorVisible] = createSignal(false);
+  const [noteEditorRow, setNoteEditorRow] = createSignal(0);
+  const [noteEditorCol, setNoteEditorCol] = createSignal(0);
+  const [noteEditorValue, setNoteEditorValue] = createSignal('');
+  let noteEditorRef: HTMLTextAreaElement | undefined;
+
+  /** Open the inline note editor for the given cell. */
+  function openNoteEditor(row: number, col: number) {
+    setNoteEditorRow(row);
+    setNoteEditorCol(col);
+    setNoteEditorValue('');
+    // Pre-fill with existing comment if any
+    void getComment(props.activeSheet, row, col)
+      .then((existing) => {
+        if (existing) setNoteEditorValue(existing);
+      })
+      .catch(() => {});
+    setNoteEditorVisible(true);
+    requestAnimationFrame(() => noteEditorRef?.focus());
+  }
+
+  /** Commit and close the inline note editor. */
+  function commitNoteEditor() {
+    const row = noteEditorRow();
+    const col = noteEditorCol();
+    const text = noteEditorValue().trim();
+    setNoteEditorVisible(false);
+    if (text) {
+      void setComment(props.activeSheet, row, col, text)
+        .then(() => props.onStatusChange(`Note added to ${col_to_letter(col)}${row + 1}`))
+        .catch((e) => props.onStatusChange(`Failed to add note: ${e}`));
+    } else {
+      props.onStatusChange('Note cancelled');
+    }
+  }
 
   // Formula view: show raw formulas instead of computed values.
   // When the parent provides the showFormulas prop, use that; otherwise
@@ -4978,6 +5017,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     observer.observe(containerRef);
     onCleanup(() => observer.disconnect());
 
+    // Listen for Insert > Note menu event dispatched from App.tsx.
+    const handleInsertNoteEvent = () => {
+      openNoteEditor(selectedRow(), selectedCol());
+    };
+    window.addEventListener('lattice:insert-note', handleInsertNoteEvent);
+    onCleanup(() => window.removeEventListener('lattice:insert-note', handleInsertNoteEvent));
+
     // Listen for system dark/light mode changes and re-render the canvas.
     const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleColorSchemeChange = () => {
@@ -5266,22 +5312,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => {
               dismissContextMenu();
-              const note = window.prompt('Enter note:');
-              if (note !== null) {
-                const row = selectedRow();
-                const col = selectedCol();
-                const cell = cellCache.get(`${row}:${col}`);
-                const currentVal = cell?.value ?? '';
-                // Store note as a cell comment (append to value if needed, or just set)
-                // For now, set the note text as the cell value if cell is empty, otherwise just status
-                if (!currentVal) {
-                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
-                  lastFetchKey = '';
-                  fetchVisibleData();
-                  props.onContentChange(note);
-                }
-                props.onStatusChange(`Note: ${note}`);
-              }
+              openNoteEditor(selectedRow(), selectedCol());
             }}
           >
             Insert note
@@ -5374,6 +5405,88 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               {item}
             </div>
           ))}
+        </div>
+      </Show>
+
+      {/* Inline note/comment editor overlay */}
+      <Show when={noteEditorVisible()}>
+        <div
+          class="note-editor-overlay"
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--cell-bg, #fff)',
+            border: '1px solid var(--grid-border, #e0e0e0)',
+            'border-radius': '6px',
+            'box-shadow': '0 4px 16px rgba(0,0,0,0.2)',
+            padding: '12px',
+            'z-index': '200',
+            'min-width': '260px',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div style={{ 'font-size': '12px', 'font-weight': '600', 'margin-bottom': '8px', color: 'var(--cell-text, #202124)' }}>
+            Note for {col_to_letter(noteEditorCol())}{noteEditorRow() + 1}
+          </div>
+          <textarea
+            ref={noteEditorRef}
+            style={{
+              width: '100%',
+              'min-height': '60px',
+              border: '1px solid var(--grid-border, #e0e0e0)',
+              'border-radius': '4px',
+              padding: '6px',
+              'font-size': '12px',
+              resize: 'vertical',
+              'box-sizing': 'border-box',
+              background: 'var(--cell-bg, #fff)',
+              color: 'var(--cell-text, #202124)',
+              outline: 'none',
+            }}
+            value={noteEditorValue()}
+            onInput={(e) => setNoteEditorValue(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                commitNoteEditor();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setNoteEditorVisible(false);
+              }
+            }}
+          />
+          <div style={{ display: 'flex', gap: '6px', 'justify-content': 'flex-end', 'margin-top': '8px' }}>
+            <button
+              style={{
+                padding: '4px 12px',
+                'font-size': '11px',
+                border: '1px solid var(--grid-border, #e0e0e0)',
+                'border-radius': '4px',
+                background: 'transparent',
+                color: 'var(--cell-text, #202124)',
+                cursor: 'pointer',
+              }}
+              onClick={() => setNoteEditorVisible(false)}
+            >
+              Cancel
+            </button>
+            <button
+              style={{
+                padding: '4px 12px',
+                'font-size': '11px',
+                border: 'none',
+                'border-radius': '4px',
+                background: 'var(--selection-border, #1a73e8)',
+                color: '#fff',
+                cursor: 'pointer',
+              }}
+              onClick={() => commitNoteEditor()}
+            >
+              Save
+            </button>
+          </div>
         </div>
       </Show>
     </div>

@@ -27,6 +27,7 @@ import TextToColumnsDialog from './components/TextToColumnsDialog';
 import AboutDialog from './components/AboutDialog';
 import FilterViewDropdown from './components/FilterViewDropdown';
 import NamedFunctionsDialog from './components/NamedFunctionsDialog';
+import PivotDialog from './components/PivotDialog';
 import WelcomeScreen from './components/WelcomeScreen';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -67,8 +68,6 @@ import {
   getMergedRegions,
   setBandedRows,
   getBandedRows,
-  setComment,
-  getComment,
   textToColumns,
 } from './bridge/tauri';
 import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRowsData, BordersUpdate } from './bridge/tauri';
@@ -148,6 +147,9 @@ const App: Component = () => {
   const [paintFormatActive, setPaintFormatActive] = createSignal(false);
   const [paintFormatData, setPaintFormatData] = createSignal<Record<string, unknown> | null>(null);
   const [currentFontFamily, setCurrentFontFamily] = createSignal('Arial');
+  const [currentFontSize, setCurrentFontSize] = createSignal(11);
+  const [currentHAlign, setCurrentHAlign] = createSignal('left');
+  const [currentVAlign, setCurrentVAlign] = createSignal('bottom');
   const [currentFilePath, setCurrentFilePath] = createSignal<string | null>(null);
   const [tabColors, setTabColors] = createSignal<Record<string, string>>({});
   const [frozenRows, setFrozenRows] = createSignal(0);
@@ -387,6 +389,15 @@ const App: Component = () => {
     file_print: () => { setShowPrintPreview(true); },
 
     // -- Edit ---------------------------------------------------------------
+    edit_paste_special: () => { setShowPasteSpecial(true); },
+    edit_find: handleFindOpen,
+    edit_find_replace: handleFindReplaceOpen,
+    edit_select_all: () => {
+      // Select all cells — set selection range to full grid
+      setSelRange([0, 0, TOTAL_ROWS - 1, TOTAL_COLS - 1]);
+      setNameBoxDisplay('All');
+      setStatusMessage('All cells selected');
+    },
     edit_undo: () => {
       void tauriUndo()
         .then(() => {
@@ -456,26 +467,9 @@ const App: Component = () => {
     },
     insert_chart: handleInsertChart,
     insert_note: () => {
-      const note = window.prompt('Enter note:');
-      if (note !== null) {
-        const [row, col] = selectedCell();
-        if (note) {
-          void setComment(activeSheetName(), row, col, note)
-            .then(() => setStatusMessage(`Note added to ${cellRefStr(row, col)}`))
-            .catch((e) => setStatusMessage(`Failed to add note: ${e}`));
-        } else {
-          // Empty note clears the existing comment
-          void getComment(activeSheetName(), row, col)
-            .then((existing) => {
-              if (existing) {
-                setStatusMessage(`Note cleared from ${cellRefStr(row, col)}`);
-              } else {
-                setStatusMessage('No note to clear');
-              }
-            })
-            .catch(() => {});
-        }
-      }
+      // Dispatch a custom event so VirtualGrid can open the inline comment
+      // editor at the selected cell (same as Shift+F2 / context menu > Insert note).
+      window.dispatchEvent(new CustomEvent('lattice:insert-note'));
     },
     insert_checkbox: () => {
       const [row, col] = selectedCell();
@@ -557,9 +551,10 @@ const App: Component = () => {
     data_validation: () => { setShowDataValidation(true); },
     data_remove_duplicates: () => { setShowDataCleanup(true); },
     data_text_to_columns: () => { setShowTextToColumns(true); },
-    data_pivot_table: () => { setStatusMessage('Pivot table (not yet implemented)'); },
+    data_pivot_table: () => { setShowPivotDialog(true); },
 
     // -- Help ---------------------------------------------------------------
+    help_shortcuts: () => { setShowKeyboardShortcuts(true); },
     help_about: () => { setShowAbout(true); },
   };
 
@@ -783,6 +778,10 @@ const App: Component = () => {
         setItalicActive(cell?.italic ?? false);
         setUnderlineActive(cell?.underline ?? false);
         setStrikethroughActive(cell?.strikethrough ?? false);
+        if (cell?.font_family) setCurrentFontFamily(cell.font_family);
+        setCurrentFontSize(cell?.font_size ?? 11);
+        setCurrentHAlign(cell?.h_align ?? 'left');
+        setCurrentVAlign(cell?.v_align ?? 'bottom');
 
         // Paint format: apply copied format to clicked cell then clear
         const pf = paintFormatData();
@@ -1428,6 +1427,7 @@ const App: Component = () => {
   const [showAbout, setShowAbout] = createSignal(false);
   const [showFilterViews, setShowFilterViews] = createSignal(false);
   const [showNamedFunctions, setShowNamedFunctions] = createSignal(false);
+  const [showPivotDialog, setShowPivotDialog] = createSignal(false);
 
   const handlePasteSpecialOpen = () => {
     setShowPasteSpecial(true);
@@ -1513,6 +1513,9 @@ const App: Component = () => {
         filterActive={filterActive()}
         paintFormatActive={paintFormatActive()}
         currentFontFamily={currentFontFamily()}
+        currentFontSize={currentFontSize()}
+        currentHAlign={currentHAlign()}
+        currentVAlign={currentVAlign()}
       />
       <FormulaBar
         cellRef={nameBoxDisplay()}
@@ -1746,6 +1749,23 @@ const App: Component = () => {
       <Show when={showNamedFunctions()}>
         <NamedFunctionsDialog
           onClose={() => setShowNamedFunctions(false)}
+          onStatusChange={setStatusMessage}
+        />
+      </Show>
+      <Show when={showPivotDialog()}>
+        <PivotDialog
+          activeSheet={activeSheetName()}
+          selectionRange={selRange()}
+          onClose={() => setShowPivotDialog(false)}
+          onCreated={(targetSheet) => {
+            setShowPivotDialog(false);
+            void listSheets().then((sl) => {
+              setSheets(sl.map((s) => s.name));
+              void handleSelectSheet(targetSheet);
+            }).catch(() => {});
+            setRefreshTrigger((n) => n + 1);
+            markDirty();
+          }}
           onStatusChange={setStatusMessage}
         />
       </Show>

@@ -53,6 +53,10 @@ fn main() {
                 .accelerator("CmdOrCtrl+Q")
                 .build(app)?;
 
+            let file_print = MenuItemBuilder::with_id("file_print", "Print...")
+                .accelerator("CmdOrCtrl+P")
+                .build(app)?;
+
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&file_new)
                 .item(&file_open)
@@ -63,6 +67,8 @@ fn main() {
                 .item(&file_export_csv)
                 .item(&file_export_tsv)
                 .item(&file_export_pdf)
+                .separator()
+                .item(&file_print)
                 .separator()
                 .item(&file_quit)
                 .build()?;
@@ -82,6 +88,20 @@ fn main() {
             let edit_paste = MenuItemBuilder::with_id("edit_paste", "Paste")
                 .accelerator("CmdOrCtrl+V")
                 .build(app)?;
+            let edit_paste_special =
+                MenuItemBuilder::with_id("edit_paste_special", "Paste Special...")
+                    .accelerator("CmdOrCtrl+Shift+P")
+                    .build(app)?;
+            let edit_find = MenuItemBuilder::with_id("edit_find", "Find")
+                .accelerator("CmdOrCtrl+F")
+                .build(app)?;
+            let edit_find_replace =
+                MenuItemBuilder::with_id("edit_find_replace", "Find & Replace")
+                    .accelerator("CmdOrCtrl+H")
+                    .build(app)?;
+            let edit_select_all = MenuItemBuilder::with_id("edit_select_all", "Select All")
+                .accelerator("CmdOrCtrl+A")
+                .build(app)?;
 
             let edit_menu = SubmenuBuilder::new(app, "Edit")
                 .item(&edit_undo)
@@ -90,6 +110,12 @@ fn main() {
                 .item(&edit_cut)
                 .item(&edit_copy)
                 .item(&edit_paste)
+                .item(&edit_paste_special)
+                .separator()
+                .item(&edit_find)
+                .item(&edit_find_replace)
+                .separator()
+                .item(&edit_select_all)
                 .build()?;
 
             // -- View menu --------------------------------------------------
@@ -315,6 +341,19 @@ fn main() {
                 .item(&data_pivot_table)
                 .build()?;
 
+            // -- Help menu --------------------------------------------------
+            let help_shortcuts =
+                MenuItemBuilder::with_id("help_shortcuts", "Keyboard Shortcuts")
+                    .accelerator("CmdOrCtrl+/")
+                    .build(app)?;
+            let help_about =
+                MenuItemBuilder::with_id("help_about", "About Lattice").build(app)?;
+
+            let help_menu = SubmenuBuilder::new(app, "Help")
+                .item(&help_shortcuts)
+                .item(&help_about)
+                .build()?;
+
             // -- Assemble the full menu bar ---------------------------------
             let menu = MenuBuilder::new(app)
                 .item(&file_menu)
@@ -323,6 +362,7 @@ fn main() {
                 .item(&insert_menu)
                 .item(&format_menu)
                 .item(&data_menu)
+                .item(&help_menu)
                 .build()?;
 
             app.set_menu(menu)?;

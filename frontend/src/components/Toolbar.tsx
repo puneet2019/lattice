@@ -1,5 +1,5 @@
 import type { Component } from 'solid-js';
-import { createSignal, For, Show, onMount, onCleanup } from 'solid-js';
+import { createSignal, createEffect, For, Show, onMount, onCleanup } from 'solid-js';
 import type { BordersUpdate } from '../bridge/tauri';
 
 export interface ToolbarProps {
@@ -39,6 +39,9 @@ export interface ToolbarProps {
   filterActive: boolean;
   paintFormatActive: boolean;
   currentFontFamily?: string;
+  currentFontSize?: number;
+  currentHAlign?: string;
+  currentVAlign?: string;
 }
 
 const FONT_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72];
@@ -94,7 +97,17 @@ const Toolbar: Component<ToolbarProps> = (props) => {
 
   let toolbarRef: HTMLDivElement | undefined;
 
+  // Sync local font size signal from parent prop when the selected cell changes.
+  createEffect(() => {
+    const propSize = props.currentFontSize;
+    if (propSize !== undefined) {
+      setCurrentFontSize(propSize);
+    }
+  });
+
   const currentFamily = () => props.currentFontFamily ?? 'Arial';
+  const currentHAlign = () => props.currentHAlign ?? 'left';
+  const currentVAlign = () => props.currentVAlign ?? 'bottom';
 
   const anyDropdownOpen = () =>
     showFontFamilyDropdown() || showFontSizeDropdown() ||
@@ -184,11 +197,16 @@ const Toolbar: Component<ToolbarProps> = (props) => {
   };
 
   const thinEdge = { style: 'thin', color: '#000000' };
+  // "Outer borders" uses medium weight to distinguish from "All borders" (thin).
+  // Note: true outer-only borders (applying only to the selection perimeter) would
+  // require per-cell logic aware of the selection boundary. For now we apply all
+  // four edges with a heavier weight so the user gets a visual distinction.
+  const mediumEdge = { style: 'medium', color: '#000000' };
   const noneEdge = { style: 'none' };
 
   const BORDER_PRESETS: { label: string; borders: BordersUpdate }[] = [
     { label: 'All borders', borders: { top: thinEdge, bottom: thinEdge, left: thinEdge, right: thinEdge } },
-    { label: 'Outer borders', borders: { top: thinEdge, bottom: thinEdge, left: thinEdge, right: thinEdge } },
+    { label: 'Outer borders', borders: { top: mediumEdge, bottom: mediumEdge, left: mediumEdge, right: mediumEdge } },
     { label: 'No borders', borders: { top: noneEdge, bottom: noneEdge, left: noneEdge, right: noneEdge } },
     { label: 'Top border', borders: { top: thinEdge } },
     { label: 'Bottom border', borders: { bottom: thinEdge } },
@@ -503,21 +521,21 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <div class="toolbar-separator" />
 
       {/* Alignment */}
-      <button class="toolbar-btn" title="Align left" aria-label="Align left" onClick={() => props.onAlign('left')}>
+      <button class={`toolbar-btn ${currentHAlign() === 'left' ? 'active' : ''}`} title="Align left" aria-label="Align left" onClick={() => props.onAlign('left')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="2" y1="8" x2="10" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align center" aria-label="Align center" onClick={() => props.onAlign('center')}>
+      <button class={`toolbar-btn ${currentHAlign() === 'center' ? 'active' : ''}`} title="Align center" aria-label="Align center" onClick={() => props.onAlign('center')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="4" y1="8" x2="12" y2="8" />
           <line x1="2" y1="12" x2="14" y2="12" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align right" aria-label="Align right" onClick={() => props.onAlign('right')}>
+      <button class={`toolbar-btn ${currentHAlign() === 'right' ? 'active' : ''}`} title="Align right" aria-label="Align right" onClick={() => props.onAlign('right')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="4" x2="14" y2="4" />
           <line x1="6" y1="8" x2="14" y2="8" />
@@ -528,21 +546,21 @@ const Toolbar: Component<ToolbarProps> = (props) => {
       <div class="toolbar-separator" />
 
       {/* Vertical Alignment */}
-      <button class="toolbar-btn" title="Align top" aria-label="Align top" onClick={() => props.onVAlign('top')}>
+      <button class={`toolbar-btn ${currentVAlign() === 'top' ? 'active' : ''}`} title="Align top" aria-label="Align top" onClick={() => props.onVAlign('top')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="2" y1="3" x2="14" y2="3" />
           <line x1="5" y1="7" x2="11" y2="7" />
           <line x1="6" y1="10" x2="10" y2="10" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align middle" aria-label="Align middle" onClick={() => props.onVAlign('middle')}>
+      <button class={`toolbar-btn ${currentVAlign() === 'middle' ? 'active' : ''}`} title="Align middle" aria-label="Align middle" onClick={() => props.onVAlign('middle')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="6" y1="4" x2="10" y2="4" />
           <line x1="4" y1="8" x2="12" y2="8" />
           <line x1="6" y1="12" x2="10" y2="12" />
         </svg>
       </button>
-      <button class="toolbar-btn" title="Align bottom" aria-label="Align bottom" onClick={() => props.onVAlign('bottom')}>
+      <button class={`toolbar-btn ${currentVAlign() === 'bottom' ? 'active' : ''}`} title="Align bottom" aria-label="Align bottom" onClick={() => props.onVAlign('bottom')}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <line x1="6" y1="6" x2="10" y2="6" />
           <line x1="5" y1="9" x2="11" y2="9" />

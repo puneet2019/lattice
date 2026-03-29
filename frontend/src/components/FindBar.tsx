@@ -153,9 +153,11 @@ const FindBar: Component<FindBarProps> = (props) => {
     }
   }
 
+  let searchTimeout: ReturnType<typeof setTimeout>;
   function handleSearchInput(value: string) {
     setQuery(value);
-    doSearch();
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => doSearch(), 150);
   }
 
   // Auto-focus search input on mount

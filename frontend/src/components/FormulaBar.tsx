@@ -379,7 +379,14 @@ const FormulaBar: Component<FormulaBarProps> = (props) => {
         )}
       </div>
       <div class="formula-bar-fx">
-        <span class="formula-bar-fx-icon">fx</span>
+        <button
+          class="formula-bar-fx-icon"
+          type="button"
+          title="Focus formula input"
+          onClick={() => editorRef?.focus()}
+        >
+          fx
+        </button>
       </div>
       <div
         ref={editorRef}
