@@ -736,8 +736,9 @@ export async function sortRange(
   sheet: string,
   range: string | null,
   sortKeys: SortKeyInput[],
+  hasHeaders?: boolean,
 ): Promise<void> {
-  return invoke('sort_range', { sheet, range, sortKeys });
+  return invoke('sort_range', { sheet, range, sortKeys, hasHeaders: hasHeaders ?? false });
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,9 @@ export interface SortDialogProps {
   defaultCol: number;
   /** Total number of columns in the used range. */
   maxCol: number;
+  /** Optional header row values keyed by column index.
+   *  When provided these are shown as column labels when "My data has headers" is checked. */
+  headerLabels?: Record<number, string>;
   onClose: () => void;
   onSorted: () => void;
   onStatusChange: (msg: string) => void;
@@ -25,11 +28,17 @@ const SortDialog: Component<SortDialogProps> = (props) => {
     { col: props.defaultCol, direction: 'asc' },
   ]);
   const [rangeInput, setRangeInput] = createSignal('');
+  const [hasHeaders, setHasHeaders] = createSignal(true);
 
   const columnOptions = () => {
     const opts: { value: number; label: string }[] = [];
     for (let c = 0; c <= props.maxCol; c++) {
-      opts.push({ value: c, label: `Column ${col_to_letter(c)}` });
+      const letter = col_to_letter(c);
+      let label = `Column ${letter}`;
+      if (hasHeaders() && props.headerLabels && props.headerLabels[c]) {
+        label = `${letter} - ${props.headerLabels[c]}`;
+      }
+      opts.push({ value: c, label });
     }
     return opts;
   };
@@ -73,7 +82,7 @@ const SortDialog: Component<SortDialogProps> = (props) => {
     }));
     const range = rangeInput().trim() || null;
     try {
-      await sortRange(props.activeSheet, range, keys);
+      await sortRange(props.activeSheet, range, keys, hasHeaders());
       props.onSorted();
       props.onStatusChange('Sort applied');
       props.onClose();
@@ -145,6 +154,28 @@ const SortDialog: Component<SortDialogProps> = (props) => {
                 "box-sizing": 'border-box',
               }}
             />
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              "align-items": 'center',
+              gap: '8px',
+              "margin-bottom": '12px',
+            }}
+          >
+            <input
+              type="checkbox"
+              id="sort-has-headers"
+              checked={hasHeaders()}
+              onChange={(e) => setHasHeaders(e.currentTarget.checked)}
+            />
+            <label
+              for="sort-has-headers"
+              style={{ "font-size": '13px', color: 'var(--cell-text, #202124)', cursor: 'pointer' }}
+            >
+              My data has headers
+            </label>
           </div>
 
           <For each={entries()}>

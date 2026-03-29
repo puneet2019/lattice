@@ -286,6 +286,7 @@ pub async fn sort_range(
     sheet: String,
     range: Option<String>,
     sort_keys: Vec<SortKeyInput>,
+    has_headers: Option<bool>,
 ) -> Result<(), String> {
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
@@ -306,6 +307,14 @@ pub async fn sort_range(
         (0, 0, max_row, max_col)
     };
 
+    // When `has_headers` is true, skip the first row of the range (it is
+    // the header row and should not participate in sorting).
+    let effective_start_row = if has_headers.unwrap_or(false) {
+        start_row + 1
+    } else {
+        start_row
+    };
+
     let keys: Vec<SortKey> = sort_keys
         .iter()
         .map(|k| SortKey {
@@ -318,7 +327,7 @@ pub async fn sort_range(
         })
         .collect();
 
-    lattice_core::sort::sort_range(s, start_row, end_row, start_col, end_col, &keys)
+    lattice_core::sort::sort_range(s, effective_start_row, end_row, start_col, end_col, &keys)
         .map_err(|e| e.to_string())?;
 
     Ok(())

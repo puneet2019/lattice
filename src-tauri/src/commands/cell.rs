@@ -207,10 +207,11 @@ pub async fn set_cell(
         };
         match eval_result {
             Ok(v) => v,
-            Err(_) => CellValue::Error(lattice_core::CellError::Value),
+            Err(e) => CellValue::Error(map_error_to_cell_error(&e)),
         }
     } else {
-        parse_cell_value(&value)
+        let (val, _) = parse_cell_value(&value);
+        val
     };
 
     // Set the cell value on the sheet.
@@ -225,6 +226,19 @@ pub async fn set_cell(
             let mut cell = cell.clone();
             cell.formula = Some(formula_text.clone());
             s.set_cell(row, col, cell);
+        }
+    }
+
+    // If parsing detected a number format (e.g. percentage), apply it.
+    if formula.is_none() {
+        let (_, number_format) = parse_cell_value(&value);
+        if let Some(fmt) = number_format {
+            let s = workbook.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
+            if let Some(cell) = s.get_cell(row, col) {
+                let mut cell = cell.clone();
+                cell.format.number_format = Some(fmt);
+                s.set_cell(row, col, cell);
+            }
         }
     }
 
@@ -245,43 +259,48 @@ pub async fn set_cell(
     Ok(())
 }
 
-/// Re-evaluate all formula cells on the given sheet.
+/// Re-evaluate all formula cells across ALL sheets in the workbook.
 ///
 /// This is a simple brute-force recalculation. A future optimisation would
-/// build a dependency graph and only recalculate affected cells.
-fn recalculate_formulas(workbook: &mut lattice_core::Workbook, sheet_name: &str) {
-    // Collect all cells with formulas first (to avoid borrow conflicts).
-    let formula_cells: Vec<(u32, u32, String)> = {
-        let Ok(s) = workbook.get_sheet(sheet_name) else {
-            return;
-        };
-        s.cells()
-            .iter()
-            .filter_map(|(&(r, c), cell)| cell.formula.as_ref().map(|f| (r, c, f.clone())))
-            .collect()
-    };
-
+/// build a dependency graph and only recalculate affected cells. The
+/// `_changed_sheet` parameter is kept for potential future use but currently
+/// all sheets are recalculated to ensure cross-sheet references stay correct.
+fn recalculate_formulas(workbook: &mut lattice_core::Workbook, _changed_sheet: &str) {
+    let all_sheet_names = workbook.sheet_names();
     let evaluator = SimpleEvaluator;
 
-    for (r, c, formula_text) in formula_cells {
-        let resolver = ImportRangeResolver { workbook };
-        let result = {
+    for sheet_name in &all_sheet_names {
+        // Collect all cells with formulas first (to avoid borrow conflicts).
+        let formula_cells: Vec<(u32, u32, String)> = {
             let Ok(s) = workbook.get_sheet(sheet_name) else {
                 continue;
             };
-            evaluator.evaluate_with_context(&formula_text, s, Some(&resolver))
+            s.cells()
+                .iter()
+                .filter_map(|(&(r, c), cell)| cell.formula.as_ref().map(|f| (r, c, f.clone())))
+                .collect()
         };
-        let new_val = match result {
-            Ok(v) => v,
-            Err(_) => CellValue::Error(lattice_core::CellError::Value),
-        };
-        // Update the value without clearing the formula.
-        if let Ok(s) = workbook.get_sheet_mut(sheet_name)
-            && let Some(cell) = s.get_cell(r, c)
-        {
-            let mut cell = cell.clone();
-            cell.value = new_val;
-            s.set_cell(r, c, cell);
+
+        for (r, c, formula_text) in formula_cells {
+            let resolver = ImportRangeResolver { workbook };
+            let result = {
+                let Ok(s) = workbook.get_sheet(sheet_name) else {
+                    continue;
+                };
+                evaluator.evaluate_with_context(&formula_text, s, Some(&resolver))
+            };
+            let new_val = match result {
+                Ok(v) => v,
+                Err(e) => CellValue::Error(map_error_to_cell_error(&e)),
+            };
+            // Update the value without clearing the formula.
+            if let Ok(s) = workbook.get_sheet_mut(sheet_name)
+                && let Some(cell) = s.get_cell(r, c)
+            {
+                let mut cell = cell.clone();
+                cell.value = new_val;
+                s.set_cell(r, c, cell);
+            }
         }
     }
 }
@@ -491,24 +510,65 @@ pub async fn get_sheet_protection(
     }))
 }
 
+/// Map a [`LatticeError`] to the most appropriate [`CellError`] variant.
+///
+/// Formula errors are inspected for keywords (`DIV`, `REF`, `NAME`, `N/A`,
+/// `NUM`) to return the correct spreadsheet error type. All other errors
+/// default to `CellError::Value`.
+fn map_error_to_cell_error(err: &lattice_core::LatticeError) -> lattice_core::CellError {
+    use lattice_core::{CellError, LatticeError};
+
+    match err {
+        LatticeError::FormulaError(msg) => {
+            let upper = msg.to_uppercase();
+            if upper.contains("DIV") || upper.contains("DIVISION") {
+                CellError::DivZero
+            } else if upper.contains("REF") {
+                CellError::Ref
+            } else if upper.contains("NAME") {
+                CellError::Name
+            } else if upper.contains("N/A") {
+                CellError::NA
+            } else if upper.contains("NUM") {
+                CellError::Num
+            } else {
+                CellError::Value
+            }
+        }
+        _ => CellError::Value,
+    }
+}
+
 /// Parse a string into a `CellValue`, inferring the type.
-fn parse_cell_value(s: &str) -> CellValue {
+///
+/// Returns `(CellValue, Option<String>)` where the second element is an
+/// optional number format pattern to apply to the cell (e.g. "0%" for
+/// percentage input).
+fn parse_cell_value(s: &str) -> (CellValue, Option<String>) {
     if s.is_empty() {
-        return CellValue::Empty;
+        return (CellValue::Empty, None);
     }
 
     // Try boolean.
     match s.to_uppercase().as_str() {
-        "TRUE" => return CellValue::Boolean(true),
-        "FALSE" => return CellValue::Boolean(false),
+        "TRUE" => return (CellValue::Boolean(true), None),
+        "FALSE" => return (CellValue::Boolean(false), None),
         _ => {}
+    }
+
+    // Try percentage: trailing `%` means divide by 100 and format as percent.
+    if let Some(before_pct) = s.strip_suffix('%') {
+        let trimmed = before_pct.trim();
+        if let Ok(n) = trimmed.parse::<f64>() {
+            return (CellValue::Number(n / 100.0), Some("0%".to_string()));
+        }
     }
 
     // Try number.
     if let Ok(n) = s.parse::<f64>() {
-        return CellValue::Number(n);
+        return (CellValue::Number(n), None);
     }
 
     // Default to text.
-    CellValue::Text(s.to_string())
+    (CellValue::Text(s.to_string()), None)
 }

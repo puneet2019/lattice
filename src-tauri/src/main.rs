@@ -95,10 +95,9 @@ fn main() {
             let edit_find = MenuItemBuilder::with_id("edit_find", "Find")
                 .accelerator("CmdOrCtrl+F")
                 .build(app)?;
-            let edit_find_replace =
-                MenuItemBuilder::with_id("edit_find_replace", "Find & Replace")
-                    .accelerator("CmdOrCtrl+H")
-                    .build(app)?;
+            let edit_find_replace = MenuItemBuilder::with_id("edit_find_replace", "Find & Replace")
+                .accelerator("CmdOrCtrl+H")
+                .build(app)?;
             let edit_select_all = MenuItemBuilder::with_id("edit_select_all", "Select All")
                 .accelerator("CmdOrCtrl+A")
                 .build(app)?;
@@ -342,12 +341,10 @@ fn main() {
                 .build()?;
 
             // -- Help menu --------------------------------------------------
-            let help_shortcuts =
-                MenuItemBuilder::with_id("help_shortcuts", "Keyboard Shortcuts")
-                    .accelerator("CmdOrCtrl+/")
-                    .build(app)?;
-            let help_about =
-                MenuItemBuilder::with_id("help_about", "About Lattice").build(app)?;
+            let help_shortcuts = MenuItemBuilder::with_id("help_shortcuts", "Keyboard Shortcuts")
+                .accelerator("CmdOrCtrl+/")
+                .build(app)?;
+            let help_about = MenuItemBuilder::with_id("help_about", "About Lattice").build(app)?;
 
             let help_menu = SubmenuBuilder::new(app, "Help")
                 .item(&help_shortcuts)

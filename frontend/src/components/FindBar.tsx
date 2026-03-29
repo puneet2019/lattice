@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js';
 import { createSignal, Show } from 'solid-js';
-import { findInSheet, setCell } from '../bridge/tauri';
+import { findInSheet, setCell, getCell } from '../bridge/tauri';
 import type { FindResult } from '../bridge/tauri';
 
 export interface FindBarProps {
@@ -29,6 +29,35 @@ const FindBar: Component<FindBarProps> = (props) => {
   const [currentIndex, setCurrentIndex] = createSignal(-1);
 
   let searchInputRef: HTMLInputElement | undefined;
+
+  /** Build the replacement string for a single cell value. */
+  function replaceInValue(cellValue: string, search: string, replacement: string): string {
+    if (useRegex()) {
+      try {
+        const flags = caseSensitive() ? 'g' : 'gi';
+        const re = new RegExp(search, flags);
+        return cellValue.replace(re, replacement);
+      } catch {
+        return cellValue;
+      }
+    }
+    if (caseSensitive()) {
+      // Replace all occurrences (case-sensitive)
+      return cellValue.split(search).join(replacement);
+    }
+    // Case-insensitive replacement (preserve non-matching parts)
+    const lowerSearch = search.toLowerCase();
+    let result = '';
+    let remaining = cellValue;
+    let idx = remaining.toLowerCase().indexOf(lowerSearch);
+    while (idx !== -1) {
+      result += remaining.slice(0, idx) + replacement;
+      remaining = remaining.slice(idx + search.length);
+      idx = remaining.toLowerCase().indexOf(lowerSearch);
+    }
+    result += remaining;
+    return result;
+  }
 
   /** Filter results based on case-sensitivity and regex options. */
   function filterResults(rawResults: FindResult[], q: string): FindResult[] {
@@ -108,9 +137,14 @@ const FindBar: Component<FindBarProps> = (props) => {
     if (idx < 0 || idx >= r.length) return;
 
     const match = r[idx];
+    const searchText = query();
     const replacement = replaceText();
     try {
-      await setCell(props.activeSheet, match.row, match.col, replacement, undefined);
+      // Read the current cell value and perform substring replacement.
+      const cellData = await getCell(props.activeSheet, match.row, match.col);
+      const currentValue = cellData?.value ?? '';
+      const newValue = replaceInValue(currentValue, searchText, replacement);
+      await setCell(props.activeSheet, match.row, match.col, newValue, undefined);
       props.onDataChanged();
       props.onStatusChange(`Replaced at ${match.row + 1}:${match.col + 1}`);
       // Re-search to refresh results
@@ -124,10 +158,18 @@ const FindBar: Component<FindBarProps> = (props) => {
     const r = results();
     if (r.length === 0) return;
 
+    const searchText = query();
     const replacement = replaceText();
-    const promises = r.map((match) =>
-      setCell(props.activeSheet, match.row, match.col, replacement, undefined).catch(() => {}),
-    );
+    const promises = r.map(async (match) => {
+      try {
+        const cellData = await getCell(props.activeSheet, match.row, match.col);
+        const currentValue = cellData?.value ?? '';
+        const newValue = replaceInValue(currentValue, searchText, replacement);
+        await setCell(props.activeSheet, match.row, match.col, newValue, undefined);
+      } catch {
+        // Skip cells that fail
+      }
+    });
     await Promise.all(promises);
     props.onDataChanged();
     props.onStatusChange(`Replaced ${r.length} match${r.length === 1 ? '' : 'es'}`);
@@ -153,11 +195,9 @@ const FindBar: Component<FindBarProps> = (props) => {
     }
   }
 
-  let searchTimeout: ReturnType<typeof setTimeout>;
   function handleSearchInput(value: string) {
     setQuery(value);
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => doSearch(), 150);
+    doSearch();
   }
 
   // Auto-focus search input on mount
