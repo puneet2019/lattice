@@ -92,6 +92,10 @@ pub async fn get_column_values(
 
 /// Apply a column filter: hide rows whose values are NOT in the provided
 /// list of allowed values.
+///
+/// Filters accumulate across columns: applying a filter on column B does not
+/// clear an existing filter on column A.  A row is visible only if it passes
+/// ALL active column filters (logical AND).
 #[tauri::command]
 pub async fn apply_column_filter(
     state: State<'_, AppState>,
@@ -99,52 +103,93 @@ pub async fn apply_column_filter(
     col: u32,
     values: Vec<String>,
 ) -> Result<FilterInfo, String> {
+    // 1. Merge the new filter into the active_filters map for this sheet.
+    {
+        let mut af = state
+            .active_filters
+            .lock()
+            .map_err(|e| format!("active_filters lock error: {}", e))?;
+        let sheet_filters = af.entry(sheet.clone()).or_default();
+        sheet_filters.insert(col, values);
+    }
+
+    // 2. Read the merged set of active filters back out.
+    let all_filters: std::collections::HashMap<u32, Vec<String>> = {
+        let af = state
+            .active_filters
+            .lock()
+            .map_err(|e| format!("active_filters lock error: {}", e))?;
+        af.get(&sheet).cloned().unwrap_or_default()
+    };
+
+    // 3. Unhide all rows, then re-hide based on the combined filter criteria.
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
     let (max_row, max_col) = s.used_range();
 
-    // Unhide all data rows to reset previous filter state before re-applying.
     s.unhide_rows(1, max_row);
 
-    let allow_blanks = values.iter().any(|v| v == "(Blanks)");
-    let allowed: std::collections::HashSet<String> = values
+    // Pre-compute per-column allowed sets for efficient lookup.
+    let filter_sets: Vec<(u32, bool, std::collections::HashSet<String>)> = all_filters
         .iter()
-        .filter(|v| *v != "(Blanks)")
-        .map(|v| v.to_lowercase())
+        .map(|(&c, vals)| {
+            let allow_blanks = vals.iter().any(|v| v == "(Blanks)");
+            let allowed: std::collections::HashSet<String> = vals
+                .iter()
+                .filter(|v| *v != "(Blanks)")
+                .map(|v| v.to_lowercase())
+                .collect();
+            (c, allow_blanks, allowed)
+        })
         .collect();
 
     for row in 1..=max_row {
-        let cell_val = s.get_cell(row, col).map(|c| &c.value);
-        let is_blank = cell_val.is_none() || matches!(cell_val, Some(CellValue::Empty));
+        // A row must pass ALL column filters to remain visible.
+        let passes_all = filter_sets.iter().all(|(c, allow_blanks, allowed)| {
+            let cell_val = s.get_cell(row, *c).map(|cell| &cell.value);
+            let is_blank = cell_val.is_none() || matches!(cell_val, Some(CellValue::Empty));
 
-        let passes = if is_blank {
-            allow_blanks
-        } else {
-            let text = cell_value_to_display(cell_val.unwrap()).to_lowercase();
-            allowed.contains(&text)
-        };
+            if is_blank {
+                *allow_blanks
+            } else {
+                let text = cell_value_to_display(cell_val.unwrap()).to_lowercase();
+                allowed.contains(&text)
+            }
+        });
 
-        if !passes {
+        if !passes_all {
             s.hide_rows(row, 1);
         }
     }
 
     let visible = (1..=max_row).filter(|r| !s.is_row_hidden(*r)).count() as u32;
+    let filtered_cols: Vec<u32> = all_filters.keys().copied().collect();
 
     Ok(FilterInfo {
         active: true,
         start_col: 0,
         end_col: max_col,
         header_row: 0,
-        filtered_cols: vec![col],
+        filtered_cols,
         total_rows: max_row,
         visible_rows: visible,
     })
 }
 
 /// Clear all filters and unhide all rows.
+///
+/// Also removes all tracked active column filters for the sheet.
 #[tauri::command]
 pub async fn clear_filter(state: State<'_, AppState>, sheet: String) -> Result<(), String> {
+    // Clear stored active filters for this sheet.
+    {
+        let mut af = state
+            .active_filters
+            .lock()
+            .map_err(|e| format!("active_filters lock error: {}", e))?;
+        af.remove(&sheet);
+    }
+
     let mut wb = state.workbook.write().await;
     let s = wb.get_sheet_mut(&sheet).map_err(|e| e.to_string())?;
     let (max_row, _) = s.used_range();
@@ -160,6 +205,16 @@ pub async fn get_filter_info(
     state: State<'_, AppState>,
     sheet: String,
 ) -> Result<FilterInfo, String> {
+    let filtered_cols: Vec<u32> = {
+        let af = state
+            .active_filters
+            .lock()
+            .map_err(|e| format!("active_filters lock error: {}", e))?;
+        af.get(&sheet)
+            .map(|m| m.keys().copied().collect())
+            .unwrap_or_default()
+    };
+
     let wb = state.workbook.read().await;
     let s = wb.get_sheet(&sheet).map_err(|e| e.to_string())?;
     let (max_row, max_col) = s.used_range();
@@ -168,11 +223,11 @@ pub async fn get_filter_info(
     let visible = (1..=max_row).filter(|r| !s.is_row_hidden(*r)).count() as u32;
 
     Ok(FilterInfo {
-        active: has_hidden,
+        active: has_hidden || !filtered_cols.is_empty(),
         start_col: 0,
         end_col: max_col,
         header_row: 0,
-        filtered_cols: Vec::new(),
+        filtered_cols,
         total_rows: max_row,
         visible_rows: visible,
     })

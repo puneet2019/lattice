@@ -34,6 +34,15 @@ impl ChartStore {
             charts: Mutex::new(HashMap::new()),
         }
     }
+
+    /// Insert a chart into the store, returning the chart ID on success.
+    pub fn insert(&self, id: String, chart: Chart) -> Result<(), String> {
+        self.charts
+            .lock()
+            .map_err(|e| format!("Chart store lock error: {}", e))?
+            .insert(id, chart);
+        Ok(())
+    }
 }
 
 impl Default for ChartStore {

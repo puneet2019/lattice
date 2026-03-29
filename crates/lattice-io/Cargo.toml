@@ -14,6 +14,7 @@ calamine = { version = "0.26", features = ["dates"] }
 rust_xlsxwriter = "0.94"
 quick-xml = "0.31"
 csv = "1"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 notify = "7"
 sha2 = "0.10"
 libc = "0.2"

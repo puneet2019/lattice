@@ -85,6 +85,6 @@ pub use pdf_export::{PrintSettings, export_print_html};
 pub use recent_files::{RecentFile, RecentFileStore};
 pub use tsv_io::{read_tsv, write_tsv};
 pub use watcher::FileWatcher;
-pub use xlsx_chart_reader::ImportedChart;
+pub use xlsx_chart_reader::{ImportedChart, read_xlsx_charts};
 pub use xlsx_reader::{read_ods, read_spreadsheet, read_xls, read_xlsx};
 pub use xlsx_writer::{write_xlsx, write_xlsx_to_buffer};

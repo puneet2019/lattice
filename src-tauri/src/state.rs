@@ -22,6 +22,12 @@ pub struct AppState {
     pub conditional_formats: Arc<RwLock<ConditionalFormatStore>>,
     /// Per-chart stacked flag (chart_id -> stacked bool).
     pub chart_stacked: Mutex<HashMap<String, bool>>,
+    /// Active column filters per sheet: sheet_name -> (column_index -> allowed_values).
+    ///
+    /// When `apply_column_filter` is called, the filter is merged with any
+    /// existing filters for the same sheet.  All active filters are ANDed
+    /// together: a row is only visible if it passes every column filter.
+    pub active_filters: Mutex<HashMap<String, HashMap<u32, Vec<String>>>>,
 }
 
 impl AppState {
@@ -35,6 +41,7 @@ impl AppState {
             file_path: Arc::new(RwLock::new(None)),
             conditional_formats: Arc::new(RwLock::new(ConditionalFormatStore::new())),
             chart_stacked: Mutex::new(HashMap::new()),
+            active_filters: Mutex::new(HashMap::new()),
         }
     }
 

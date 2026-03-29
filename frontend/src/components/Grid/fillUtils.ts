@@ -3,6 +3,8 @@
  * and pattern-based fill value generation.
  */
 
+import type { CellData } from '../../bridge/tauri';
+
 // ---------------------------------------------------------------------------
 // Named series constants
 // ---------------------------------------------------------------------------
@@ -104,6 +106,19 @@ export function detectAndFill(
     return result;
   }
 
+  // --- Single-value named series (e.g. "Mon" -> "Tue", "Wed", ...) ---
+  if (len === 1) {
+    const singleMatch = detectNamedSeries(sourceVals);
+    if (singleMatch) {
+      const { series, lastIndex, step } = singleMatch;
+      for (let i = 0; i < count; i++) {
+        const idx = (lastIndex + step * (i + 1)) % series.length;
+        result.push(series[idx]);
+      }
+      return result;
+    }
+  }
+
   // --- Named series (days, months, quarters) ---
   const namedMatch = detectNamedSeries(sourceVals);
   if (namedMatch) {
@@ -191,4 +206,53 @@ function colToLetter(col: number): string {
     c = Math.floor(c / 26) - 1;
   } while (c >= 0);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Double-click fill handle helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the target row for a double-click fill operation.
+ *
+ * Looks at the adjacent column (left, or right if anchorCol is 0) to find the
+ * last contiguous non-empty row starting from `startRow`. Returns that row
+ * number so the caller can auto-fill down to it.
+ *
+ * If the adjacent column has no data at `startRow`, returns `startRow` (no fill).
+ *
+ * @param cellCache - Map of "row:col" keys to CellData values (the current grid cache)
+ * @param anchorCol - The column of the source cell (0-based)
+ * @param startRow  - The first row to start scanning from (0-based)
+ * @returns The last row to fill to (0-based, inclusive), or `startRow` if no extent found.
+ */
+export function computeFillExtent(
+  cellCache: Map<string, CellData>,
+  anchorCol: number,
+  startRow: number,
+): number {
+  // Pick the adjacent column: left if possible, otherwise right.
+  const refCol = anchorCol > 0 ? anchorCol - 1 : anchorCol + 1;
+
+  // If the reference column has no data at the start row, no fill.
+  const startKey = `${startRow}:${refCol}`;
+  const startCell = cellCache.get(startKey);
+  if (!startCell || startCell.value === '') {
+    return startRow;
+  }
+
+  // Scan downward in the reference column to find the last contiguous non-empty row.
+  let lastRow = startRow;
+  // Use a reasonable upper bound to avoid infinite loop (max 1,048,576 rows like Excel).
+  const MAX_ROWS = 1_048_576;
+  for (let r = startRow + 1; r < MAX_ROWS; r++) {
+    const key = `${r}:${refCol}`;
+    const cell = cellCache.get(key);
+    if (!cell || cell.value === '') {
+      break;
+    }
+    lastRow = r;
+  }
+
+  return lastRow;
 }

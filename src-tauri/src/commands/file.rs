@@ -3,8 +3,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use lattice_charts::Chart;
 use lattice_core::Workbook;
-use lattice_io::{read_spreadsheet, write_atomic};
+use lattice_io::{read_spreadsheet, read_xlsx_charts, write_atomic};
 
 use crate::state::AppState;
 
@@ -30,6 +31,20 @@ pub async fn open_file(state: State<'_, AppState>, path: String) -> Result<Workb
         active_sheet: wb.active_sheet.clone(),
     };
     state.replace_workbook(wb).await;
+
+    // Attempt to import charts from xlsx files. Non-fatal on failure.
+    if let Ok(imported_charts) = read_xlsx_charts(p) {
+        for ic in imported_charts {
+            let chart_id = uuid::Uuid::new_v4().to_string();
+            let mut chart = Chart::new(&chart_id, ic.chart_type, "", &ic.sheet_name);
+            if let Some(t) = ic.title {
+                chart = chart.with_title(t);
+            }
+            // Silently ignore insert failures (e.g. poisoned lock).
+            let _ = state.chart_store.insert(chart_id, chart);
+        }
+    }
+
     // Track the file path for autosave.
     let mut file_path = state.file_path.write().await;
     *file_path = Some(path);
