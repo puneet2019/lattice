@@ -88,8 +88,15 @@ const DataValidationDialog: Component<DataValidationDialogProps> = (props) => {
     }
   };
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      props.onClose();
+    }
+  };
+
   return (
-    <div class="format-dialog-backdrop" onClick={props.onClose}>
+    <div class="format-dialog-backdrop" onClick={props.onClose} onKeyDown={handleKeyDown} tabIndex={-1}>
       <div class="format-dialog" onClick={(e) => e.stopPropagation()} style={{ width: '420px' }}>
         <div class="format-dialog-header">
           <h2>Data Validation</h2>

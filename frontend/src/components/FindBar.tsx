@@ -195,9 +195,17 @@ const FindBar: Component<FindBarProps> = (props) => {
     }
   }
 
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
   function handleSearchInput(value: string) {
     setQuery(value);
-    doSearch();
+    // Debounce search to avoid firing a Tauri IPC call on every keystroke
+    if (searchDebounceTimer !== undefined) {
+      clearTimeout(searchDebounceTimer);
+    }
+    searchDebounceTimer = setTimeout(() => {
+      doSearch();
+    }, 200);
   }
 
   // Auto-focus search input on mount

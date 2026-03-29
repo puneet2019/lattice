@@ -247,8 +247,15 @@ const ChartDialog: Component<ChartDialogProps> = (props) => {
     }
   };
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      void handleCancel();
+    }
+  };
+
   return (
-    <div class="chart-dialog-backdrop" onClick={handleBackdropClick}>
+    <div class="chart-dialog-backdrop" onClick={handleBackdropClick} onKeyDown={handleKeyDown} tabIndex={-1}>
       <div class="chart-dialog">
         <div class="chart-dialog-header">
           <h2>{isEditMode() ? 'Edit Chart' : 'Insert Chart'}</h2>

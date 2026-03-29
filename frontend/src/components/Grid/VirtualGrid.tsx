@@ -323,6 +323,37 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [validationDropdownRow, setValidationDropdownRow] = createSignal(0);
   const [validationDropdownCol, setValidationDropdownCol] = createSignal(0);
 
+  // Inline prompt dialog state (replaces window.prompt for native feel)
+  const [promptVisible, setPromptVisible] = createSignal(false);
+  const [promptTitle, setPromptTitle] = createSignal('');
+  const [promptValue, setPromptValue] = createSignal('');
+  const [promptCallback, setPromptCallback] = createSignal<((value: string | null) => void) | null>(null);
+  let promptInputRef: HTMLInputElement | undefined;
+
+  /** Show an inline prompt dialog (replaces window.prompt). */
+  function showPrompt(title: string, callback: (value: string | null) => void) {
+    setPromptTitle(title);
+    setPromptValue('');
+    setPromptCallback(() => callback);
+    setPromptVisible(true);
+    requestAnimationFrame(() => promptInputRef?.focus());
+  }
+
+  function handlePromptConfirm() {
+    const cb = promptCallback();
+    const val = promptValue();
+    setPromptVisible(false);
+    setPromptCallback(null);
+    cb?.(val || null);
+  }
+
+  function handlePromptCancel() {
+    const cb = promptCallback();
+    setPromptVisible(false);
+    setPromptCallback(null);
+    cb?.(null);
+  }
+
   // Formula click-to-reference state.
   // When editing a formula (value starts with '='), clicking a cell inserts a
   // reference instead of moving the selection.  Dragging inserts a range ref.
@@ -4655,17 +4686,18 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+K: insert hyperlink
       if (e.key === 'k' && !e.shiftKey) {
         e.preventDefault();
-        const url = window.prompt('Enter URL:');
-        if (url) {
-          const row = selectedRow();
-          const col = selectedCol();
-          setCell(props.activeSheet, row, col, url, undefined)
-            .catch(() => {});
-          lastFetchKey = '';
-          fetchVisibleData();
-          props.onContentChange(url);
-          props.onStatusChange(`Link: ${url}`);
-        }
+        showPrompt('Enter URL:', (url) => {
+          if (url) {
+            const row = selectedRow();
+            const col = selectedCol();
+            setCell(props.activeSheet, row, col, url, undefined)
+              .catch(() => {});
+            lastFetchKey = '';
+            fetchVisibleData();
+            props.onContentChange(url);
+            props.onStatusChange(`Link: ${url}`);
+          }
+        });
         return;
       }
       // Cmd+Shift+.: increase font size
@@ -5349,16 +5381,17 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => {
               dismissContextMenu();
-              const url = window.prompt('Enter URL:');
-              if (url) {
-                const row = selectedRow();
-                const col = selectedCol();
-                setCell(props.activeSheet, row, col, url, undefined).catch(() => {});
-                lastFetchKey = '';
-                fetchVisibleData();
-                props.onContentChange(url);
-                props.onStatusChange(`Link: ${url}`);
-              }
+              showPrompt('Enter URL:', (url) => {
+                if (url) {
+                  const row = selectedRow();
+                  const col = selectedCol();
+                  setCell(props.activeSheet, row, col, url, undefined).catch(() => {});
+                  lastFetchKey = '';
+                  fetchVisibleData();
+                  props.onContentChange(url);
+                  props.onStatusChange(`Link: ${url}`);
+                }
+              });
             }}
           >
             <span>Insert link</span><span class="context-menu-shortcut">{'\u2318'}K</span>
@@ -5367,22 +5400,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
             class="context-menu-item"
             onClick={() => {
               dismissContextMenu();
-              const note = window.prompt('Enter note:');
-              if (note !== null) {
-                const row = selectedRow();
-                const col = selectedCol();
-                const cell = cellCache.get(`${row}:${col}`);
-                const currentVal = cell?.value ?? '';
-                // Store note as a cell comment (append to value if needed, or just set)
-                // For now, set the note text as the cell value if cell is empty, otherwise just status
-                if (!currentVal) {
-                  setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
-                  lastFetchKey = '';
-                  fetchVisibleData();
-                  props.onContentChange(note);
+              showPrompt('Enter note:', (note) => {
+                if (note !== null) {
+                  const row = selectedRow();
+                  const col = selectedCol();
+                  const cell = cellCache.get(`${row}:${col}`);
+                  const currentVal = cell?.value ?? '';
+                  // Store note as a cell comment (append to value if needed, or just set)
+                  // For now, set the note text as the cell value if cell is empty, otherwise just status
+                  if (!currentVal) {
+                    setCell(props.activeSheet, row, col, note, undefined).catch(() => {});
+                    lastFetchKey = '';
+                    fetchVisibleData();
+                    props.onContentChange(note);
+                  }
+                  props.onStatusChange(`Note: ${note}`);
                 }
-                props.onStatusChange(`Note: ${note}`);
-              }
+              });
             }}
           >
             Insert note
@@ -5475,6 +5509,62 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
               {item}
             </div>
           ))}
+        </div>
+      </Show>
+      <Show when={promptVisible()}>
+        <div
+          class="format-dialog-backdrop"
+          onClick={handlePromptCancel}
+          onKeyDown={(e: KeyboardEvent) => {
+            if (e.key === 'Escape') { e.preventDefault(); handlePromptCancel(); }
+          }}
+          tabIndex={-1}
+        >
+          <div
+            class="format-dialog"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '320px', padding: '16px' }}
+          >
+            <div style={{ "margin-bottom": '12px', "font-weight": '600', "font-size": '14px', color: 'var(--cell-text, #202124)' }}>
+              {promptTitle()}
+            </div>
+            <input
+              ref={promptInputRef}
+              type="text"
+              value={promptValue()}
+              onInput={(e) => setPromptValue(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handlePromptConfirm(); }
+                if (e.key === 'Escape') { e.preventDefault(); handlePromptCancel(); }
+                e.stopPropagation();
+              }}
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                border: '1px solid var(--grid-border, #e0e0e0)',
+                "border-radius": '4px',
+                "font-size": '13px',
+                "box-sizing": 'border-box',
+                background: 'var(--cell-bg, #fff)',
+                color: 'var(--cell-text, #202124)',
+                outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: '8px', "justify-content": 'flex-end', "margin-top": '12px' }}>
+              <button
+                class="chart-dialog-btn"
+                onClick={handlePromptCancel}
+              >
+                Cancel
+              </button>
+              <button
+                class="chart-dialog-btn chart-dialog-btn-primary"
+                onClick={handlePromptConfirm}
+              >
+                OK
+              </button>
+            </div>
+          </div>
         </div>
       </Show>
     </div>

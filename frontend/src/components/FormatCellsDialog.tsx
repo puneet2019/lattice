@@ -276,8 +276,15 @@ const FormatCellsDialog: Component<FormatCellsDialogProps> = (props) => {
     { id: 'borders', label: 'Borders' },
   ];
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      props.onClose();
+    }
+  };
+
   return (
-    <div class="format-dialog-backdrop" onClick={props.onClose}>
+    <div class="format-dialog-backdrop" onClick={props.onClose} onKeyDown={handleKeyDown} tabIndex={-1}>
       <div class="format-dialog" onClick={(e) => e.stopPropagation()}>
         <div class="format-dialog-header">
           <h2>Format Cells</h2>
