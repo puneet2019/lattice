@@ -30,6 +30,7 @@ export interface ToolbarProps {
   onOutdent: () => void;
   onTextRotation: (degrees: number) => void;
   onInsertFunction: (fn: string) => void;
+  onAddSlicer?: () => void;
   boldActive: boolean;
   italicActive: boolean;
   underlineActive: boolean;
@@ -798,6 +799,20 @@ const Toolbar: Component<ToolbarProps> = (props) => {
           {props.filterActive && (
             <circle cx="12" cy="12" r="3" fill="var(--selection-border)" stroke="none" />
           )}
+        </svg>
+      </button>
+
+      {/* Add Slicer */}
+      <button
+        class="toolbar-btn toolbar-btn-wide"
+        title="Add slicer"
+        aria-label="Add slicer"
+        onClick={() => props.onAddSlicer?.()}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="2" width="12" height="12" rx="2" />
+          <line x1="2" y1="6" x2="14" y2="6" />
+          <path d="M5 9h6M5 11.5h4" opacity="0.6" />
         </svg>
       </button>
 

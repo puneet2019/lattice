@@ -29,6 +29,9 @@ import FilterViewDropdown from './components/FilterViewDropdown';
 import NamedFunctionsDialog from './components/NamedFunctionsDialog';
 import PivotDialog from './components/PivotDialog';
 import ColumnStatsPanel from './components/ColumnStatsPanel';
+import SlicerContainer from './components/SlicerWidget';
+import type { SlicerState } from './components/SlicerWidget';
+import AddSlicerDialog from './components/AddSlicerDialog';
 import WelcomeScreen from './components/WelcomeScreen';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -557,6 +560,7 @@ const App: Component = () => {
       setColumnStatsCol(selectedCell()[1]);
       setShowColumnStats(true);
     },
+    data_add_slicer: () => { setShowAddSlicer(true); },
 
     // -- Help ---------------------------------------------------------------
     help_shortcuts: () => { setShowKeyboardShortcuts(true); },
@@ -1254,6 +1258,46 @@ const App: Component = () => {
   const [editTitle, setEditTitle] = createSignal<string | undefined>(undefined);
 
   // -------------------------------------------------------------------
+  // Slicer state
+  // -------------------------------------------------------------------
+
+  const [slicers, setSlicers] = createSignal<SlicerState[]>([]);
+  const [showAddSlicer, setShowAddSlicer] = createSignal(false);
+
+  let slicerIdCounter = 0;
+
+  const handleAddSlicer = (col: number, colName: string) => {
+    slicerIdCounter += 1;
+    const offset = slicers().length * 30;
+    const newSlicer: SlicerState = {
+      id: `slicer-${slicerIdCounter}-${Date.now()}`,
+      sheet: activeSheetName(),
+      col,
+      colName,
+      x: 150 + offset,
+      y: 100 + offset,
+      width: 220,
+      height: 320,
+    };
+    setSlicers([...slicers(), newSlicer]);
+    setShowAddSlicer(false);
+    setStatusMessage(`Slicer added for column ${colName}`);
+  };
+
+  const handleSlicerClose = (id: string) => {
+    setSlicers(slicers().filter((s) => s.id !== id));
+    setStatusMessage('Slicer removed');
+  };
+
+  const handleSlicerMove = (id: string, x: number, y: number) => {
+    setSlicers(slicers().map((s) => (s.id === id ? { ...s, x, y } : s)));
+  };
+
+  const handleSlicerResize = (id: string, width: number, height: number) => {
+    setSlicers(slicers().map((s) => (s.id === id ? { ...s, width, height } : s)));
+  };
+
+  // -------------------------------------------------------------------
   // Merge / Unmerge cells
   // -------------------------------------------------------------------
 
@@ -1561,6 +1605,7 @@ const App: Component = () => {
         currentFontSize={currentFontSize()}
         currentHAlign={currentHAlign()}
         currentVAlign={currentVAlign()}
+        onAddSlicer={() => setShowAddSlicer(true)}
       />
       <FormulaBar
         cellRef={nameBoxDisplay()}
@@ -1658,6 +1703,15 @@ const App: Component = () => {
           onMove={handleChartMove}
           onResize={handleChartResize}
           onEditChart={(id) => void handleEditChart(id)}
+        />
+        <SlicerContainer
+          slicers={slicers()}
+          activeSheet={activeSheetName()}
+          onClose={handleSlicerClose}
+          onMove={handleSlicerMove}
+          onResize={handleSlicerResize}
+          onStatusChange={setStatusMessage}
+          onRefresh={() => setRefreshTrigger((n) => n + 1)}
         />
       </div>
       <Show when={showChartDialog()}>
@@ -1835,6 +1889,12 @@ const App: Component = () => {
       </Show>
       <Show when={showAbout()}>
         <AboutDialog onClose={() => setShowAbout(false)} />
+      </Show>
+      <Show when={showAddSlicer()}>
+        <AddSlicerDialog
+          onAdd={handleAddSlicer}
+          onClose={() => setShowAddSlicer(false)}
+        />
       </Show>
       <SheetTabs
         sheets={sheets()}
