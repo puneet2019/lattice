@@ -54,7 +54,7 @@ const ColumnStatsPanel: Component<ColumnStatsPanelProps> = (props) => {
   };
 
   createEffect(() => {
-    fetchStats(props.activeSheet, props.col);
+    void fetchStats(props.activeSheet, props.col);
   });
 
   const handlePrev = () => {

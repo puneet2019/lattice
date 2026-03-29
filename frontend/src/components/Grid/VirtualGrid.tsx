@@ -2844,11 +2844,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       for (let c = range.minCol; c <= range.maxCol; c++) {
         // Collect source cells for this column
         const sourceVals: string[] = [];
-        const sourceCells: (typeof cellCache extends Map<string, infer V> ? V : never)[] = [];
+        const sourceCells: ((typeof cellCache extends Map<string, infer V> ? V : never) | undefined)[] = [];
         for (let r = range.minRow; r <= range.maxRow; r++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
-          sourceCells.push(cached!);
+          sourceCells.push(cached);
         }
 
         // Check if any source cell has a formula
@@ -2890,11 +2890,11 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Fill each row independently
       for (let r = range.minRow; r <= range.maxRow; r++) {
         const sourceVals: string[] = [];
-        const sourceCells: (typeof cellCache extends Map<string, infer V> ? V : never)[] = [];
+        const sourceCells: ((typeof cellCache extends Map<string, infer V> ? V : never) | undefined)[] = [];
         for (let c = range.minCol; c <= range.maxCol; c++) {
           const cached = cellCache.get(`${r}:${c}`);
           sourceVals.push(cached?.value ?? '');
-          sourceCells.push(cached!);
+          sourceCells.push(cached);
         }
 
         const hasFormula = sourceCells.some((cell) => cell?.formula);
@@ -4437,13 +4437,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Copy
       if (e.key === 'c') {
         e.preventDefault();
-        handleCopy();
+        void handleCopy();
         return;
       }
       // Cut
       if (e.key === 'x') {
         e.preventDefault();
-        handleCut();
+        void handleCut();
         return;
       }
       // Cmd+P: open print preview dialog
@@ -4461,25 +4461,25 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+V: paste values only (strip formulas)
       if (e.key === 'v' && e.shiftKey) {
         e.preventDefault();
-        handlePasteValuesOnly();
+        void handlePasteValuesOnly();
         return;
       }
       // Paste
       if (e.key === 'v') {
         e.preventDefault();
-        handlePaste();
+        void handlePaste();
         return;
       }
       // Undo: Cmd+Z (without Shift)
       if (e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        handleUndo();
+        void handleUndo();
         return;
       }
       // Redo: Cmd+Shift+Z or Cmd+Y
       if ((e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey) || e.key === 'y') {
         e.preventDefault();
-        handleRedo();
+        void handleRedo();
         return;
       }
       // Cmd+A: select all cells
@@ -4616,7 +4616,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
       // Cmd+Shift+T: paste transposed
       if (e.key === 'T' || (e.key === 't' && e.shiftKey)) {
         e.preventDefault();
-        handlePasteTransposed();
+        void handlePasteTransposed();
         return;
       }
       // Cmd+': copy formula from cell above (without evaluating)
@@ -5207,22 +5207,26 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const mode = props.pasteSpecialMode;
     if (!mode) return;
     const run = async () => {
-      switch (mode) {
-        case 'All':
-          await handlePaste();
-          break;
-        case 'ValuesOnly':
-          await handlePasteValuesOnly();
-          break;
-        case 'FormulasOnly':
-          await handlePasteFormulasOnly();
-          break;
-        case 'FormattingOnly':
-          await handlePasteFormattingOnly();
-          break;
-        case 'Transposed':
-          await handlePasteTransposed();
-          break;
+      try {
+        switch (mode) {
+          case 'All':
+            await handlePaste();
+            break;
+          case 'ValuesOnly':
+            await handlePasteValuesOnly();
+            break;
+          case 'FormulasOnly':
+            await handlePasteFormulasOnly();
+            break;
+          case 'FormattingOnly':
+            await handlePasteFormattingOnly();
+            break;
+          case 'Transposed':
+            await handlePasteTransposed();
+            break;
+        }
+      } catch (e) {
+        props.onStatusChange(`Paste special failed: ${e}`);
       }
       props.onPasteSpecialDone?.();
     };
@@ -5340,19 +5344,19 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         >
           <div
             class="context-menu-item"
-            onClick={() => { dismissContextMenu(); handleCut(); }}
+            onClick={() => { dismissContextMenu(); void handleCut(); }}
           >
             <span>Cut</span><span class="context-menu-shortcut">{'\u2318'}X</span>
           </div>
           <div
             class="context-menu-item"
-            onClick={() => { dismissContextMenu(); handleCopy(); }}
+            onClick={() => { dismissContextMenu(); void handleCopy(); }}
           >
             <span>Copy</span><span class="context-menu-shortcut">{'\u2318'}C</span>
           </div>
           <div
             class="context-menu-item"
-            onClick={() => { dismissContextMenu(); handlePaste(); }}
+            onClick={() => { dismissContextMenu(); void handlePaste(); }}
           >
             <span>Paste</span><span class="context-menu-shortcut">{'\u2318'}V</span>
           </div>

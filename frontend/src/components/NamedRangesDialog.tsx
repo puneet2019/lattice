@@ -190,7 +190,7 @@ const NamedRangesDialog: Component<NamedRangesDialogProps> = (props) => {
           }}>
             <Show when={error()}>
               <div style={{
-                color: '#d93025',
+                color: 'var(--danger-color, #d93025)',
                 "font-size": '12px',
                 "margin-bottom": '8px',
               }}>
