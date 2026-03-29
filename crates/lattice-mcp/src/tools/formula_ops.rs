@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use lattice_core::formula::evaluator::SimpleEvaluator;
-use lattice_core::{CellRef, CellValue, FormulaEngine, Workbook};
+use lattice_core::{CellRef, CellValue, FormulaEngine, SheetResolver, Workbook};
 
 use super::ToolDef;
 use crate::schema::{array_prop, object_schema, string_prop};
@@ -106,7 +106,7 @@ pub fn handle_evaluate_formula(
     let evaluator = SimpleEvaluator;
 
     let result = evaluator
-        .evaluate(&args.formula, sheet)
+        .evaluate_with_context(&args.formula, sheet, Some(workbook as &dyn SheetResolver))
         .map_err(|e| format!("Formula evaluation error: {}", e))?;
 
     Ok(json!({
@@ -169,11 +169,14 @@ pub fn handle_insert_formula(
         CellRef::parse(&args.cell_ref).map_err(|e| format!("Invalid cell reference: {}", e))?;
 
     // Evaluate the formula first to get the result value.
+    // Use evaluate_with_context so that cross-sheet references like Sheet2!A1 resolve correctly.
     let evaluator = SimpleEvaluator;
-    let sheet = workbook.get_sheet(&args.sheet).map_err(|e| e.to_string())?;
-    let result = evaluator
-        .evaluate(&args.formula, sheet)
-        .map_err(|e| format!("Formula evaluation error: {}", e))?;
+    let result = {
+        let sheet = workbook.get_sheet(&args.sheet).map_err(|e| e.to_string())?;
+        evaluator
+            .evaluate_with_context(&args.formula, sheet, Some(workbook as &dyn SheetResolver))
+            .map_err(|e| format!("Formula evaluation error: {}", e))?
+    };
 
     // Write the evaluated value to the cell.
     workbook
@@ -239,9 +242,14 @@ pub fn handle_bulk_formula(
         };
 
         // Evaluate against current sheet state (which may include previous ops' results).
+        // Pass the workbook as a SheetResolver so cross-sheet refs like Sheet2!A1 work.
         let eval_result = {
             let sheet = workbook.get_sheet(&args.sheet).map_err(|e| e.to_string())?;
-            evaluator.evaluate(&op.formula, sheet)
+            evaluator.evaluate_with_context(
+                &op.formula,
+                sheet,
+                Some(workbook as &dyn SheetResolver),
+            )
         };
 
         match eval_result {

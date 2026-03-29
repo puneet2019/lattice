@@ -7,6 +7,10 @@ edition.workspace = true
 name = "mcp_tests"
 path = "integration/mcp_tests.rs"
 
+[[test]]
+name = "release_validation_tests"
+path = "integration/release_validation_tests.rs"
+
 [dependencies]
 lattice-mcp = { path = "../crates/lattice-mcp" }
 lattice-core = { path = "../crates/lattice-core" }
