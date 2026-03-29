@@ -29,9 +29,12 @@ export interface CellData {
   font_family: string;
   h_align: string;
   font_size: number;
+  v_align?: string;
   text_wrap?: 'Overflow' | 'Wrap' | 'Clip';
+  text_rotation?: number;
   borders?: CellBordersData | null;
   indent?: number;
+  comment?: string | null;
 }
 
 /** Sheet summary information. */

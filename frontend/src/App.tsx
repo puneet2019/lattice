@@ -390,8 +390,8 @@ const App: Component = () => {
 
     // -- Edit ---------------------------------------------------------------
     edit_paste_special: () => { setShowPasteSpecial(true); },
-    edit_find: handleFindOpen,
-    edit_find_replace: handleFindReplaceOpen,
+    edit_find: () => { setFindBarReplace(false); setShowFindBar(true); },
+    edit_find_replace: () => { setFindBarReplace(true); setShowFindBar(true); },
     edit_select_all: () => {
       // Select all cells — set selection range to full grid
       setSelRange([0, 0, TOTAL_ROWS - 1, TOTAL_COLS - 1]);
