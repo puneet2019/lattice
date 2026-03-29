@@ -569,6 +569,457 @@ fn parse_cell_value(s: &str) -> (CellValue, Option<String>) {
         return (CellValue::Number(n), None);
     }
 
+    // Try currency: leading $, EUR, GBP, JPY symbols with optional commas.
+    if let Some(result) = try_parse_currency(s) {
+        return result;
+    }
+
+    // Try date: various common date formats.
+    if let Some(result) = try_parse_date(s) {
+        return result;
+    }
+
     // Default to text.
     (CellValue::Text(s.to_string()), None)
+}
+
+/// Try to parse a currency string like "$1,234.56", "EUR1234", etc.
+///
+/// Strips leading currency symbols ($, EUR, GBP, JPY) and commas, then
+/// parses the remaining digits as a number. Returns the appropriate
+/// number format string for display.
+fn try_parse_currency(s: &str) -> Option<(CellValue, Option<String>)> {
+    let trimmed = s.trim();
+
+    // Detect leading currency symbol and determine format pattern.
+    let (rest, fmt) = if let Some(r) = trimmed.strip_prefix('$') {
+        (r, "$#,##0.00")
+    } else if let Some(r) = trimmed.strip_prefix('\u{20AC}') {
+        // Euro sign
+        (r, "\u{20AC}#,##0.00")
+    } else if let Some(r) = trimmed.strip_prefix('\u{00A3}') {
+        // Pound sign
+        (r, "\u{00A3}#,##0.00")
+    } else if let Some(r) = trimmed.strip_prefix('\u{00A5}') {
+        // Yen sign
+        (r, "\u{00A5}#,##0.00")
+    } else {
+        return None;
+    };
+
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return None;
+    }
+
+    // Strip commas (thousands separators) and parse the number.
+    let without_commas: String = rest.chars().filter(|&c| c != ',').collect();
+    if let Ok(n) = without_commas.parse::<f64>() {
+        Some((CellValue::Number(n), Some(fmt.to_string())))
+    } else {
+        None
+    }
+}
+
+/// Try to parse a date string into an Excel serial date number.
+///
+/// Supported formats:
+/// - `M/D/YYYY` or `MM/DD/YYYY` (e.g., "1/2/2024", "12/31/2025")
+/// - `YYYY-MM-DD` (ISO 8601, e.g., "2024-01-15")
+/// - `D-Mon-YYYY` or `DD-MMM-YYYY` (e.g., "15-Jan-2024")
+fn try_parse_date(s: &str) -> Option<(CellValue, Option<String>)> {
+    let trimmed = s.trim();
+
+    // Try M/D/YYYY or MM/DD/YYYY
+    if let Some(result) = try_parse_mdy_slash(trimmed) {
+        return Some(result);
+    }
+
+    // Try YYYY-MM-DD (ISO 8601)
+    if let Some(result) = try_parse_iso_date(trimmed) {
+        return Some(result);
+    }
+
+    // Try D-Mon-YYYY or DD-MMM-YYYY
+    if let Some(result) = try_parse_dmy_month_name(trimmed) {
+        return Some(result);
+    }
+
+    None
+}
+
+/// Parse M/D/YYYY or MM/DD/YYYY format.
+fn try_parse_mdy_slash(s: &str) -> Option<(CellValue, Option<String>)> {
+    let parts: Vec<&str> = s.split('/').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let month: u32 = parts[0].parse().ok()?;
+    let day: u32 = parts[1].parse().ok()?;
+    let year: i32 = parts[2].parse().ok()?;
+
+    if !is_valid_date(year, month, day) {
+        return None;
+    }
+
+    let serial = date_to_serial(year, month, day);
+    Some((
+        CellValue::Number(serial as f64),
+        Some("MM/DD/YYYY".to_string()),
+    ))
+}
+
+/// Parse YYYY-MM-DD (ISO 8601) format.
+fn try_parse_iso_date(s: &str) -> Option<(CellValue, Option<String>)> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    // First part must be 4 digits (year) to distinguish from D-Mon-YYYY.
+    if parts[0].len() != 4 {
+        return None;
+    }
+    let year: i32 = parts[0].parse().ok()?;
+    let month: u32 = parts[1].parse().ok()?;
+    let day: u32 = parts[2].parse().ok()?;
+
+    if !is_valid_date(year, month, day) {
+        return None;
+    }
+
+    let serial = date_to_serial(year, month, day);
+    Some((
+        CellValue::Number(serial as f64),
+        Some("MM/DD/YYYY".to_string()),
+    ))
+}
+
+/// Parse D-Mon-YYYY or DD-MMM-YYYY format (e.g., "15-Jan-2024").
+fn try_parse_dmy_month_name(s: &str) -> Option<(CellValue, Option<String>)> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let day: u32 = parts[0].parse().ok()?;
+    let month = month_name_to_number(parts[1])?;
+    let year: i32 = parts[2].parse().ok()?;
+
+    if !is_valid_date(year, month, day) {
+        return None;
+    }
+
+    let serial = date_to_serial(year, month, day);
+    Some((
+        CellValue::Number(serial as f64),
+        Some("MM/DD/YYYY".to_string()),
+    ))
+}
+
+/// Convert a 3-letter month abbreviation to its 1-based month number.
+fn month_name_to_number(name: &str) -> Option<u32> {
+    match name.to_ascii_lowercase().as_str() {
+        "jan" => Some(1),
+        "feb" => Some(2),
+        "mar" => Some(3),
+        "apr" => Some(4),
+        "may" => Some(5),
+        "jun" => Some(6),
+        "jul" => Some(7),
+        "aug" => Some(8),
+        "sep" => Some(9),
+        "oct" => Some(10),
+        "nov" => Some(11),
+        "dec" => Some(12),
+        _ => None,
+    }
+}
+
+/// Check whether a date is valid (within reasonable spreadsheet bounds).
+fn is_valid_date(year: i32, month: u32, day: u32) -> bool {
+    if !(1900..=9999).contains(&year) {
+        return false;
+    }
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    if !(1..=31).contains(&day) {
+        return false;
+    }
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+            if leap { 29 } else { 28 }
+        }
+        _ => return false,
+    };
+    day <= days_in_month
+}
+
+/// Convert a date to an Excel serial date number.
+///
+/// Excel serial dates count days from 1900-01-01 as day 1, with the
+/// intentional Lotus 1-2-3 bug that treats 1900 as a leap year (day 60 =
+/// Feb 29, 1900 which doesn't exist).
+fn date_to_serial(year: i32, month: u32, day: u32) -> i32 {
+    let y = year as i64;
+    let m = month as i64;
+    let days_to_year = |yr: i64| -> i64 {
+        let yr = yr - 1;
+        yr * 365 + yr / 4 - yr / 100 + yr / 400
+    };
+    let month_days: [i64; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let is_leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mut day_of_year: i64 = 0;
+    for (i, &md) in month_days.iter().enumerate().take((m - 1) as usize) {
+        day_of_year += md;
+        if i == 1 && is_leap {
+            day_of_year += 1;
+        }
+    }
+    day_of_year += day as i64;
+    let abs_days = days_to_year(y) + day_of_year;
+    let base = days_to_year(1900) + 1;
+    let mut serial = (abs_days - base) + 1;
+    // Lotus 1-2-3 bug: Excel thinks 1900-02-29 exists (serial 60).
+    if serial >= 60 {
+        serial += 1;
+    }
+    serial as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // parse_cell_value basics
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_empty() {
+        let (val, fmt) = parse_cell_value("");
+        assert!(matches!(val, CellValue::Empty));
+        assert!(fmt.is_none());
+    }
+
+    #[test]
+    fn parse_boolean() {
+        assert!(matches!(
+            parse_cell_value("TRUE").0,
+            CellValue::Boolean(true)
+        ));
+        assert!(matches!(
+            parse_cell_value("false").0,
+            CellValue::Boolean(false)
+        ));
+    }
+
+    #[test]
+    fn parse_percentage() {
+        let (val, fmt) = parse_cell_value("50%");
+        match val {
+            CellValue::Number(n) => assert!((n - 0.5).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+        assert_eq!(fmt, Some("0%".to_string()));
+    }
+
+    #[test]
+    fn parse_plain_number() {
+        let (val, fmt) = parse_cell_value("42.5");
+        match val {
+            CellValue::Number(n) => assert!((n - 42.5).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+        assert!(fmt.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Currency parsing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_currency_dollar() {
+        let (val, fmt) = parse_cell_value("$1,234.56");
+        match val {
+            CellValue::Number(n) => assert!((n - 1234.56).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+        assert_eq!(fmt, Some("$#,##0.00".to_string()));
+    }
+
+    #[test]
+    fn parse_currency_dollar_no_commas() {
+        let (val, _fmt) = parse_cell_value("$99.99");
+        match val {
+            CellValue::Number(n) => assert!((n - 99.99).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_currency_euro() {
+        let (val, fmt) = parse_cell_value("\u{20AC}500");
+        match val {
+            CellValue::Number(n) => assert!((n - 500.0).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+        assert_eq!(fmt, Some("\u{20AC}#,##0.00".to_string()));
+    }
+
+    #[test]
+    fn parse_currency_pound() {
+        let (val, _fmt) = parse_cell_value("\u{00A3}1,000");
+        match val {
+            CellValue::Number(n) => assert!((n - 1000.0).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_currency_yen() {
+        let (val, _fmt) = parse_cell_value("\u{00A5}2500");
+        match val {
+            CellValue::Number(n) => assert!((n - 2500.0).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_currency_invalid() {
+        // Dollar sign with no digits
+        let (val, _) = parse_cell_value("$");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
+
+    #[test]
+    fn parse_currency_with_spaces() {
+        let (val, _) = parse_cell_value("$ 1,234.56");
+        match val {
+            CellValue::Number(n) => assert!((n - 1234.56).abs() < 1e-10),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Date parsing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_date_mdy_slash() {
+        let (val, fmt) = parse_cell_value("1/2/2024");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2024, 1, 2)),
+            _ => panic!("expected Number"),
+        }
+        assert_eq!(fmt, Some("MM/DD/YYYY".to_string()));
+    }
+
+    #[test]
+    fn parse_date_mdy_slash_padded() {
+        let (val, _) = parse_cell_value("12/31/2025");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2025, 12, 31)),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_date_iso() {
+        let (val, fmt) = parse_cell_value("2024-01-15");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2024, 1, 15)),
+            _ => panic!("expected Number"),
+        }
+        assert_eq!(fmt, Some("MM/DD/YYYY".to_string()));
+    }
+
+    #[test]
+    fn parse_date_dmy_month_name() {
+        let (val, _) = parse_cell_value("15-Jan-2024");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2024, 1, 15)),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_date_dmy_month_name_lowercase() {
+        let (val, _) = parse_cell_value("1-feb-2024");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2024, 2, 1)),
+            _ => panic!("expected Number"),
+        }
+    }
+
+    #[test]
+    fn parse_date_invalid_month() {
+        let (val, _) = parse_cell_value("13/1/2024");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
+
+    #[test]
+    fn parse_date_invalid_day() {
+        let (val, _) = parse_cell_value("2/30/2024");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
+
+    #[test]
+    fn parse_date_feb_29_leap() {
+        // 2024 is a leap year
+        let (val, _) = parse_cell_value("2/29/2024");
+        match val {
+            CellValue::Number(n) => assert_eq!(n as i32, date_to_serial(2024, 2, 29)),
+            _ => panic!("expected Number for leap day"),
+        }
+    }
+
+    #[test]
+    fn parse_date_feb_29_non_leap() {
+        // 2023 is not a leap year
+        let (val, _) = parse_cell_value("2/29/2023");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
+
+    #[test]
+    fn parse_date_year_before_1900() {
+        let (val, _) = parse_cell_value("1/1/1899");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
+
+    // -----------------------------------------------------------------------
+    // date_to_serial known values (cross-check with evaluator)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn date_serial_known_dates() {
+        assert_eq!(date_to_serial(1900, 1, 1), 1);
+        assert_eq!(date_to_serial(1900, 1, 31), 31);
+        assert_eq!(date_to_serial(1900, 2, 28), 59);
+        assert_eq!(date_to_serial(1900, 3, 1), 61);
+        assert_eq!(date_to_serial(2000, 1, 1), 36526);
+        assert_eq!(date_to_serial(2024, 1, 1), 45292);
+    }
+
+    // -----------------------------------------------------------------------
+    // Strings that should remain text
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_plain_text() {
+        let (val, _) = parse_cell_value("hello world");
+        match val {
+            CellValue::Text(s) => assert_eq!(s, "hello world"),
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn parse_not_a_date() {
+        // "100/200/300" has month > 12 — should be text
+        let (val, _) = parse_cell_value("100/200/300");
+        assert!(matches!(val, CellValue::Text(_)));
+    }
 }

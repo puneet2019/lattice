@@ -36,6 +36,7 @@ import type { ValidationData } from '../../bridge/tauri';
 import AutoComplete, { getColumnSuggestions } from './AutoComplete';
 import FormulaAutoComplete, { extractCurrentToken, filterFormulaFunctions } from './FormulaAutoComplete';
 import FormulaHint from './FormulaHint';
+import { adjustFormulaRefs } from './fillUtils';
 import {
   DEFAULT_COL_WIDTH,
   DEFAULT_ROW_HEIGHT,
@@ -228,7 +229,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
   const [rangeEnd, setRangeEnd] = createSignal<[number, number] | null>(null);
 
   // Marching ants (copy indicator) state
-  let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number } | null = null;
+  let copiedRange: { minRow: number; maxRow: number; minCol: number; maxCol: number; isCut: boolean } | null = null;
   let marchingAntOffset = 0;
   let marchingAntAnimId: number | null = null;
 
@@ -3445,7 +3446,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const tsv = await getSelectionTSV();
     try {
       await navigator.clipboard.writeText(tsv);
-      copiedRange = { ...getSelectionRange() };
+      copiedRange = { ...getSelectionRange(), isCut: false };
       startMarchingAnts();
       props.onStatusChange('Copied to clipboard');
     } catch {
@@ -3453,20 +3454,27 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
   }
 
-  /** Cut: copy to clipboard then clear selected cells. */
+  /** Cut: copy to clipboard with isCut flag; source cleared on paste. */
   async function handleCut() {
     const tsv = await getSelectionTSV();
     try {
       await navigator.clipboard.writeText(tsv);
+      copiedRange = { ...getSelectionRange(), isCut: true };
+      startMarchingAnts();
+      props.onStatusChange('Cut to clipboard');
     } catch {
       props.onStatusChange('Cut failed');
-      return;
     }
-    await clearSelectedCells();
-    props.onStatusChange('Cut to clipboard');
   }
 
-  /** Paste from clipboard: parse TSV and write cells starting at selection. */
+  /** Paste from clipboard: parse TSV and write cells starting at selection.
+   *
+   * When an internal copy/cut range is tracked (`copiedRange`), formulas
+   * from the source cells are looked up in the cell cache and their
+   * references are adjusted by the row/column offset between source and
+   * target (respecting `$` absolute refs via `adjustFormulaRefs`).
+   *
+   * For cut-paste operations the source range is cleared after pasting. */
   async function handlePaste() {
     let text: string;
     try {
@@ -3482,17 +3490,38 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const startCol = selectedCol();
     const promises: Promise<void>[] = [];
 
+    // Compute offsets for formula adjustment when we have an internal copy.
+    const cr = copiedRange;
+    const rowOffset = cr ? startRow - cr.minRow : 0;
+    const colOffset = cr ? startCol - cr.minCol : 0;
+
     for (let r = 0; r < rows.length; r++) {
       const cols = rows[r].split('\t');
       for (let c = 0; c < cols.length; c++) {
         const cellRow = startRow + r;
         const cellCol = startCol + c;
         if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
-        const value = cols[c];
+
+        let value = cols[c];
         let formula: string | undefined;
-        if (value.startsWith('=')) {
+
+        // Check if the source cell (from internal copy) had a formula.
+        if (cr) {
+          const srcRow = cr.minRow + r;
+          const srcCol = cr.minCol + c;
+          const srcCell = cellCache.get(`${srcRow}:${srcCol}`);
+          if (srcCell?.formula) {
+            const adjusted = adjustFormulaRefs(srcCell.formula, rowOffset, colOffset);
+            formula = adjusted;
+            value = '=' + adjusted;
+          }
+        }
+
+        // Fallback: if clipboard text itself starts with '=' (external paste).
+        if (!formula && value.startsWith('=')) {
           formula = value.slice(1);
         }
+
         promises.push(
           setCell(props.activeSheet, cellRow, cellCol, value, formula).catch(() => {}),
         );
@@ -3500,9 +3529,30 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     await Promise.all(promises);
+
+    // For cut operations, clear the source range after pasting.
+    if (cr?.isCut) {
+      const clearPromises: Promise<void>[] = [];
+      for (let r = cr.minRow; r <= cr.maxRow; r++) {
+        for (let c = cr.minCol; c <= cr.maxCol; c++) {
+          // Don't clear cells that overlap with the paste target.
+          if (r >= startRow && r <= startRow + (cr.maxRow - cr.minRow) &&
+              c >= startCol && c <= startCol + (cr.maxCol - cr.minCol) &&
+              rowOffset === 0 && colOffset === 0) continue;
+          clearPromises.push(setCell(props.activeSheet, r, c, '').catch(() => {}));
+        }
+      }
+      await Promise.all(clearPromises);
+    }
+
+    // Clear the copy indicator after paste.
+    if (cr) {
+      stopMarchingAnts();
+    }
+
     lastFetchKey = '';
     fetchVisibleData();
-    props.onStatusChange('Pasted from clipboard');
+    props.onStatusChange(cr?.isCut ? 'Moved cells' : 'Pasted from clipboard');
   }
 
   /** Paste values only: strip formulas, treat '=' prefix as text. */
@@ -3556,6 +3606,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const startRow = selectedRow();
     const startCol = selectedCol();
     const promises: Promise<void>[] = [];
+    const cr = copiedRange;
 
     for (let r = 0; r < rows.length; r++) {
       const cols = rows[r].split('\t');
@@ -3564,9 +3615,24 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const cellRow = startRow + c;
         const cellCol = startCol + r;
         if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
-        const value = cols[c];
+        let value = cols[c];
         let formula: string | undefined;
-        if (value.startsWith('=')) {
+
+        // Adjust formula refs for internal copy (transposed offset).
+        if (cr) {
+          const srcRow = cr.minRow + r;
+          const srcCol = cr.minCol + c;
+          const srcCell = cellCache.get(`${srcRow}:${srcCol}`);
+          if (srcCell?.formula) {
+            const rowOff = cellRow - srcRow;
+            const colOff = cellCol - srcCol;
+            const adjusted = adjustFormulaRefs(srcCell.formula, rowOff, colOff);
+            formula = adjusted;
+            value = '=' + adjusted;
+          }
+        }
+
+        if (!formula && value.startsWith('=')) {
           formula = value.slice(1);
         }
         promises.push(
@@ -3576,12 +3642,13 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     await Promise.all(promises);
+    if (cr) stopMarchingAnts();
     lastFetchKey = '';
     fetchVisibleData();
     props.onStatusChange('Pasted transposed');
   }
 
-  /** Paste from clipboard: only write cells that start with '=' (formulas). */
+  /** Paste from clipboard: only write cells that have formulas. */
   async function handlePasteFormulasOnly() {
     let text: string;
     try {
@@ -3596,6 +3663,9 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     const startRow = selectedRow();
     const startCol = selectedCol();
     const promises: Promise<void>[] = [];
+    const cr = copiedRange;
+    const rowOffset = cr ? startRow - cr.minRow : 0;
+    const colOffset = cr ? startCol - cr.minCol : 0;
 
     for (let r = 0; r < rows.length; r++) {
       const cols = rows[r].split('\t');
@@ -3603,8 +3673,23 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
         const cellRow = startRow + r;
         const cellCol = startCol + c;
         if (cellRow >= TOTAL_ROWS || cellCol >= TOTAL_COLS) continue;
+
+        // Check internal copy source for formula.
+        if (cr) {
+          const srcRow = cr.minRow + r;
+          const srcCol = cr.minCol + c;
+          const srcCell = cellCache.get(`${srcRow}:${srcCol}`);
+          if (srcCell?.formula) {
+            const adjusted = adjustFormulaRefs(srcCell.formula, rowOffset, colOffset);
+            promises.push(
+              setCell(props.activeSheet, cellRow, cellCol, '=' + adjusted, adjusted).catch(() => {}),
+            );
+            continue;
+          }
+        }
+
+        // Fallback: external paste text starting with '='
         const value = cols[c];
-        // Only write cells that are formulas (start with '=')
         if (value.startsWith('=')) {
           const formula = value.slice(1);
           promises.push(
@@ -3615,6 +3700,7 @@ const VirtualGrid: Component<VirtualGridProps> = (props) => {
     }
 
     await Promise.all(promises);
+    if (cr) stopMarchingAnts();
     lastFetchKey = '';
     fetchVisibleData();
     props.onStatusChange('Pasted formulas only');
