@@ -200,3 +200,42 @@ Updated `PLAN.md` status from "Planning" to "Phase 2 — In Progress" and marked
   - Custom MCP server implementation (tokio + serde_json)
   - Google Drive compatible single-file format
   - 4-phase delivery: MVP (8-10w) -> Full Formulas (6-8w) -> Charts (6-8w) -> Advanced (ongoing)
+
+## [2026-03-29] Full Feature Parity — All Audit Gaps Closed
+
+Three deep UX audits (cell editing, UI chrome, data ops) identified 42 gaps. All fixed:
+
+### Critical fixes
+- Formula reference adjustment on paste (=A1 becomes =A2 when pasted to row 2)
+- Date auto-recognition (1/15/2024, 2024-01-15, 15-Jan-2024)
+- Currency parsing ($1,234.56, €500, £99.99)
+- Percentage parsing (50% → 0.5)
+- Error types preserved (=1/0 → #DIV/0! not #VALUE!)
+- Cross-sheet recalculation (all sheets updated)
+- Arrow keys commit immediately in edit mode (Google Sheets behavior)
+- Sort "My data has headers" checkbox
+- Find/Replace does substring replacement (not full cell overwrite)
+- Multi-column filter accumulation (2nd filter doesn't reset 1st)
+
+### UI chrome fixes
+- Help menu (Keyboard Shortcuts + About)
+- File > Print, Edit > Paste Special/Find/Select All in menu bar
+- Toolbar syncs font family, size, alignment, v-align from selected cell
+- fx button clickable, find debounced, inline comment editor
+- Sheet tab drag-to-reorder with insertion indicator
+- Tab scroll arrows for many sheets
+
+### Data operation fixes
+- Named series single-value autofill (Mon→Tue, Jan→Feb, Q1→Q2)
+- Formula fill with reference adjustment in auto-fill
+- Double-click fill handle auto-fills to adjacent data extent
+- Chart import from xlsx files (parser + integration)
+- Proper cut-then-paste semantics (source cleared on paste, not on cut)
+
+### Final numbers
+- 1,323 tests (all passing)
+- 297 commits
+- 150+ formula functions
+- 65+ MCP tools
+- 13 chart types + stacked variants
+- GUI-MCP bridge (live sync via Unix socket)

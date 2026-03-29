@@ -3,9 +3,9 @@
 > AI-Native Spreadsheet for macOS with Built-in MCP Server
 > Full Google Sheets Feature Parity
 
-**Status**: v0.1.0 Release Candidate
+**Status**: v0.1.0 Released — Full Feature Parity
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-26 (v0.1.0 RC -- IMPORTRANGE complete, final cleanup)
+**Last Updated**: 2026-03-29 (v0.1.0 released, full audit gaps closed)
 
 ---
 

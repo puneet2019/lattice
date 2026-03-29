@@ -16,8 +16,8 @@
 
 ## Why Lattice
 
-- **AI-native from day one.** A built-in [MCP](https://modelcontextprotocol.io/) server with 66 tools lets Claude Desktop and Claude Code read, write, sort, chart, and analyze your spreadsheets directly. No plugins, no export/import loops.
-- **Pure Rust, native speed.** 128 formula functions, dependency-graph recalculation, and a Canvas-rendered grid -- all compiled to a single native binary. No Electron, no GC pauses.
+- **AI-native from day one.** A built-in [MCP](https://modelcontextprotocol.io/) server with 65+ tools lets Claude Desktop and Claude Code read, write, sort, chart, and analyze your spreadsheets directly. No plugins, no export/import loops.
+- **Pure Rust, native speed.** 150+ formula functions, dependency-graph recalculation, and a Canvas-rendered grid -- all compiled to a single native binary. No Electron, no GC pauses.
 - **18 MB macOS app.** A lightweight `.dmg` that launches instantly and works offline. Single-file `.xlsx` format syncs cleanly with Google Drive, Dropbox, and iCloud.
 
 ## Quick Demo
@@ -35,7 +35,7 @@ Claude calls Lattice MCP tools (`write_cell`, `create_chart`, `sort_range`, ...)
 | **Core** | Cell editing, undo/redo, clipboard, merge cells, freeze panes, auto-fill, find & replace, conditional formatting, data validation, pivot tables |
 | **Formulas** | 128 functions -- SUM, VLOOKUP, XLOOKUP, INDEX/MATCH, QUERY, IMPORTRANGE, XIRR, LAMBDA, LET, ARRAYFORMULA, and more |
 | **Charts** | 13 types -- bar, line, pie, scatter, area, combo, histogram, candlestick, treemap, waterfall, radar, bubble, gauge |
-| **AI / MCP** | 66 tools, 5 resources, 5 prompts -- cell ops, sheet ops, data analysis, charting, formatting, file I/O, sorting, filtering |
+| **AI / MCP** | 65+ tools, 5 resources, 5 prompts -- cell ops, sheet ops, data analysis, charting, formatting, file I/O, sorting, filtering |
 | **File I/O** | Read/write: `.xlsx`, `.xls`, `.ods`, `.csv`, `.tsv`. Export: JSON, PDF |
 | **App** | macOS menu bar, auto-save, file watcher, dark mode, SF Pro typography |
 
@@ -60,7 +60,7 @@ Requires macOS 13+, Rust stable ([rustup](https://rustup.rs)), and Node.js 20+.
 git clone https://github.com/puneet2019/lattice.git
 cd lattice
 make dev        # Start dev server with hot reload
-make test       # Run all 1,272 tests
+make test       # Run all 1,323 tests
 make bundle     # Build release .dmg
 ```
 
@@ -98,7 +98,7 @@ macOS App (.dmg, ~18 MB)
     Rust backend
       lattice-core       Spreadsheet engine (128 formulas, dependency graph, cell storage)
       lattice-io         File I/O (xlsx, xls, ods, csv, tsv, json, pdf)
-      lattice-mcp        MCP server (66 tools, 5 resources, 5 prompts)
+      lattice-mcp        MCP server (65+ tools, 5 resources, 5 prompts)
       lattice-charts     SVG chart generation (13 chart types)
       lattice-analysis   Statistical and financial analysis
 ```
