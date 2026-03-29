@@ -25,7 +25,107 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
   const [renameValue, setRenameValue] = createSignal('');
   const [showColorPicker, setShowColorPicker] = createSignal(false);
 
+  // Drag-to-reorder state
+  const [draggedTab, setDraggedTab] = createSignal<string | null>(null);
+  const [dragOverTab, setDragOverTab] = createSignal<string | null>(null);
+  const [dragOverSide, setDragOverSide] = createSignal<'left' | 'right' | null>(null);
+
+  // Tab scroll overflow state
+  const [showScrollArrows, setShowScrollArrows] = createSignal(false);
+  let tabsListRef: HTMLDivElement | undefined;
+  let resizeObserver: ResizeObserver | undefined;
+
   let renameInputRef: HTMLInputElement | undefined;
+
+  // -----------------------------------------------------------------------
+  // Drag-to-reorder handlers
+  // -----------------------------------------------------------------------
+
+  const handleDragStart = (e: DragEvent, name: string) => {
+    if (renamingSheet()) return;
+    setDraggedTab(name);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', name);
+    }
+  };
+
+  const handleDragOver = (e: DragEvent, name: string) => {
+    e.preventDefault();
+    if (!draggedTab() || draggedTab() === name) {
+      setDragOverTab(null);
+      setDragOverSide(null);
+      return;
+    }
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    // Determine if cursor is on the left or right half of the target tab
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const midX = rect.left + rect.width / 2;
+    setDragOverTab(name);
+    setDragOverSide(e.clientX < midX ? 'left' : 'right');
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTab(null);
+    setDragOverSide(null);
+  };
+
+  const handleDrop = (e: DragEvent, _targetName: string) => {
+    e.preventDefault();
+    const sourceName = draggedTab();
+    const overTab = dragOverTab();
+    const side = dragOverSide();
+    if (!sourceName || !overTab || sourceName === overTab) {
+      clearDragState();
+      return;
+    }
+    // Calculate target index
+    let targetIndex = props.sheets.indexOf(overTab);
+    if (targetIndex < 0) {
+      clearDragState();
+      return;
+    }
+    if (side === 'right') {
+      targetIndex += 1;
+    }
+    // Adjust if dragging from before the target
+    const sourceIndex = props.sheets.indexOf(sourceName);
+    if (sourceIndex < targetIndex) {
+      targetIndex -= 1;
+    }
+    props.onMoveSheet?.(sourceName, targetIndex);
+    clearDragState();
+  };
+
+  const handleDragEnd = () => {
+    clearDragState();
+  };
+
+  const clearDragState = () => {
+    setDraggedTab(null);
+    setDragOverTab(null);
+    setDragOverSide(null);
+  };
+
+  // -----------------------------------------------------------------------
+  // Tab scroll overflow detection
+  // -----------------------------------------------------------------------
+
+  const checkOverflow = () => {
+    if (!tabsListRef) return;
+    setShowScrollArrows(tabsListRef.scrollWidth > tabsListRef.clientWidth);
+  };
+
+  const scrollTabsLeft = () => {
+    tabsListRef?.scrollBy({ left: -100, behavior: 'smooth' });
+  };
+
+  const scrollTabsRight = () => {
+    tabsListRef?.scrollBy({ left: 100, behavior: 'smooth' });
+  };
 
   const handleContextMenu = (e: MouseEvent, name: string) => {
     e.preventDefault();
@@ -138,12 +238,19 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
     document.addEventListener('mousedown', handleDocMouseDown);
     document.addEventListener('keydown', handleDocKeyDown);
     window.addEventListener('blur', handleWinBlur);
+    // Set up overflow detection for tab scroll arrows
+    checkOverflow();
+    if (tabsListRef) {
+      resizeObserver = new ResizeObserver(() => checkOverflow());
+      resizeObserver.observe(tabsListRef);
+    }
   });
 
   onCleanup(() => {
     document.removeEventListener('mousedown', handleDocMouseDown);
     document.removeEventListener('keydown', handleDocKeyDown);
     window.removeEventListener('blur', handleWinBlur);
+    resizeObserver?.disconnect();
   });
 
   return (
@@ -151,16 +258,35 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
       <button class="sheet-tab-add" title="Add sheet" aria-label="Add sheet" onClick={props.onAddSheet}>
         +
       </button>
-      <div class="sheet-tabs-list">
+      <Show when={showScrollArrows()}>
+        <button class="sheet-tab-scroll-arrow" title="Scroll tabs left" aria-label="Scroll tabs left" onClick={scrollTabsLeft}>
+          &lt;
+        </button>
+      </Show>
+      <div class="sheet-tabs-list" ref={tabsListRef} onScroll={checkOverflow}>
         <For each={props.sheets}>
           {(name) => {
             const tabColor = () => getTabColor(name);
+            const dragClass = () => {
+              if (dragOverTab() === name && draggedTab() && draggedTab() !== name) {
+                return dragOverSide() === 'left' ? ' drag-over-left' : ' drag-over-right';
+              }
+              return '';
+            };
+            const isDragged = () => draggedTab() === name;
             return (
               <div
-                class={`sheet-tab ${name === props.activeSheet ? 'active' : ''}`}
+                class={`sheet-tab${name === props.activeSheet ? ' active' : ''}${dragClass()}`}
                 role="tab"
                 aria-selected={name === props.activeSheet}
                 aria-label={name}
+                draggable={renamingSheet() !== name}
+                style={{
+                  ...(tabColor() ? {
+                    "border-bottom": `3px solid ${tabColor()}`,
+                  } : {}),
+                  ...(isDragged() ? { opacity: '0.5' } : {}),
+                }}
                 onClick={() => {
                   if (renamingSheet() !== name) {
                     props.onSelectSheet(name);
@@ -168,11 +294,11 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
                 }}
                 onDblClick={() => handleDoubleClick(name)}
                 onContextMenu={(e) => handleContextMenu(e, name)}
-                style={{
-                  ...(tabColor() ? {
-                    "border-bottom": `3px solid ${tabColor()}`,
-                  } : {}),
-                }}
+                onDragStart={(e) => handleDragStart(e, name)}
+                onDragOver={(e) => handleDragOver(e, name)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, name)}
+                onDragEnd={handleDragEnd}
               >
                 {renamingSheet() === name ? (
                   <input
@@ -193,6 +319,11 @@ const SheetTabs: Component<SheetTabsProps> = (props) => {
           }}
         </For>
       </div>
+      <Show when={showScrollArrows()}>
+        <button class="sheet-tab-scroll-arrow" title="Scroll tabs right" aria-label="Scroll tabs right" onClick={scrollTabsRight}>
+          &gt;
+        </button>
+      </Show>
 
       {/* Context Menu */}
       <Show when={contextMenu()}>

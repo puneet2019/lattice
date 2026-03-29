@@ -637,7 +637,7 @@ body,
 .sheet-tabs-list {
   display: flex;
   align-items: stretch;
-  overflow-x: auto;
+  overflow: hidden;
   flex: 1;
 }
 
@@ -706,6 +706,36 @@ body,
 }
 
 .sheet-tab-add:hover {
+  background: var(--header-bg);
+  color: var(--cell-text);
+}
+
+/* Drag-to-reorder insertion indicators */
+.sheet-tab.drag-over-left {
+  box-shadow: inset 3px 0 0 0 var(--selection-border);
+}
+
+.sheet-tab.drag-over-right {
+  box-shadow: inset -3px 0 0 0 var(--selection-border);
+}
+
+/* Tab scroll arrows */
+.sheet-tab-scroll-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-width: 24px;
+  border: none;
+  border-right: 1px solid var(--tab-border);
+  font-size: 12px;
+  color: var(--header-text);
+  cursor: pointer;
+  background: var(--tab-bg);
+  padding: 0;
+}
+
+.sheet-tab-scroll-arrow:hover {
   background: var(--header-bg);
   color: var(--cell-text);
 }
