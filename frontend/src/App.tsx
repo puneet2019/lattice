@@ -208,6 +208,23 @@ const App: Component = () => {
     }
   }
 
+  /** Load chart overlays for the given sheet from the backend chart store. */
+  async function loadChartsForSheet(sheetName: string) {
+    try {
+      const charts = await listCharts(sheetName);
+      const overlays: ChartOverlay[] = charts.map((info: ChartInfo, i: number) => ({
+        info,
+        x: 120 + i * 30,
+        y: 80 + i * 30,
+        width: info.width,
+        height: info.height,
+      }));
+      setChartOverlays(overlays);
+    } catch {
+      // Ignore in browser dev mode.
+    }
+  }
+
   /** Apply workbook info from open/new result to local state. */
   function applyWorkbookInfo(info: { sheets: string[]; active_sheet: string }) {
     setSheets(info.sheets);
@@ -227,6 +244,8 @@ const App: Component = () => {
       setCurrentFilePath(null);
       updateWindowTitle(null, false);
       setSaveStatus('saved');
+      // Clear charts from previous workbook.
+      setChartOverlays([]);
       setStatusMessage('New workbook created');
     } catch (e) {
       setStatusMessage(`New workbook failed: ${e}`);
@@ -258,6 +277,8 @@ const App: Component = () => {
       setCurrentFilePath(path);
       updateWindowTitle(path, false);
       setSaveStatus('saved');
+      // Load charts imported from the file.
+      void loadChartsForSheet(info.active_sheet);
       // Track in recent files
       const fileName = path.split('/').pop() || path;
       void addRecentFile(path, fileName).catch(() => {});
@@ -282,6 +303,8 @@ const App: Component = () => {
       setCurrentFilePath(path);
       updateWindowTitle(path, false);
       setSaveStatus('saved');
+      // Load charts imported from the file.
+      void loadChartsForSheet(info.active_sheet);
       const fileName = path.split('/').pop() || path;
       void addRecentFile(path, fileName).catch(() => {});
       setStatusMessage(`Opened: ${path}`);
@@ -668,9 +691,10 @@ const App: Component = () => {
     setSelectedCell([0, 0]);
     setSelRange([0, 0, 0, 0]);
     setFormulaContent('');
-    // Refresh merged regions and banded rows for the new sheet
+    // Refresh merged regions, banded rows, and charts for the new sheet
     void refreshMergedRegions();
     void refreshBandedRows();
+    void loadChartsForSheet(name);
   };
 
   const handleNextSheet = () => {
@@ -1535,21 +1559,9 @@ const App: Component = () => {
     setPasteSpecialMode(null);
   };
 
-  // Load existing charts on mount.
+  // Load existing charts on mount (for app restart with a previously open file).
   onMount(async () => {
-    try {
-      const charts = await listCharts(activeSheetName());
-      const overlays: ChartOverlay[] = charts.map((info: ChartInfo, i: number) => ({
-        info,
-        x: 120 + i * 30,
-        y: 80 + i * 30,
-        width: info.width,
-        height: info.height,
-      }));
-      setChartOverlays(overlays);
-    } catch {
-      // Ignore in browser dev mode.
-    }
+    void loadChartsForSheet(activeSheetName());
   });
 
   return (

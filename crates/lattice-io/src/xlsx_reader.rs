@@ -4,9 +4,13 @@
 //! where available), merged cell regions, comments, column widths, and row
 //! heights.
 
+use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
 
 use calamine::{Data, Reader, Xlsx, open_workbook};
+use quick_xml::Reader as XmlReader;
+use quick_xml::events::Event;
 
 use lattice_core::{Cell, CellError, CellValue, Workbook};
 
@@ -74,6 +78,12 @@ pub fn read_xlsx(path: &Path) -> Result<Workbook> {
 
     // Set active sheet to the first one.
     workbook.active_sheet = sheet_names[0].clone();
+
+    // Post-process: extract formula text from the raw xlsx XML.
+    // calamine only returns computed values, not the formula strings.
+    if let Err(e) = extract_formulas_from_xlsx(path, &mut workbook) {
+        eprintln!("warning: could not extract formulas: {}", e);
+    }
 
     Ok(workbook)
 }
@@ -211,6 +221,271 @@ pub fn read_xls(path: &Path) -> Result<Workbook> {
 
     workbook.active_sheet = sheet_names[0].clone();
     Ok(workbook)
+}
+
+/// Extract formula text from the raw xlsx XML and set it on the workbook cells.
+///
+/// Opens the xlsx as a ZIP archive, reads `xl/workbook.xml` to map sheet names
+/// to relationship IDs, then reads `xl/_rels/workbook.xml.rels` to resolve each
+/// rId to a worksheet XML path. Finally, parses each worksheet XML for `<c>`
+/// elements containing `<f>` child elements and sets `cell.formula` accordingly.
+fn extract_formulas_from_xlsx(path: &Path, workbook: &mut Workbook) -> Result<()> {
+    let file = std::fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+        .map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
+
+    // Step 1: Parse xl/workbook.xml to build sheet name -> rId map.
+    let workbook_xml = read_zip_entry_string(&mut archive, "xl/workbook.xml")?;
+    let sheet_to_rid = parse_sheet_rid_map(&workbook_xml);
+
+    // Step 2: Parse xl/_rels/workbook.xml.rels to build rId -> file path map.
+    let rels_xml = read_zip_entry_string(&mut archive, "xl/_rels/workbook.xml.rels")?;
+    let rid_to_target = parse_rid_target_map(&rels_xml);
+
+    // Step 3: For each sheet, find the worksheet XML and extract formulas.
+    let sheet_names = workbook.sheet_names();
+    for sheet_name in &sheet_names {
+        let rid = match sheet_to_rid.get(sheet_name.as_str()) {
+            Some(r) => r,
+            None => continue,
+        };
+        let target = match rid_to_target.get(rid.as_str()) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Target is relative to xl/, e.g. "worksheets/sheet1.xml"
+        let xml_path = format!("xl/{}", target);
+        let sheet_xml = match read_zip_entry_string(&mut archive, &xml_path) {
+            Ok(xml) => xml,
+            Err(_) => continue,
+        };
+
+        let formulas = parse_formulas_from_sheet_xml(&sheet_xml);
+        if formulas.is_empty() {
+            continue;
+        }
+
+        let sheet = match workbook.get_sheet_mut(sheet_name) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        for (cell_ref, formula_text) in &formulas {
+            if let Some((row, col)) = parse_a1_ref(cell_ref) {
+                // If the cell already exists (from calamine values), set formula on it.
+                // If it doesn't exist, create a new cell with Empty value + formula.
+                if let Some(cell) = sheet.get_cell_mut(row, col) {
+                    cell.formula = Some(formula_text.clone());
+                } else {
+                    let cell = Cell {
+                        formula: Some(formula_text.clone()),
+                        ..Default::default()
+                    };
+                    sheet.set_cell(row, col, cell);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Read a zip entry as a UTF-8 string.
+fn read_zip_entry_string(
+    archive: &mut zip::ZipArchive<std::io::BufReader<std::fs::File>>,
+    name: &str,
+) -> Result<String> {
+    let mut entry = archive
+        .by_name(name)
+        .map_err(|e| IoError::XlsxRead(format!("zip entry '{}': {}", name, e)))?;
+    let mut buf = String::new();
+    entry
+        .read_to_string(&mut buf)
+        .map_err(|e| IoError::XlsxRead(format!("reading '{}': {}", name, e)))?;
+    Ok(buf)
+}
+
+/// Parse `xl/workbook.xml` to extract sheet name -> rId mapping.
+///
+/// Looks for `<sheet name="..." r:id="rIdN"/>` elements.
+fn parse_sheet_rid_map(xml: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut reader = XmlReader::from_str(xml);
+    reader.trim_text(true);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
+                let local = strip_ns(e.name().as_ref());
+                if local == "sheet" {
+                    let mut name = String::new();
+                    let mut rid = String::new();
+                    for attr in e.attributes().flatten() {
+                        let key = strip_ns(attr.key.as_ref());
+                        match key.as_str() {
+                            "name" => {
+                                name = String::from_utf8_lossy(&attr.value).to_string();
+                            }
+                            "id" => {
+                                rid = String::from_utf8_lossy(&attr.value).to_string();
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !name.is_empty() && !rid.is_empty() {
+                        map.insert(name, rid);
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    map
+}
+
+/// Parse `xl/_rels/workbook.xml.rels` to extract rId -> target path mapping.
+fn parse_rid_target_map(xml: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    // Use extract_relationship_targets-style logic but capture Id -> Target.
+    let mut reader = XmlReader::from_str(xml);
+    reader.trim_text(true);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
+                let local = strip_ns(e.name().as_ref());
+                if local == "Relationship" {
+                    let mut id = String::new();
+                    let mut target = String::new();
+                    for attr in e.attributes().flatten() {
+                        match attr.key.as_ref() {
+                            b"Id" => id = String::from_utf8_lossy(&attr.value).to_string(),
+                            b"Target" => target = String::from_utf8_lossy(&attr.value).to_string(),
+                            _ => {}
+                        }
+                    }
+                    if !id.is_empty() && !target.is_empty() {
+                        map.insert(id, target);
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    map
+}
+
+/// Parse a worksheet XML string and extract cell formulas.
+///
+/// Returns a list of `(cell_ref, formula_text)` pairs, e.g.
+/// `[("D5", "C5-B5"), ("E5", "D5/B5*100")]`.
+///
+/// The formula text does NOT include the leading `=`.
+fn parse_formulas_from_sheet_xml(xml: &str) -> Vec<(String, String)> {
+    let mut formulas = Vec::new();
+    let mut reader = XmlReader::from_str(xml);
+    reader.trim_text(true);
+    let mut buf = Vec::new();
+
+    let mut in_c = false;
+    let mut current_ref = String::new();
+    let mut in_f = false;
+    let mut formula_text = String::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let local = strip_ns(e.name().as_ref());
+                match local.as_str() {
+                    "c" => {
+                        in_c = true;
+                        current_ref.clear();
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"r" {
+                                current_ref = String::from_utf8_lossy(&attr.value).to_string();
+                            }
+                        }
+                    }
+                    "f" if in_c => {
+                        in_f = true;
+                        formula_text.clear();
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(e)) => {
+                if in_f && let Ok(text) = e.unescape() {
+                    formula_text.push_str(&text);
+                }
+            }
+            Ok(Event::End(e)) => {
+                let local = strip_ns(e.name().as_ref());
+                match local.as_str() {
+                    "f" if in_f => {
+                        in_f = false;
+                        if !current_ref.is_empty() && !formula_text.is_empty() {
+                            formulas.push((current_ref.clone(), formula_text.clone()));
+                        }
+                    }
+                    "c" if in_c => {
+                        in_c = false;
+                        in_f = false;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    formulas
+}
+
+/// Parse an A1-style cell reference (e.g. "A1", "AB123") to 0-based (row, col).
+///
+/// Returns `None` if the reference is malformed.
+fn parse_a1_ref(cell_ref: &str) -> Option<(u32, u32)> {
+    let first_digit = cell_ref.find(|c: char| c.is_ascii_digit())?;
+    if first_digit == 0 {
+        return None;
+    }
+    let col_part = &cell_ref[..first_digit];
+    let row_part = &cell_ref[first_digit..];
+
+    // Column letters to 0-based index.
+    let mut col: u32 = 0;
+    for ch in col_part.chars() {
+        if !ch.is_ascii_alphabetic() {
+            return None;
+        }
+        col = col * 26 + (ch.to_ascii_uppercase() as u32 - b'A' as u32 + 1);
+    }
+    col = col.checked_sub(1)?; // 1-based -> 0-based
+
+    let row: u32 = row_part.parse().ok()?;
+    if row == 0 {
+        return None;
+    }
+    Some((row - 1, col)) // 1-based -> 0-based
+}
+
+/// Strip namespace prefix from an XML name (e.g. `"r:id"` -> `"id"`).
+fn strip_ns(full: &[u8]) -> String {
+    let s = String::from_utf8_lossy(full);
+    match s.rfind(':') {
+        Some(pos) => s[pos + 1..].to_string(),
+        None => s.to_string(),
+    }
 }
 
 /// Convert calamine `Data` enum to our `CellValue`.
@@ -496,5 +771,137 @@ mod tests {
             calamine_data_to_cell_value(&Data::DurationIso("PT1H30M".into())),
             CellValue::Text("PT1H30M".into())
         );
+    }
+
+    #[test]
+    fn test_parse_a1_ref_simple() {
+        assert_eq!(parse_a1_ref("A1"), Some((0, 0)));
+        assert_eq!(parse_a1_ref("B2"), Some((1, 1)));
+        assert_eq!(parse_a1_ref("Z1"), Some((0, 25)));
+        assert_eq!(parse_a1_ref("AA1"), Some((0, 26)));
+        assert_eq!(parse_a1_ref("D5"), Some((4, 3)));
+    }
+
+    #[test]
+    fn test_parse_a1_ref_invalid() {
+        assert_eq!(parse_a1_ref(""), None);
+        assert_eq!(parse_a1_ref("123"), None);
+        assert_eq!(parse_a1_ref("A0"), None);
+    }
+
+    #[test]
+    fn test_parse_sheet_rid_map() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Dashboard" sheetId="1" r:id="rId3"/>
+    <sheet name="Portfolio" sheetId="2" r:id="rId4"/>
+  </sheets>
+</workbook>"#;
+        let map = parse_sheet_rid_map(xml);
+        assert_eq!(map.get("Dashboard"), Some(&"rId3".to_string()));
+        assert_eq!(map.get("Portfolio"), Some(&"rId4".to_string()));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_rid_target_map() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>"#;
+        let map = parse_rid_target_map(xml);
+        assert_eq!(map.get("rId3"), Some(&"worksheets/sheet1.xml".to_string()));
+        assert_eq!(map.get("rId4"), Some(&"worksheets/sheet2.xml".to_string()));
+    }
+
+    #[test]
+    fn test_parse_formulas_from_sheet_xml() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="s"><v>0</v></c>
+      <c r="B1" t="n"><v>100</v></c>
+    </row>
+    <row r="5">
+      <c r="D5" s="5" t="n"><f aca="false">C5-B5</f><v>98270</v></c>
+      <c r="E5" s="6" t="n"><f aca="false">D5/B5*100</f><v>10.28</v></c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let formulas = parse_formulas_from_sheet_xml(xml);
+        assert_eq!(formulas.len(), 2);
+        assert_eq!(formulas[0], ("D5".to_string(), "C5-B5".to_string()));
+        assert_eq!(formulas[1], ("E5".to_string(), "D5/B5*100".to_string()));
+    }
+
+    #[test]
+    fn test_parse_formulas_no_formulas() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="s"><v>0</v></c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let formulas = parse_formulas_from_sheet_xml(xml);
+        assert!(formulas.is_empty());
+    }
+
+    #[test]
+    fn test_parse_formulas_sum_function() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="5">
+      <c r="N5" t="n"><f>SUM(B5:M5)</f><v>120000</v></c>
+    </row>
+  </sheetData>
+</worksheet>"#;
+        let formulas = parse_formulas_from_sheet_xml(xml);
+        assert_eq!(formulas.len(), 1);
+        assert_eq!(formulas[0], ("N5".to_string(), "SUM(B5:M5)".to_string()));
+    }
+
+    /// Integration test: read the real Finance Tracker xlsx and verify formulas
+    /// are extracted. This test is ignored in CI (file must be present locally).
+    #[test]
+    fn test_read_xlsx_with_formulas_real_file() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path =
+            std::path::PathBuf::from(format!("{}/Downloads/Finance_Tracker_FY2025-26.xlsx", home));
+        if !path.exists() {
+            eprintln!("skipping: test file not found at {:?}", path);
+            return;
+        }
+        let wb = read_xlsx(&path).expect("should read xlsx");
+
+        // Dashboard sheet should exist.
+        let dashboard = wb
+            .get_sheet("Dashboard")
+            .expect("should have Dashboard sheet");
+
+        // D5 should have formula "C5-B5" (0-based: row 4, col 3).
+        let cell_d5 = dashboard.get_cell(4, 3).expect("D5 should exist");
+        assert!(
+            cell_d5.formula.is_some(),
+            "D5 should have a formula, got {:?}",
+            cell_d5
+        );
+        assert_eq!(cell_d5.formula.as_deref(), Some("C5-B5"));
+
+        // E5 should have formula "D5/B5*100" (0-based: row 4, col 4).
+        let cell_e5 = dashboard.get_cell(4, 4).expect("E5 should exist");
+        assert_eq!(cell_e5.formula.as_deref(), Some("D5/B5*100"));
+
+        // Income sheet — N5 should have SUM formula.
+        let income = wb.get_sheet("Income").expect("should have Income sheet");
+        let cell_n5 = income.get_cell(4, 13).expect("N5 should exist");
+        assert!(cell_n5.formula.is_some(), "Income!N5 should have a formula");
+        assert_eq!(cell_n5.formula.as_deref(), Some("SUM(B5:M5)"));
     }
 }
