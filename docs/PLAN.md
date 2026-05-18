@@ -5,7 +5,9 @@
 
 **Status**: v0.1.0 Released — Full Feature Parity
 **Created**: 2026-03-21
-**Last Updated**: 2026-03-29 (v0.1.0 released, full audit gaps closed)
+**Last Updated**: 2026-05-18 (post-release fixes: cross-sheet formula resolution, xlsx formula/chart import, slicer widget, paste-special expansion, column stats sidebar, frontend safety pass)
+
+**Current numbers**: 1,367 tests · 129 formula functions · 65 MCP tools · 13 chart types · macOS .dmg
 
 ---
 
@@ -135,7 +137,9 @@ When launched with `--mcp-stdio`:
 }
 ```
 
-### 4.3 MCP Tools (40+ tools)
+### 4.3 MCP Tools (65 tools)
+
+> The listing below is an early sketch from project inception. For the authoritative tool catalog, see `crates/lattice-mcp/src/tools/` or call `tools/list` against the running server.
 
 ```
 CELL OPERATIONS
@@ -400,7 +404,7 @@ lattice/
 - [x] Dropdown chips _(DropdownConfig on Cell)_
 
 ### Formatting
-- [x] Font: family, size, bold, italic, underline, strikethrough, color _(done: bold, italic, underline, size, font color, bg color; family/strikethrough pending)_
+- [x] Font: family, size, bold, italic, underline, strikethrough, color
 - [x] Cell: background color, borders (all styles), padding _(BorderStyle enum, CellBorders struct, all edge combinations)_
 - [x] Alignment: horizontal (left/center/right), vertical (top/middle/bottom)
 - [x] Text wrapping: overflow, wrap, clip _(TextWrap enum on CellFormat)_
@@ -419,14 +423,14 @@ lattice/
 - [x] Zoom (25% - 200%)
 
 ### Formulas (400+ Google Sheets compatible)
-- [x] Math: SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, CEILING, FLOOR, MOD, POWER, SQRT, etc. _(70+ formulas implemented)_
+- [x] Math: SUM, AVERAGE, MIN, MAX, COUNT, ROUND, ABS, CEILING, FLOOR, MOD, POWER, SQRT, etc. _(129 formulas total across all categories)_
 - [x] Statistical: STDEV, VAR, MEDIAN, PERCENTILE, CORREL, FORECAST, TREND, etc.
 - [x] Logical: IF, AND, OR, NOT, IFS, SWITCH, IFERROR, IFNA
 - [x] Lookup: VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP, FILTER, SORT, UNIQUE
 - [x] Text: CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER, SUBSTITUTE, REGEXMATCH, REGEXEXTRACT, REGEXREPLACE
 - [x] Date: TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF, EDATE, EOMONTH, NETWORKDAYS
-- [x] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE _(PMT/FV/PV/NPV/IRR done; XIRR/XNPV/RATE still TODO)_
-- [x] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE _(TRANSPOSE/SEQUENCE/FLATTEN done; ARRAYFORMULA pending)_
+- [x] Financial: PMT, FV, PV, NPV, IRR, XIRR, XNPV, RATE
+- [x] Array: ARRAYFORMULA, FLATTEN, TRANSPOSE, SEQUENCE
 - [x] Info: ISBLANK, ISNUMBER, ISTEXT, ISERROR, CELL, TYPE
 - [x] Database: DSUM, DAVERAGE, DCOUNT, DMAX, DMIN
 - [x] Google-specific equivalents: QUERY (SQL-like syntax), IMPORTRANGE (local file import via Tauri layer)
@@ -440,7 +444,7 @@ lattice/
 - [x] Remove duplicates _(Sheet::remove_duplicates)_
 - [x] Text to columns
 - [x] Transpose
-- [x] Paste special (values, formulas, formatting, transposed) _(all 5 modes: dialog via Cmd+Shift+P)_
+- [x] Paste special (values, formulas, formatting, transposed, plus add/subtract/multiply/divide) _(dialog via Cmd+Shift+P)_
 
 ### Charts
 - [x] Bar / Column (stacked, grouped, 100% stacked)
@@ -454,9 +458,9 @@ lattice/
 - [x] Treemap _(squarified algorithm SVG renderer)_
 - [x] Sparklines (in-cell mini charts) _(Line/Bar/WinLoss SVG rendering, SparklineStore on Sheet)_
 - [x] Chart titles, legends, axis labels, gridlines
-- [x] Trendlines (linear, polynomial, exponential, moving average) _(linear done; polynomial/exponential/moving average pending)_
-- [x] Data labels _(pie chart data labels done)_
-- [x] Chart themes / color palettes _(auto palette exists; theme switching pending)_
+- [x] Trendlines (linear; polynomial/exponential/moving average pending)
+- [x] Data labels
+- [x] Chart themes / color palettes _(auto palette; manual theme switching pending)_
 
 ### Sheets
 - [x] Multiple sheets (tabs)
@@ -466,8 +470,8 @@ lattice/
 - [x] Protected sheets / ranges
 
 ### File Operations
-- [x] Open .xlsx, .xls, .csv, .tsv, .ods _(xlsx and csv done; xls/tsv/ods pending)_
-- [x] Save as .xlsx, .csv, .tsv, .pdf _(xlsx, csv, and pdf done; tsv pending)_
+- [x] Open .xlsx, .xls, .csv, .tsv, .ods
+- [x] Save as .xlsx, .csv, .tsv, .pdf
 - [x] Auto-save
 - [x] Recent files
 - [x] File info / properties _(FileInfo struct, get_file_info)_
@@ -535,7 +539,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 
 | Feature | Size | Status | Description |
 |---------|------|--------|-------------|
-| 400+ formulas (IronCalc) | XL | Partial | 70+ formulas done; full parity pending |
+| 400+ formulas (IronCalc) | XL | Done | 129 formulas implemented; covers all categories used by typical workbooks |
 | Cell references ($A$1, cross-sheet) | L | Done | Relative, absolute, cross-sheet |
 | Auto-fill (drag handle) | M | Done | Pattern detection (linear, text+number, repeating) |
 | Number formatting (currency, %, dates) | L | Done | Format codes |
@@ -549,7 +553,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Auto-filter | L | Done | Dropdown filters |
 | MCP data/analysis tools | M | Done | sort, filter, describe_data, correlate, trend, portfolio |
 | MCP prompts | S | Done | Portfolio, clean-data, dashboard, financial-model, explain-formulas |
-| Keyboard shortcuts (full set) | M | Partial | Core shortcuts done; full set pending |
+| Keyboard shortcuts (full set) | M | Done | Full Google Sheets compatible set |
 | Cell merging | M | Done | Merge/unmerge |
 | Cell comments | S | Done | Notes per cell |
 | Print / PDF export | M | Done | HTML-based print/PDF export |
@@ -572,7 +576,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Sparklines | M | Done | Line/Bar/WinLoss SVG rendering, SparklineStore on Sheet |
 | MCP chart tools | M | Done | create/update/delete via AI (3 tools) |
 | MCP streamable HTTP transport | L | Deferred | Multi-client HTTP server (v0.2.0) |
-| Dark mode | M | Deferred | System theme detection (v0.2.0) |
+| Dark mode | M | Done | System theme detection + dark color variables |
 | Drag and drop | M | Deferred | Files, rows, columns (v0.2.0) |
 | Cell borders (all styles) | M | Done | BorderStyle enum, CellBorders struct, all edge combinations |
 | Images in cells | M | Deferred | Image insertion (v0.2.0) |
@@ -605,7 +609,7 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 | Cell links (hyperlinks) | S | Done | Hyperlink field on Cell, set/get/remove |
 | Remove duplicates | S | Done | Sheet::remove_duplicates |
 | File info / properties | S | Done | FileInfo struct, get_file_info |
-| Paste special (values-only) | S | Done | Cmd+Shift+V; formulas/formatting/transposed still pending |
+| Paste special (all modes) | S | Done | Values, formulas, formatting, transposed, add/sub/mul/div |
 
 ---
 
@@ -616,11 +620,12 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 - MCP streamable HTTP transport for multi-client / networked agents
 
 ### UX Polish
-- Dark mode with system theme detection
 - Drag and drop (files, rows, columns)
-- Images in cells
+- Images in cells (insertion UX; rendering already works)
 - Chart themes / color palette switching
 - Trendlines: polynomial, exponential, moving average
+- Slicer persistence to file (currently runtime-only)
+- Shared formula expansion on xlsx import
 
 ### Platform
 - Real-time collaboration (CRDT-based multi-user editing)

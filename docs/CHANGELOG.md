@@ -201,6 +201,34 @@ Updated `PLAN.md` status from "Planning" to "Phase 2 — In Progress" and marked
   - Google Drive compatible single-file format
   - 4-phase delivery: MVP (8-10w) -> Full Formulas (6-8w) -> Charts (6-8w) -> Advanced (ongoing)
 
+## [2026-05-18] Post-release stabilization (v0.1.x)
+
+Bug fixes and small features layered on top of the v0.1.0 release.
+
+### Engine / I-O
+- xlsx import now extracts formulas from raw XML when calamine surfaces only the cached value
+- Charts load after a file is opened (previously needed a manual refresh)
+- Cross-sheet formula resolution fixed in `evaluate_formula`, `insert_formula`, and `bulk_formula`
+
+### Frontend
+- Slicer widget — floating visual filter panel with drag, search, checkboxes
+- Paste special expanded with 3 additional modes (add / subtract / multiply / divide on top of values/formulas/formatting/transposed)
+- Column stats sidebar
+- Data validation: "from range" source + warn/reject enforcement UI
+- Validation-enforcement plumbing in core (warn vs reject)
+- Always-visible dropdown arrows, footer color polish, format-painter shortcuts
+- Safety pass: removed unsafe non-null assertions, fixed unhandled promises, repaired dark-mode color variables
+
+### Tests
+- 44 release-validation tests added alongside the cross-sheet formula fixes
+- Total now 1,367 `#[test]` attributes across the workspace
+
+### Docs
+- Deleted stale `REMAINING_FEATURES_SUMMARY.md` and `GOOGLE_SHEETS_FEATURES.md` audits (both 2-month-old snapshots that conflicted with current state)
+- Refreshed PLAN.md status notes and counts (40 → 65 MCP tools, 70 → 129 formulas, removed inline "pending" notes for items now shipped)
+
+---
+
 ## [2026-03-29] Full Feature Parity — All Audit Gaps Closed
 
 Three deep UX audits (cell editing, UI chrome, data ops) identified 42 gaps. All fixed:
