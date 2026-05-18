@@ -617,7 +617,10 @@ Goal: Functional spreadsheet + MCP server. Claude can read/write cells.
 
 ### Performance & Scale
 - Performance optimization for 100k+ rows (lazy evaluation, Apache Arrow backing)
-- MCP streamable HTTP transport for multi-client / networked agents
+- MCP streamable HTTP transport for multi-client / networked agents — see `BROWSER_SESSIONS.md` (Phase 1 hardens the existing http.rs draft into a session-isolated, auth-aware service and adds a headless `lattice-server` binary)
+
+### Browser / Remote MCP
+- See `BROWSER_SESSIONS.md` for the full topology breakdown (local stdio, self-host HTTP, hosted, in-browser WASM) and phased rollout.
 
 ### UX Polish
 - Drag and drop (files, rows, columns)
