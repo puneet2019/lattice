@@ -5,6 +5,7 @@
 //! parses each chart using the parser in `xlsx_chart_parser`.
 
 use std::io::Read;
+#[cfg(feature = "native")]
 use std::path::Path;
 
 pub use crate::xlsx_chart_parser::ImportedChart;
@@ -18,23 +19,32 @@ use crate::{IoError, Result};
 /// Returns a (possibly empty) list of `ImportedChart` values. Errors are
 /// non-fatal for individual charts -- if a chart XML cannot be parsed it is
 /// silently skipped.
-///
-/// # How it works
-///
-/// 1. Opens the xlsx file as a ZIP archive.
-/// 2. For each worksheet, reads `xl/worksheets/_rels/sheet*.xml.rels` to
-///    find drawing relationships.
-/// 3. For each drawing, reads `xl/drawings/_rels/drawing*.xml.rels` to find
-///    chart relationships.
-/// 4. Reads and parses each chart XML entry via `parse_chart_xml`.
+#[cfg(feature = "native")]
 pub fn read_xlsx_charts(path: &Path) -> Result<Vec<ImportedChart>> {
     if !path.exists() {
         return Err(IoError::FileNotFound(path.display().to_string()));
     }
 
-    let file = std::fs::File::open(path).map_err(IoError::Io)?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
+    let bytes = std::fs::read(path).map_err(IoError::Io)?;
+    read_xlsx_charts_from_bytes(&bytes)
+}
+
+/// Read all charts from `.xlsx` bytes held in memory.
+///
+/// WASM-available counterpart of [`read_xlsx_charts`].
+///
+/// # How it works
+///
+/// 1. Opens the xlsx bytes as a ZIP archive.
+/// 2. For each worksheet, reads `xl/worksheets/_rels/sheet*.xml.rels` to
+///    find drawing relationships.
+/// 3. For each drawing, reads `xl/drawings/_rels/drawing*.xml.rels` to find
+///    chart relationships.
+/// 4. Reads and parses each chart XML entry via `parse_chart_xml`.
+pub fn read_xlsx_charts_from_bytes(bytes: &[u8]) -> Result<Vec<ImportedChart>> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
 
     let mut charts = Vec::new();
 
@@ -112,7 +122,10 @@ fn to_rels_path(entry_path: &str) -> String {
 }
 
 /// Read a zip entry as a UTF-8 string.
-fn read_zip_entry(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Result<String> {
+fn read_zip_entry(
+    archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>,
+    name: &str,
+) -> Result<String> {
     let mut entry = archive
         .by_name(name)
         .map_err(|e| IoError::XlsxRead(format!("zip entry '{}': {}", name, e)))?;

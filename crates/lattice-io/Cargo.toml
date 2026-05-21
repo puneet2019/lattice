@@ -3,21 +3,39 @@ name = "lattice-io"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["native"]
+# The `native` feature enables filesystem-bound code: path-based readers and
+# writers, atomic saves, the file watcher, recent-files store, file metadata,
+# and the cloud providers. It is on by default for the desktop build.
+# A WASM build (`--no-default-features`) gets only the in-memory, buffer- and
+# string-based API surface.
+native = ["dep:notify", "dep:libc", "dep:uuid"]
+
 [dependencies]
 lattice-core = { path = "../lattice-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { workspace = true }
+# uuid is used only by the native atomic-save temp-file naming. It pulls in
+# getrandom, which has no default wasm32 backend, so it is gated behind
+# `native`. Declared locally (not `workspace = true`) so `optional` applies.
+uuid = { version = "1", features = ["v4"], optional = true }
 lattice-charts = { path = "../lattice-charts" }
 calamine = { version = "0.26", features = ["dates"] }
 rust_xlsxwriter = "0.94"
 quick-xml = "0.31"
 csv = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-notify = "7"
 sha2 = "0.10"
-libc = "0.2"
+notify = { version = "7", optional = true }
+libc = { version = "0.2", optional = true }
+
+# On wasm32 there is no system clock; rust_xlsxwriter's `wasm` feature makes
+# it read the time via `js_sys::Date::now()` instead of `SystemTime::now()`
+# (which panics on wasm32-unknown-unknown). Enabled only for the wasm build.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rust_xlsxwriter = { version = "0.94", features = ["wasm"] }
 
 [dev-dependencies]
 tempfile = "3"

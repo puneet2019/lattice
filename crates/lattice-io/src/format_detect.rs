@@ -1,10 +1,15 @@
 //! File format detection by extension, magic bytes, and content sniffing.
 
+#[cfg(feature = "native")]
 use std::fs::File;
+#[cfg(feature = "native")]
 use std::io::Read;
+#[cfg(feature = "native")]
 use std::path::Path;
 
-use crate::{IoError, Result};
+#[cfg(feature = "native")]
+use crate::IoError;
+use crate::Result;
 
 /// Supported file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +41,73 @@ impl std::fmt::Display for FileFormat {
     }
 }
 
+/// Detect the file format from in-memory bytes.
+///
+/// WASM-available counterpart of [`detect_format`]. Without a filename there
+/// is no extension to consult, so detection relies on:
+/// 1. Magic bytes (ZIP for xlsx/ods, Compound Document for xls).
+/// 2. Content sniffing (JSON, TSV vs CSV by delimiter frequency).
+///
+/// ZIP-based files are reported as [`FileFormat::Xlsx`] (the common case);
+/// callers that know the extension is `.ods` should pick the ODS reader
+/// themselves. An empty or unrecognisable buffer yields an error.
+pub fn detect_format_from_bytes(bytes: &[u8]) -> Result<FileFormat> {
+    if bytes.len() >= 4 && bytes[0..4] == [0x50, 0x4B, 0x03, 0x04] {
+        // ZIP archive: xlsx or ods. Without an extension, assume xlsx.
+        return Ok(FileFormat::Xlsx);
+    }
+
+    if bytes.len() >= 8
+        && bytes[0..8] == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
+    {
+        return Ok(FileFormat::Xls);
+    }
+
+    if let Some(fmt) = sniff_bytes(bytes) {
+        return Ok(fmt);
+    }
+
+    Err(crate::IoError::UnsupportedFormat(
+        "could not determine format from bytes".to_string(),
+    ))
+}
+
+/// Content-sniff a byte buffer for a text-based format (JSON, TSV, CSV).
+///
+/// Returns `None` for binary data or empty input.
+pub(crate) fn sniff_bytes(bytes: &[u8]) -> Option<FileFormat> {
+    if bytes.is_empty() || bytes.contains(&0) {
+        return None;
+    }
+
+    let sample_len = bytes.len().min(8192);
+    let text = std::str::from_utf8(&bytes[..sample_len]).ok()?;
+
+    let trimmed = text.trim_start();
+    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+        return Some(FileFormat::Json);
+    }
+
+    let mut tab_count = 0usize;
+    let mut comma_count = 0usize;
+    for line in text.lines().take(20) {
+        tab_count += line.matches('\t').count();
+        comma_count += line.matches(',').count();
+    }
+
+    if tab_count > 0 && tab_count >= comma_count {
+        return Some(FileFormat::Tsv);
+    }
+    if comma_count > 0 {
+        return Some(FileFormat::Csv);
+    }
+    if text.lines().count() > 1 {
+        return Some(FileFormat::Csv);
+    }
+
+    None
+}
+
 /// Detect the file format of a file at the given path.
 ///
 /// Uses a multi-pass approach:
@@ -43,6 +115,7 @@ impl std::fmt::Display for FileFormat {
 /// 2. Read the first bytes to check magic bytes (ZIP for xlsx/ods, BIFF for xls).
 /// 3. Fall back to file extension.
 /// 4. Sniff content for files without a recognised extension.
+#[cfg(feature = "native")]
 pub fn detect_format(path: &Path) -> Result<FileFormat> {
     if !path.exists() {
         return Err(IoError::FileNotFound(path.display().to_string()));
@@ -82,6 +155,7 @@ pub fn detect_format(path: &Path) -> Result<FileFormat> {
 }
 
 /// Detect format by reading the first bytes of the file.
+#[cfg(feature = "native")]
 fn detect_by_magic_bytes(path: &Path) -> Result<Option<FileFormat>> {
     let mut file = File::open(path)?;
     let mut buf = [0u8; 8];
@@ -125,6 +199,7 @@ fn detect_by_magic_bytes(path: &Path) -> Result<Option<FileFormat>> {
 }
 
 /// Detect format from file extension alone.
+#[cfg(feature = "native")]
 fn detect_by_extension(path: &Path) -> Option<FileFormat> {
     let ext = path.extension()?.to_str()?.to_lowercase();
     match ext.as_str() {
@@ -146,6 +221,7 @@ fn detect_by_extension(path: &Path) -> Option<FileFormat> {
 /// - High tab-to-comma ratio -> TSV
 /// - Commas between values -> CSV
 /// - Starts with `{` or `[` -> JSON
+#[cfg(feature = "native")]
 fn sniff_content(path: &Path) -> Result<Option<FileFormat>> {
     let mut file = File::open(path)?;
     let mut buf = vec![0u8; 8192];
@@ -195,6 +271,52 @@ fn sniff_content(path: &Path) -> Result<Option<FileFormat>> {
 }
 
 #[cfg(test)]
+mod bytes_tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_format_from_bytes_xlsx() {
+        let zip_magic = [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00];
+        assert_eq!(
+            detect_format_from_bytes(&zip_magic).unwrap(),
+            FileFormat::Xlsx
+        );
+    }
+
+    #[test]
+    fn test_detect_format_from_bytes_xls() {
+        let cdf_magic = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        assert_eq!(
+            detect_format_from_bytes(&cdf_magic).unwrap(),
+            FileFormat::Xls
+        );
+    }
+
+    #[test]
+    fn test_detect_format_from_bytes_csv() {
+        let csv = b"a,b,c\n1,2,3\n";
+        assert_eq!(detect_format_from_bytes(csv).unwrap(), FileFormat::Csv);
+    }
+
+    #[test]
+    fn test_detect_format_from_bytes_tsv() {
+        let tsv = b"a\tb\tc\n1\t2\t3\n";
+        assert_eq!(detect_format_from_bytes(tsv).unwrap(), FileFormat::Tsv);
+    }
+
+    #[test]
+    fn test_detect_format_from_bytes_json() {
+        let json = br#"{"key": "value"}"#;
+        assert_eq!(detect_format_from_bytes(json).unwrap(), FileFormat::Json);
+    }
+
+    #[test]
+    fn test_detect_format_from_bytes_empty_errors() {
+        assert!(detect_format_from_bytes(&[]).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
 

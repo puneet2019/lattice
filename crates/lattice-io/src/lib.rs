@@ -3,20 +3,30 @@
 //! Supports reading and writing `.xlsx`, `.csv`, `.tsv`, `.xls`, `.ods`,
 //! and JSON export.
 
-pub mod atomic;
-pub mod cloud;
 pub mod csv_io;
-pub mod file_info;
 pub mod format_detect;
 pub mod json_export;
 pub mod pdf_export;
-pub mod recent_files;
 pub mod tsv_io;
-pub mod watcher;
 pub mod xlsx_chart_parser;
 pub mod xlsx_chart_reader;
 pub mod xlsx_reader;
 pub mod xlsx_writer;
+
+// Filesystem-bound modules. These do direct `std::fs` I/O, atomic
+// temp-then-rename writes, file watching, or pull in native-only crates
+// (`notify`, `libc`). They are unavailable in a `--no-default-features`
+// (WASM) build, which works purely with in-memory buffers and strings.
+#[cfg(feature = "native")]
+pub mod atomic;
+#[cfg(feature = "native")]
+pub mod cloud;
+#[cfg(feature = "native")]
+pub mod file_info;
+#[cfg(feature = "native")]
+pub mod recent_files;
+#[cfg(feature = "native")]
+pub mod watcher;
 
 use thiserror::Error;
 
@@ -76,15 +86,35 @@ pub enum IoError {
 pub type Result<T> = std::result::Result<T, IoError>;
 
 // Re-exports for convenience.
-pub use atomic::{save_atomic, write_atomic};
-pub use csv_io::{read_csv, write_csv};
-pub use file_info::{FileInfo, get_file_info};
-pub use format_detect::{FileFormat, detect_format};
+//
+// WASM-available (buffer/string-based, no filesystem):
+pub use csv_io::{read_csv_str, write_csv_string};
+pub use format_detect::{FileFormat, detect_format_from_bytes};
 pub use json_export::{export_json, export_range_json};
 pub use pdf_export::{PrintSettings, export_print_html};
+pub use tsv_io::{read_tsv_str, write_tsv_string};
+pub use xlsx_chart_reader::{ImportedChart, read_xlsx_charts_from_bytes};
+pub use xlsx_reader::{read_xlsx_from_bytes, read_xls_from_bytes, read_ods_from_bytes};
+pub use xlsx_writer::write_xlsx_to_buffer;
+
+// Native-only (filesystem path-based, atomic saves, watcher, cloud).
+#[cfg(feature = "native")]
+pub use atomic::{save_atomic, write_atomic};
+#[cfg(feature = "native")]
+pub use csv_io::{read_csv, write_csv};
+#[cfg(feature = "native")]
+pub use file_info::{FileInfo, get_file_info};
+#[cfg(feature = "native")]
+pub use format_detect::detect_format;
+#[cfg(feature = "native")]
 pub use recent_files::{RecentFile, RecentFileStore};
+#[cfg(feature = "native")]
 pub use tsv_io::{read_tsv, write_tsv};
+#[cfg(feature = "native")]
 pub use watcher::FileWatcher;
-pub use xlsx_chart_reader::{ImportedChart, read_xlsx_charts};
+#[cfg(feature = "native")]
+pub use xlsx_chart_reader::read_xlsx_charts;
+#[cfg(feature = "native")]
 pub use xlsx_reader::{read_ods, read_spreadsheet, read_xls, read_xlsx};
-pub use xlsx_writer::{write_xlsx, write_xlsx_to_buffer};
+#[cfg(feature = "native")]
+pub use xlsx_writer::write_xlsx;

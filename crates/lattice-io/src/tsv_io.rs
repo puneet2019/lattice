@@ -3,21 +3,23 @@
 //! Reuses the same value-parsing and serialization logic as the CSV module,
 //! but uses a tab character (`\t`) as the field delimiter.
 
+#[cfg(feature = "native")]
 use std::path::Path;
 
-use lattice_core::{Cell, CellValue, Workbook};
+use lattice_core::Workbook;
 
-use crate::csv_io::{cell_value_to_csv_string, parse_csv_value};
-use crate::{IoError, Result};
+use crate::csv_io::{read_delimited_str, write_delimited_string};
+use crate::Result;
 
 /// Read a TSV file and return a `Workbook` with a single sheet containing
 /// the TSV data.
 ///
 /// The sheet name is derived from the file stem (e.g. `data.tsv` -> `"data"`).
 /// All values are either parsed as numbers, booleans, or kept as text strings.
+#[cfg(feature = "native")]
 pub fn read_tsv(path: &Path) -> Result<Workbook> {
     if !path.exists() {
-        return Err(IoError::FileNotFound(path.display().to_string()));
+        return Err(crate::IoError::FileNotFound(path.display().to_string()));
     }
 
     let sheet_name = path
@@ -26,39 +28,16 @@ pub fn read_tsv(path: &Path) -> Result<Workbook> {
         .unwrap_or("Sheet1")
         .to_string();
 
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .delimiter(b'\t')
-        .from_path(path)
-        .map_err(|e| IoError::Csv(e.to_string()))?;
+    let text = std::fs::read_to_string(path)?;
+    read_tsv_str(&text, &sheet_name)
+}
 
-    let mut workbook = Workbook::new();
-    if sheet_name != "Sheet1" {
-        workbook
-            .rename_sheet("Sheet1", &sheet_name)
-            .map_err(IoError::Core)?;
-    }
-
-    let sheet = workbook.get_sheet_mut(&sheet_name).map_err(IoError::Core)?;
-
-    for (row_idx, record) in reader.records().enumerate() {
-        let record = record.map_err(|e| IoError::Csv(e.to_string()))?;
-
-        for (col_idx, field) in record.iter().enumerate() {
-            let value = parse_csv_value(field);
-            if value != CellValue::Empty {
-                let cell = Cell {
-                    value,
-                    ..Default::default()
-                };
-                sheet.set_cell(row_idx as u32, col_idx as u32, cell);
-            }
-        }
-    }
-
-    workbook.active_sheet = sheet_name;
-    Ok(workbook)
+/// Parse TSV text into a `Workbook` with a single sheet named `sheet_name`.
+///
+/// WASM-available counterpart of [`read_tsv`]: works purely on an in-memory
+/// string. The path-based [`read_tsv`] derives the sheet name and delegates.
+pub fn read_tsv_str(text: &str, sheet_name: &str) -> Result<Workbook> {
+    read_delimited_str(text, sheet_name, b'\t')
 }
 
 /// Write the specified sheet of a workbook to a TSV file.
@@ -66,47 +45,25 @@ pub fn read_tsv(path: &Path) -> Result<Workbook> {
 /// If `sheet_name` is `None`, the active sheet is exported.
 /// Values are written as plain text. Formulas are written as their
 /// computed values, not the formula text.
+#[cfg(feature = "native")]
 pub fn write_tsv(workbook: &Workbook, path: &Path, sheet_name: Option<&str>) -> Result<()> {
-    let name = sheet_name.unwrap_or(&workbook.active_sheet);
-    let sheet = workbook.get_sheet(name).map_err(IoError::Core)?;
-
-    let (max_row, max_col) = sheet.used_range();
-    if max_row == 0 && max_col == 0 && sheet.cells().is_empty() {
-        // Empty sheet -- write an empty file.
-        let mut writer = csv::WriterBuilder::new()
-            .delimiter(b'\t')
-            .from_path(path)
-            .map_err(|e| IoError::Csv(e.to_string()))?;
-        writer.flush().map_err(IoError::Io)?;
-        return Ok(());
-    }
-
-    let mut writer = csv::WriterBuilder::new()
-        .delimiter(b'\t')
-        .from_path(path)
-        .map_err(|e| IoError::Csv(e.to_string()))?;
-
-    for row in 0..=max_row {
-        let mut record = Vec::with_capacity((max_col + 1) as usize);
-        for col in 0..=max_col {
-            let value_str = match sheet.get_cell(row, col) {
-                Some(cell) => cell_value_to_csv_string(&cell.value),
-                None => String::new(),
-            };
-            record.push(value_str);
-        }
-        writer
-            .write_record(&record)
-            .map_err(|e| IoError::Csv(e.to_string()))?;
-    }
-
-    writer.flush().map_err(IoError::Io)?;
+    let text = write_tsv_string(workbook, sheet_name)?;
+    std::fs::write(path, text)?;
     Ok(())
 }
 
-#[cfg(test)]
+/// Serialize the specified sheet of a workbook to a TSV `String`.
+///
+/// WASM-available counterpart of [`write_tsv`].
+pub fn write_tsv_string(workbook: &Workbook, sheet_name: Option<&str>) -> Result<String> {
+    write_delimited_string(workbook, sheet_name, b'\t')
+}
+
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
+    use lattice_core::CellValue;
+    use std::path::Path;
 
     #[test]
     fn test_write_and_read_tsv_round_trip() {

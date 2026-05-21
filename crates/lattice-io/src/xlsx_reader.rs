@@ -6,9 +6,10 @@
 
 use std::collections::HashMap;
 use std::io::Read;
+#[cfg(feature = "native")]
 use std::path::Path;
 
-use calamine::{Data, Reader, Xlsx, open_workbook};
+use calamine::{Data, Reader};
 use quick_xml::Reader as XmlReader;
 use quick_xml::events::Event;
 
@@ -20,13 +21,25 @@ use crate::{IoError, Result};
 ///
 /// Each sheet in the Excel file becomes a sheet in the workbook.
 /// Cell values are converted from calamine's `Data` enum to our `CellValue`.
+#[cfg(feature = "native")]
 pub fn read_xlsx(path: &Path) -> Result<Workbook> {
     if !path.exists() {
         return Err(IoError::FileNotFound(path.display().to_string()));
     }
 
-    let mut excel: Xlsx<_> =
-        open_workbook(path).map_err(|e: calamine::XlsxError| IoError::XlsxRead(e.to_string()))?;
+    let bytes = std::fs::read(path)?;
+    read_xlsx_from_bytes(&bytes)
+}
+
+/// Read an `.xlsx` file from in-memory bytes and return a populated `Workbook`.
+///
+/// This is the shared core used by [`read_xlsx`] (which reads the file first)
+/// and is also the entry point for the WASM build, which has no filesystem.
+/// calamine reads any `Read + Seek` source, so a `Cursor` over the bytes works.
+pub fn read_xlsx_from_bytes(bytes: &[u8]) -> Result<Workbook> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mut excel: calamine::Xlsx<_> = calamine::Xlsx::new(cursor)
+        .map_err(|e: calamine::XlsxError| IoError::XlsxRead(e.to_string()))?;
 
     let sheet_names = excel.sheet_names().to_vec();
     if sheet_names.is_empty() {
@@ -81,7 +94,7 @@ pub fn read_xlsx(path: &Path) -> Result<Workbook> {
 
     // Post-process: extract formula text from the raw xlsx XML.
     // calamine only returns computed values, not the formula strings.
-    if let Err(e) = extract_formulas_from_xlsx(path, &mut workbook) {
+    if let Err(e) = extract_formulas_from_bytes(bytes, &mut workbook) {
         eprintln!("warning: could not extract formulas: {}", e);
     }
 
@@ -91,12 +104,22 @@ pub fn read_xlsx(path: &Path) -> Result<Workbook> {
 /// Read an `.ods` (OpenDocument Spreadsheet) file and return a populated `Workbook`.
 ///
 /// Uses calamine's ODS support. Cell values are converted the same way as xlsx.
+#[cfg(feature = "native")]
 pub fn read_ods(path: &Path) -> Result<Workbook> {
     if !path.exists() {
         return Err(IoError::FileNotFound(path.display().to_string()));
     }
 
-    let mut ods: calamine::Ods<_> = calamine::open_workbook(path)
+    let bytes = std::fs::read(path)?;
+    read_ods_from_bytes(&bytes)
+}
+
+/// Read an `.ods` (OpenDocument Spreadsheet) file from in-memory bytes.
+///
+/// WASM-available counterpart of [`read_ods`].
+pub fn read_ods_from_bytes(bytes: &[u8]) -> Result<Workbook> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mut ods: calamine::Ods<_> = calamine::Ods::new(cursor)
         .map_err(|e: calamine::OdsError| IoError::XlsxRead(format!("ODS error: {}", e)))?;
 
     let sheet_names = ods.sheet_names().to_vec();
@@ -150,6 +173,7 @@ pub fn read_ods(path: &Path) -> Result<Workbook> {
 /// Auto-detect format (xlsx, xls, ods) and read the file.
 ///
 /// Uses [`crate::format_detect::detect_format`] to pick the right reader.
+#[cfg(feature = "native")]
 pub fn read_spreadsheet(path: &Path) -> Result<Workbook> {
     use crate::format_detect::{FileFormat, detect_format};
 
@@ -167,12 +191,22 @@ pub fn read_spreadsheet(path: &Path) -> Result<Workbook> {
 }
 
 /// Read a legacy `.xls` file using calamine's XLS support.
+#[cfg(feature = "native")]
 pub fn read_xls(path: &Path) -> Result<Workbook> {
     if !path.exists() {
         return Err(IoError::FileNotFound(path.display().to_string()));
     }
 
-    let mut xls: calamine::Xls<_> = calamine::open_workbook(path)
+    let bytes = std::fs::read(path)?;
+    read_xls_from_bytes(&bytes)
+}
+
+/// Read a legacy `.xls` file from in-memory bytes.
+///
+/// WASM-available counterpart of [`read_xls`].
+pub fn read_xls_from_bytes(bytes: &[u8]) -> Result<Workbook> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mut xls: calamine::Xls<_> = calamine::Xls::new(cursor)
         .map_err(|e: calamine::XlsError| IoError::XlsxRead(format!("XLS error: {}", e)))?;
 
     let sheet_names = xls.sheet_names().to_vec();
@@ -225,13 +259,13 @@ pub fn read_xls(path: &Path) -> Result<Workbook> {
 
 /// Extract formula text from the raw xlsx XML and set it on the workbook cells.
 ///
-/// Opens the xlsx as a ZIP archive, reads `xl/workbook.xml` to map sheet names
-/// to relationship IDs, then reads `xl/_rels/workbook.xml.rels` to resolve each
-/// rId to a worksheet XML path. Finally, parses each worksheet XML for `<c>`
-/// elements containing `<f>` child elements and sets `cell.formula` accordingly.
-fn extract_formulas_from_xlsx(path: &Path, workbook: &mut Workbook) -> Result<()> {
-    let file = std::fs::File::open(path)?;
-    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+/// Opens the xlsx bytes as a ZIP archive, reads `xl/workbook.xml` to map sheet
+/// names to relationship IDs, then reads `xl/_rels/workbook.xml.rels` to resolve
+/// each rId to a worksheet XML path. Finally, parses each worksheet XML for
+/// `<c>` elements containing `<f>` children and sets `cell.formula` accordingly.
+fn extract_formulas_from_bytes(bytes: &[u8], workbook: &mut Workbook) -> Result<()> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
 
     // Step 1: Parse xl/workbook.xml to build sheet name -> rId map.
@@ -293,7 +327,7 @@ fn extract_formulas_from_xlsx(path: &Path, workbook: &mut Workbook) -> Result<()
 
 /// Read a zip entry as a UTF-8 string.
 fn read_zip_entry_string(
-    archive: &mut zip::ZipArchive<std::io::BufReader<std::fs::File>>,
+    archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>,
     name: &str,
 ) -> Result<String> {
     let mut entry = archive

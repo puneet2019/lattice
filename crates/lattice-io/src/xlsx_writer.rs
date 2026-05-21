@@ -3,10 +3,12 @@
 //! Handles cell values, formatting, column widths, row heights, formulas,
 //! comments, and proper date serial numbers.
 
+#[cfg(feature = "native")]
 use std::path::Path;
 
 use rust_xlsxwriter::{
-    Color, Format, FormatBorder, FormatUnderline, Note, Workbook as XlsxWorkbook,
+    Color, DocProperties, ExcelDateTime, Format, FormatBorder, FormatUnderline, Note,
+    Workbook as XlsxWorkbook,
 };
 
 use lattice_core::{CellValue, Workbook};
@@ -18,6 +20,7 @@ use crate::{IoError, Result};
 ///
 /// Iterates over all sheets and cells, writing values with appropriate types.
 /// Formatting is mapped from `CellFormat` to rust_xlsxwriter `Format`.
+#[cfg(feature = "native")]
 pub fn write_xlsx(workbook: &Workbook, path: &Path) -> Result<()> {
     let mut xlsx = build_xlsx_workbook(workbook)?;
 
@@ -44,6 +47,15 @@ pub fn write_xlsx_to_buffer(workbook: &Workbook) -> Result<Vec<u8>> {
 /// and `write_xlsx_to_buffer` (in-memory).
 fn build_xlsx_workbook(workbook: &Workbook) -> Result<XlsxWorkbook> {
     let mut xlsx = XlsxWorkbook::new();
+
+    // rust_xlsxwriter stamps the file with the current time on save unless
+    // the creation date is set explicitly. `wasm32-unknown-unknown` has no
+    // system clock, so `SystemTime::now()` panics there — set a fixed
+    // creation datetime to avoid the clock entirely (also makes output
+    // deterministic on native).
+    if let Ok(dt) = ExcelDateTime::from_ymd(2026, 1, 1) {
+        xlsx.set_properties(&DocProperties::new().set_creation_datetime(&dt));
+    }
 
     for sheet_name in workbook.sheet_names() {
         let sheet = workbook.get_sheet(&sheet_name).map_err(IoError::Core)?;
