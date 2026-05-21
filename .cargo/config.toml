@@ -1,0 +1,11 @@
+# Cargo configuration for the Lattice workspace.
+#
+# The rustflags below only affect `wasm32-unknown-unknown` builds (the
+# `crates/lattice-wasm` package). Native builds — the desktop `lattice-app`,
+# `lattice-core`, the MCP server — are untouched.
+#
+# `getrandom_backend="wasm_js"` selects the browser randomness backend for
+# getrandom 0.3, which is pulled transitively (uuid -> getrandom). Without it,
+# getrandom 0.3 has no default backend on wasm32 and fails to compile.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

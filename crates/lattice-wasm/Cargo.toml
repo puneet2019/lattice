@@ -1,0 +1,32 @@
+[package]
+name = "lattice-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "WebAssembly bindings for the Lattice spreadsheet engine — runs the engine in a browser tab with no backend."
+
+[lib]
+# `cdylib` produces the `.wasm` artifact consumed by wasm-bindgen / wasm-pack.
+# `rlib` keeps the crate usable as a normal Rust dependency (tests, tooling).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+# lattice-io with `default-features = false`: only the in-memory, buffer- and
+# string-based readers/writers compile to wasm32. The `native` feature (atomic
+# saves, file watcher, cloud, recent-files) pulls in `notify`/`libc` which do
+# not build for wasm.
+lattice-io = { path = "../lattice-io", default-features = false }
+lattice-charts = { path = "../lattice-charts" }
+lattice-analysis = { path = "../lattice-analysis" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+# getrandom 0.3 with the `wasm_js` feature. This is required so the wasm
+# randomness backend is present in the dependency graph; the actual backend
+# selection is done by the `getrandom_backend` cfg in `.cargo/config.toml`.
+# uuid (used for chart IDs) depends on getrandom transitively.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+uuid = { version = "1", features = ["v4", "js"] }
