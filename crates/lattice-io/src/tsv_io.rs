@@ -8,8 +8,8 @@ use std::path::Path;
 
 use lattice_core::Workbook;
 
-use crate::csv_io::{read_delimited_str, write_delimited_string};
 use crate::Result;
+use crate::csv_io::{read_delimited_str, write_delimited_string};
 
 /// Read a TSV file and return a `Workbook` with a single sheet containing
 /// the TSV data.

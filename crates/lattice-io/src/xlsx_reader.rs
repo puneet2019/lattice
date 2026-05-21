@@ -265,8 +265,8 @@ pub fn read_xls_from_bytes(bytes: &[u8]) -> Result<Workbook> {
 /// `<c>` elements containing `<f>` children and sets `cell.formula` accordingly.
 fn extract_formulas_from_bytes(bytes: &[u8], workbook: &mut Workbook) -> Result<()> {
     let cursor = std::io::Cursor::new(bytes.to_vec());
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
 
     // Step 1: Parse xl/workbook.xml to build sheet name -> rId map.
     let workbook_xml = read_zip_entry_string(&mut archive, "xl/workbook.xml")?;

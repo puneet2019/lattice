@@ -43,11 +43,7 @@ pub fn read_csv_str(text: &str, sheet_name: &str) -> Result<Workbook> {
 }
 
 /// Shared implementation for CSV/TSV string parsing, parameterised by delimiter.
-pub(crate) fn read_delimited_str(
-    text: &str,
-    sheet_name: &str,
-    delimiter: u8,
-) -> Result<Workbook> {
+pub(crate) fn read_delimited_str(text: &str, sheet_name: &str, delimiter: u8) -> Result<Workbook> {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
         .flexible(true)

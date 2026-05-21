@@ -23,9 +23,7 @@ use lattice_core::{
     ValidationType, Workbook, col_to_letter,
 };
 
-use crate::cell_parse::{
-    CellData, cell_to_data, map_error_to_cell_error, parse_cell_value,
-};
+use crate::cell_parse::{CellData, cell_to_data, map_error_to_cell_error, parse_cell_value};
 use crate::state::AppState;
 
 /// Result type for command handlers: a JSON value on success, error string on failure.
@@ -45,7 +43,12 @@ struct WasmResolver<'a> {
 }
 
 impl SheetResolver for WasmResolver<'_> {
-    fn resolve_cell(&self, sheet_name: &str, row: u32, col: u32) -> lattice_core::Result<CellValue> {
+    fn resolve_cell(
+        &self,
+        sheet_name: &str,
+        row: u32,
+        col: u32,
+    ) -> lattice_core::Result<CellValue> {
         self.workbook.resolve_cell(sheet_name, row, col)
     }
 
@@ -329,7 +332,11 @@ pub fn remove_duplicates(state: &mut AppState, params: Value) -> CmdResult {
         .workbook
         .get_sheet_mut(&p.sheet)
         .map_err(|e| e.to_string())?;
-    Ok(json!(s.remove_duplicates(p.start_row, p.end_row, &p.columns)))
+    Ok(json!(s.remove_duplicates(
+        p.start_row,
+        p.end_row,
+        &p.columns
+    )))
 }
 
 #[derive(Deserialize)]
@@ -349,7 +356,12 @@ pub fn text_to_columns(state: &mut AppState, params: Value) -> CmdResult {
         .workbook
         .get_sheet_mut(&p.sheet)
         .map_err(|e| e.to_string())?;
-    Ok(json!(s.text_to_columns(p.col, &p.delimiter, p.start_row, p.end_row)))
+    Ok(json!(s.text_to_columns(
+        p.col,
+        &p.delimiter,
+        p.start_row,
+        p.end_row
+    )))
 }
 
 // ===========================================================================
@@ -552,7 +564,9 @@ pub fn unmerge_cells(state: &mut AppState, params: Value) -> CmdResult {
         .workbook
         .get_sheet_mut(&p.sheet)
         .map_err(|e| e.to_string())?;
-    Ok(json!(s.unmerge_cell(p.row, p.col).map_err(|e| e.to_string())?))
+    Ok(json!(
+        s.unmerge_cell(p.row, p.col).map_err(|e| e.to_string())?
+    ))
 }
 
 #[derive(Deserialize)]
@@ -934,7 +948,10 @@ struct AddSheetParams {
 /// `add_sheet` — add a new sheet.
 pub fn add_sheet(state: &mut AppState, params: Value) -> CmdResult {
     let p: AddSheetParams = de(params)?;
-    state.workbook.add_sheet(&p.name).map_err(|e| e.to_string())?;
+    state
+        .workbook
+        .add_sheet(&p.name)
+        .map_err(|e| e.to_string())?;
     Ok(Value::Null)
 }
 
@@ -2144,7 +2161,9 @@ pub fn toggle_row_group(state: &mut AppState, params: Value) -> CmdResult {
         .workbook
         .get_sheet_mut(&p.sheet)
         .map_err(|e| e.to_string())?;
-    Ok(json!(s.toggle_row_group(p.index).map_err(|e| e.to_string())?))
+    Ok(json!(
+        s.toggle_row_group(p.index).map_err(|e| e.to_string())?
+    ))
 }
 
 /// `get_row_groups` — list all row groups for a sheet.

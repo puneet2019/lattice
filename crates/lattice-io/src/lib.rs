@@ -94,7 +94,7 @@ pub use json_export::{export_json, export_range_json};
 pub use pdf_export::{PrintSettings, export_print_html};
 pub use tsv_io::{read_tsv_str, write_tsv_string};
 pub use xlsx_chart_reader::{ImportedChart, read_xlsx_charts_from_bytes};
-pub use xlsx_reader::{read_xlsx_from_bytes, read_xls_from_bytes, read_ods_from_bytes};
+pub use xlsx_reader::{read_ods_from_bytes, read_xls_from_bytes, read_xlsx_from_bytes};
 pub use xlsx_writer::write_xlsx_to_buffer;
 
 // Native-only (filesystem path-based, atomic saves, watcher, cloud).

@@ -88,9 +88,7 @@ pub fn invoke(command: &str, args_json: &str) -> Result<String, JsError> {
     });
 
     match result {
-        Ok(value) => {
-            serde_json::to_string(&value).map_err(|e| JsError::new(&e.to_string()))
-        }
+        Ok(value) => serde_json::to_string(&value).map_err(|e| JsError::new(&e.to_string())),
         Err(msg) => Err(JsError::new(&msg)),
     }
 }
@@ -230,9 +228,11 @@ fn dispatch(state: &mut AppState, command: &str, args: Value) -> Result<Value, S
 /// `move_sheet` cannot be implemented: `Workbook.sheets` is a private
 /// `IndexMap` with no public reorder API. See the implementation report.
 fn move_sheet_stub() -> Result<Value, String> {
-    Err("move_sheet is not supported in the WASM build: Workbook has no \
+    Err(
+        "move_sheet is not supported in the WASM build: Workbook has no \
          public sheet-reorder API (the `sheets` IndexMap is private)"
-        .to_string())
+            .to_string(),
+    )
 }
 
 /// Path-based file commands are not callable through `invoke` in the
@@ -266,8 +266,7 @@ fn version_stub(command: &str) -> Result<Value, String> {
 /// `WorkbookInfo` (`{ sheets, active_sheet }`) as a JSON string.
 #[wasm_bindgen]
 pub fn open_xlsx(bytes: &[u8]) -> Result<String, JsError> {
-    let wb = lattice_io::read_xlsx_from_bytes(bytes)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let wb = lattice_io::read_xlsx_from_bytes(bytes).map_err(|e| JsError::new(&e.to_string()))?;
     let info = load_workbook(wb);
 
     // Import embedded charts. Non-fatal: a chart that fails to parse is skipped.
@@ -296,8 +295,7 @@ pub fn open_xlsx(bytes: &[u8]) -> Result<String, JsError> {
 pub fn open_csv(bytes: &[u8]) -> Result<String, JsError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|e| JsError::new(&format!("CSV is not valid UTF-8: {e}")))?;
-    let wb = lattice_io::read_csv_str(text, "Sheet1")
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let wb = lattice_io::read_csv_str(text, "Sheet1").map_err(|e| JsError::new(&e.to_string()))?;
     let info = load_workbook(wb);
     serde_json::to_string(&info).map_err(|e| JsError::new(&e.to_string()))
 }
@@ -309,8 +307,7 @@ pub fn open_csv(bytes: &[u8]) -> Result<String, JsError> {
 pub fn open_tsv(bytes: &[u8]) -> Result<String, JsError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|e| JsError::new(&format!("TSV is not valid UTF-8: {e}")))?;
-    let wb = lattice_io::read_tsv_str(text, "Sheet1")
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let wb = lattice_io::read_tsv_str(text, "Sheet1").map_err(|e| JsError::new(&e.to_string()))?;
     let info = load_workbook(wb);
     serde_json::to_string(&info).map_err(|e| JsError::new(&e.to_string()))
 }
@@ -320,8 +317,7 @@ pub fn open_tsv(bytes: &[u8]) -> Result<String, JsError> {
 pub fn save_xlsx() -> Result<Vec<u8>, JsError> {
     STATE.with(|state| {
         let state = state.borrow();
-        lattice_io::write_xlsx_to_buffer(&state.workbook)
-            .map_err(|e| JsError::new(&e.to_string()))
+        lattice_io::write_xlsx_to_buffer(&state.workbook).map_err(|e| JsError::new(&e.to_string()))
     })
 }
 
@@ -467,7 +463,12 @@ mod tests {
     #[test]
     fn add_and_list_sheets() {
         let mut state = AppState::new();
-        dispatch(&mut state, "add_sheet", serde_json::json!({ "name": "Data" })).unwrap();
+        dispatch(
+            &mut state,
+            "add_sheet",
+            serde_json::json!({ "name": "Data" }),
+        )
+        .unwrap();
         let out = dispatch(&mut state, "list_sheets", Value::Null).unwrap();
         assert_eq!(out.as_array().unwrap().len(), 2);
     }
@@ -480,8 +481,11 @@ mod tests {
 
     #[test]
     fn move_sheet_reports_unsupported() {
-        let err = run("move_sheet", serde_json::json!({ "name": "Sheet1", "toIndex": 0 }))
-            .unwrap_err();
+        let err = run(
+            "move_sheet",
+            serde_json::json!({ "name": "Sheet1", "toIndex": 0 }),
+        )
+        .unwrap_err();
         assert!(err.contains("not supported"));
     }
 }

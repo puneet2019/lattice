@@ -9,9 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use lattice_core::{
-    BorderStyle, CellError, CellValue, LatticeError, NumberFormat, format_value,
-};
+use lattice_core::{BorderStyle, CellError, CellValue, LatticeError, NumberFormat, format_value};
 
 // ---------------------------------------------------------------------------
 // Serializable cell data (matches the `CellData` interface in tauri.ts)
@@ -426,7 +424,10 @@ mod tests {
 
     #[test]
     fn parse_boolean() {
-        assert!(matches!(parse_cell_value("TRUE").0, CellValue::Boolean(true)));
+        assert!(matches!(
+            parse_cell_value("TRUE").0,
+            CellValue::Boolean(true)
+        ));
         assert!(matches!(
             parse_cell_value("false").0,
             CellValue::Boolean(false)

@@ -43,8 +43,8 @@ pub fn read_xlsx_charts(path: &Path) -> Result<Vec<ImportedChart>> {
 /// 4. Reads and parses each chart XML entry via `parse_chart_xml`.
 pub fn read_xlsx_charts_from_bytes(bytes: &[u8]) -> Result<Vec<ImportedChart>> {
     let cursor = std::io::Cursor::new(bytes.to_vec());
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| IoError::XlsxRead(format!("zip error: {}", e)))?;
 
     let mut charts = Vec::new();
 

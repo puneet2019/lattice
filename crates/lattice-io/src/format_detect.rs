@@ -57,9 +57,7 @@ pub fn detect_format_from_bytes(bytes: &[u8]) -> Result<FileFormat> {
         return Ok(FileFormat::Xlsx);
     }
 
-    if bytes.len() >= 8
-        && bytes[0..8] == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]
-    {
+    if bytes.len() >= 8 && bytes[0..8] == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] {
         return Ok(FileFormat::Xls);
     }
 
