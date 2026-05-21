@@ -1,0 +1,55 @@
+name: Deploy web app
+
+# Builds the in-browser (WASM) Lattice web app and deploys the static SPA
+# to Cloudflare Pages (project: lattice-web → lattice.catcucumber.com).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'frontend/**'
+      - 'Makefile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-web-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-web-
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build web app
+        run: make web
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy frontend/dist --project-name=lattice-web --branch=main
