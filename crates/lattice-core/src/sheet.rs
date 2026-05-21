@@ -522,7 +522,7 @@ impl Sheet {
             .filter(|(r, _)| *r >= at_row)
             .copied()
             .collect();
-        keys.sort_by(|a, b| b.0.cmp(&a.0)); // sort descending by row
+        keys.sort_by_key(|b| std::cmp::Reverse(b.0)); // sort descending by row
 
         for key in keys {
             if let Some(cell) = self.cells.remove(&key) {
@@ -633,7 +633,7 @@ impl Sheet {
             .filter(|(_, c)| *c >= at_col)
             .copied()
             .collect();
-        keys.sort_by(|a, b| b.1.cmp(&a.1)); // sort descending by col
+        keys.sort_by_key(|b| std::cmp::Reverse(b.1)); // sort descending by col
 
         for key in keys {
             if let Some(cell) = self.cells.remove(&key) {

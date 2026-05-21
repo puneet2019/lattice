@@ -927,13 +927,7 @@ fn coerce_to_number(val: &CellValue) -> Result<f64> {
 fn coerce_to_number_or_zero(val: &CellValue) -> f64 {
     match val {
         CellValue::Number(n) => *n,
-        CellValue::Boolean(b) | CellValue::Checkbox(b) => {
-            if *b {
-                1.0
-            } else {
-                0.0
-            }
-        }
+        CellValue::Boolean(true) | CellValue::Checkbox(true) => 1.0,
         _ => 0.0,
     }
 }

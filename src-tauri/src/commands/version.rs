@@ -134,7 +134,7 @@ pub async fn list_versions(state: State<'_, AppState>) -> Result<Vec<VersionInfo
     }
 
     // Sort newest first
-    versions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    versions.sort_by_key(|v| std::cmp::Reverse(v.timestamp));
 
     // Assign indices
     for (i, v) in versions.iter_mut().enumerate() {

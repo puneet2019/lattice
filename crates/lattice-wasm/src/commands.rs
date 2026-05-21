@@ -911,7 +911,7 @@ pub fn find_in_sheet(state: &mut AppState, params: Value) -> CmdResult {
             });
         }
     }
-    matches.sort_by(|a, b| (a.row, a.col).cmp(&(b.row, b.col)));
+    matches.sort_by_key(|m| (m.row, m.col));
     serde_json::to_value(matches).map_err(|e| e.to_string())
 }
 
