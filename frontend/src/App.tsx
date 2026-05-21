@@ -1,7 +1,19 @@
 import type { Component } from 'solid-js';
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
-import { listen } from '@tauri-apps/api/event';
-import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
+import { listen, getCurrentWindow } from './bridge/backend';
+import {
+  openWorkbook,
+  saveWorkbook,
+  exportSheetCsv,
+  exportSheetTsv,
+  openPath,
+} from './bridge/files';
+import { IS_WASM_BACKEND } from './bridge/backend';
+import {
+  scheduleAutosave,
+  restoreAutosave,
+  clearAutosave,
+} from './bridge/opfs';
 import Toolbar from './components/Toolbar';
 import FormulaBar from './components/FormulaBar';
 import FindBar from './components/FindBar';
@@ -33,7 +45,6 @@ import SlicerContainer from './components/SlicerWidget';
 import type { SlicerState } from './components/SlicerWidget';
 import AddSlicerDialog from './components/AddSlicerDialog';
 import WelcomeScreen from './components/WelcomeScreen';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   listSheets,
   addSheet,
@@ -44,12 +55,6 @@ import {
   deleteSheet,
   duplicateSheet,
   formatCells,
-  openFile,
-  openCsv,
-  openTsv,
-  saveFile,
-  exportCsv,
-  exportTsv,
   exportHtml,
   newWorkbook,
   undo as tauriUndo,
@@ -181,13 +186,10 @@ const App: Component = () => {
       updateWindowTitle(currentFilePath(), true);
     }
     setSaveStatus('unsaved');
+    // Web build: debounce a background autosave to OPFS so a refresh or
+    // crash never loses work. No-op on the desktop build.
+    scheduleAutosave();
   }
-
-  // Spreadsheet file filter for open/save dialogs.
-  const fileFilters = [
-    { name: 'Spreadsheet', extensions: ['xlsx', 'lattice', 'csv', 'tsv'] },
-    { name: 'All Files', extensions: ['*'] },
-  ];
 
   // -------------------------------------------------------------------
   // File operations (triggered by menu events)
@@ -246,6 +248,8 @@ const App: Component = () => {
       setSaveStatus('saved');
       // Clear charts from previous workbook.
       setChartOverlays([]);
+      // Drop any stale autosave so a refresh doesn't resurrect old data.
+      void clearAutosave();
       setStatusMessage('New workbook created');
     } catch (e) {
       setStatusMessage(`New workbook failed: ${e}`);
@@ -254,35 +258,21 @@ const App: Component = () => {
 
   const handleFileOpen = async () => {
     try {
-      const selected = await dialogOpen({
-        title: 'Open Spreadsheet',
-        filters: fileFilters,
-        multiple: false,
-        directory: false,
-      });
-      if (!selected) return; // user cancelled
-      const path = typeof selected === 'string' ? selected : selected[0];
-      if (!path) return;
-      // Determine format by extension and call the right open command
-      const lower = path.toLowerCase();
-      let info;
-      if (lower.endsWith('.csv')) {
-        info = await openCsv(path);
-      } else if (lower.endsWith('.tsv') || lower.endsWith('.tab')) {
-        info = await openTsv(path);
-      } else {
-        info = await openFile(path);
-      }
+      // The file layer picks the native dialog (desktop) or a browser
+      // file picker (web) and returns the parsed workbook + a name.
+      const result = await openWorkbook();
+      if (!result) return; // user cancelled
+      const { info, name } = result;
       applyWorkbookInfo(info);
-      setCurrentFilePath(path);
-      updateWindowTitle(path, false);
+      setCurrentFilePath(name);
+      updateWindowTitle(name, false);
       setSaveStatus('saved');
       // Load charts imported from the file.
       void loadChartsForSheet(info.active_sheet);
       // Track in recent files
-      const fileName = path.split('/').pop() || path;
-      void addRecentFile(path, fileName).catch(() => {});
-      setStatusMessage(`Opened: ${path}`);
+      const fileName = name.split('/').pop() || name;
+      void addRecentFile(name, fileName).catch(() => {});
+      setStatusMessage(`Opened: ${name}`);
     } catch (e) {
       setStatusMessage(`Open failed: ${e}`);
     }
@@ -290,15 +280,8 @@ const App: Component = () => {
 
   const handleOpenRecentFile = async (path: string) => {
     try {
-      const lower = path.toLowerCase();
-      let info;
-      if (lower.endsWith('.csv')) {
-        info = await openCsv(path);
-      } else if (lower.endsWith('.tsv') || lower.endsWith('.tab')) {
-        info = await openTsv(path);
-      } else {
-        info = await openFile(path);
-      }
+      // Recent files are only tracked on the desktop build (paths).
+      const info = await openPath(path);
       applyWorkbookInfo(info);
       setCurrentFilePath(path);
       updateWindowTitle(path, false);
@@ -313,20 +296,34 @@ const App: Component = () => {
     }
   };
 
-  const handleFileSave = async () => {
+  /** Suggested file name for the web save picker / download. */
+  function suggestedFileName(ext: string): string {
     const path = currentFilePath();
-    if (!path) {
-      // No path yet — fall through to Save As.
-      await handleFileSaveAs();
-      return;
+    if (path) {
+      const base = (path.split('/').pop() || path).replace(/\.[^.]+$/, '');
+      return `${base}.${ext}`;
     }
+    return `workbook.${ext}`;
+  }
+
+  const handleFileSave = async () => {
+    // On desktop a known path saves silently; on the web every save goes
+    // through the file layer (no persistent path concept in the browser).
     try {
       setSaveStatus('saving');
-      await saveFile(path);
+      const result = await saveWorkbook(suggestedFileName('xlsx'));
+      if (!result.name) {
+        // User cancelled the save dialog/picker.
+        setSaveStatus(isDirty() ? 'unsaved' : 'saved');
+        return;
+      }
+      setCurrentFilePath(result.name);
       setIsDirty(false);
-      updateWindowTitle(path, false);
+      updateWindowTitle(result.name, false);
       setSaveStatus('saved');
-      setStatusMessage(`Saved: ${path}`);
+      // Explicit save supersedes the autosave snapshot.
+      void clearAutosave();
+      setStatusMessage(`Saved: ${result.name}`);
     } catch (e) {
       setSaveStatus('unsaved');
       setStatusMessage(`Save failed: ${e}`);
@@ -335,18 +332,19 @@ const App: Component = () => {
 
   const handleFileSaveAs = async () => {
     try {
-      const path = await dialogSave({
-        title: 'Save Spreadsheet',
-        filters: fileFilters,
-      });
-      if (!path) return; // user cancelled
       setSaveStatus('saving');
-      await saveFile(path);
-      setCurrentFilePath(path);
+      const result = await saveWorkbook(suggestedFileName('xlsx'));
+      if (!result.name) {
+        setSaveStatus(isDirty() ? 'unsaved' : 'saved');
+        return; // user cancelled
+      }
+      setCurrentFilePath(result.name);
       setIsDirty(false);
-      updateWindowTitle(path, false);
+      updateWindowTitle(result.name, false);
       setSaveStatus('saved');
-      setStatusMessage(`Saved: ${path}`);
+      // Explicit save supersedes the autosave snapshot.
+      void clearAutosave();
+      setStatusMessage(`Saved: ${result.name}`);
     } catch (e) {
       setSaveStatus('unsaved');
       setStatusMessage(`Save As failed: ${e}`);
@@ -355,16 +353,9 @@ const App: Component = () => {
 
   const handleExportCsv = async () => {
     try {
-      const path = await dialogSave({
-        title: 'Download as CSV',
-        filters: [
-          { name: 'CSV', extensions: ['csv'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-      });
-      if (!path) return;
-      await exportCsv(activeSheetName(), path);
-      setStatusMessage(`Exported CSV: ${path}`);
+      const result = await exportSheetCsv(activeSheetName(), suggestedFileName('csv'));
+      if (!result.name) return;
+      setStatusMessage(`Exported CSV: ${result.name}`);
     } catch (e) {
       setStatusMessage(`CSV export failed: ${e}`);
     }
@@ -372,16 +363,9 @@ const App: Component = () => {
 
   const handleExportTsv = async () => {
     try {
-      const path = await dialogSave({
-        title: 'Download as TSV',
-        filters: [
-          { name: 'TSV', extensions: ['tsv'] },
-          { name: 'All Files', extensions: ['*'] },
-        ],
-      });
-      if (!path) return;
-      await exportTsv(activeSheetName(), path);
-      setStatusMessage(`Exported TSV: ${path}`);
+      const result = await exportSheetTsv(activeSheetName(), suggestedFileName('tsv'));
+      if (!result.name) return;
+      setStatusMessage(`Exported TSV: ${result.name}`);
     } catch (e) {
       setStatusMessage(`TSV export failed: ${e}`);
     }
@@ -606,6 +590,28 @@ const App: Component = () => {
       // If Tauri is not available (e.g. running in browser for dev), use defaults.
       // workbookLoaded stays false so the WelcomeScreen is shown.
       console.warn('Tauri not available, using default state');
+    }
+
+    // Web build: restore the previous session from OPFS autosave, if any.
+    // A fresh tab starts with an empty default workbook; if the user had
+    // unsaved work before a refresh/crash, offer to bring it back.
+    if (IS_WASM_BACKEND) {
+      try {
+        const restored = await restoreAutosave();
+        if (restored) {
+          const ok = window.confirm(
+            'Restore your previous unsaved session? Choose Cancel to start fresh.',
+          );
+          if (ok) {
+            applyWorkbookInfo(restored);
+            setStatusMessage('Restored previous session from autosave');
+          } else {
+            void clearAutosave();
+          }
+        }
+      } catch (e) {
+        console.warn('Autosave restore failed:', e);
+      }
     }
 
     // Load named ranges

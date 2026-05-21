@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000",
+    "dev:web": "VITE_LATTICE_BACKEND=wasm vite --port 3000",
     "build": "tsc -b && vite build",
+    "build:web": "VITE_LATTICE_BACKEND=wasm tsc -b && VITE_LATTICE_BACKEND=wasm vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "wdio run tests/e2e/wdio.conf.ts"
@@ -13,6 +15,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
+    "lattice-wasm": "file:../crates/lattice-wasm/pkg",
     "solid-js": "^1.9.11"
   },
   "devDependencies": {

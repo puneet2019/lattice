@@ -1,4 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
+// `invoke` is supplied by the backend selector — Tauri IPC on the desktop
+// build, a direct WASM call on the web build. The wrappers below are
+// backend-agnostic and never change.
+import { invoke } from './backend';
 
 /** A single border edge from the backend. */
 export interface BorderEdgeData {

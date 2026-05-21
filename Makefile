@@ -3,7 +3,7 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 # Detect Apple Developer identity for code signing (override via APPLE_SIGNING_IDENTITY env var)
 APPLE_SIGNING_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' || echo "")
 
-.PHONY: dev build test test-mcp test-e2e lint fmt clean bench bundle sign notarize release docker-dev version-bump homebrew-sha
+.PHONY: dev build wasm web web-dev wasm-smoke test test-mcp test-e2e lint fmt clean bench bundle sign notarize release docker-dev version-bump homebrew-sha
 
 dev:
 	cargo tauri dev
@@ -11,6 +11,28 @@ dev:
 build:
 	cd frontend && npm install && npm run build
 	cargo tauri build
+
+# wasm: Compile the in-browser engine to a wasm-pack package.
+# Output lands in crates/lattice-wasm/pkg/ (consumed by the frontend
+# as a `file:` dependency).
+wasm:
+	wasm-pack build --target web --release crates/lattice-wasm
+
+# web: Build the static in-browser SPA (Phase 1 — no Tauri, no backend).
+# Produces frontend/dist/ ready for static hosting (Cloudflare Pages etc.).
+web: wasm
+	cd frontend && npm install && npm run build:web
+	@echo "Web SPA built: frontend/dist/"
+
+# web-dev: Run the in-browser app against a Vite dev server.
+web-dev: wasm
+	cd frontend && npm install && npm run dev:web
+
+# wasm-smoke: Build the Node-target wasm package and exercise the engine
+# dispatcher end-to-end (workbook ops, formulas, undo, xlsx round-trip).
+wasm-smoke:
+	wasm-pack build --target nodejs --release --out-dir pkg-node crates/lattice-wasm
+	node crates/lattice-wasm/smoke_test.mjs
 
 test:
 	cargo test --workspace
