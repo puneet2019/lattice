@@ -16,7 +16,7 @@
 
 ## Why Lattice
 
-- **AI-native from day one.** A built-in [MCP](https://modelcontextprotocol.io/) server with 65+ tools lets Claude Desktop and Claude Code read, write, sort, chart, and analyze your spreadsheets directly. No plugins, no export/import loops.
+- **AI-native from day one.** A built-in [MCP](https://modelcontextprotocol.io/) server with 65+ tools lets Claude Desktop and Claude Code read, write, sort, chart, and analyze your spreadsheets directly. No plugins, no export/import loops. The web build also speaks MCP over `postMessage` so browser AI clients (ChatGPT Apps SDK, Claude.ai, Arc Max) can drive the live tab — opt in with `?mcp=1` and try the demo at `/mcp-demo.html` (see [`docs/BROWSER_SESSIONS.md`](docs/BROWSER_SESSIONS.md#phase-15--in-browser-mcp-bridge)).
 - **Pure Rust, native speed.** 129 formula functions, dependency-graph recalculation, and a Canvas-rendered grid -- all compiled to a single native binary. No Electron, no GC pauses.
 - **18 MB macOS app.** A lightweight `.dmg` that launches instantly and works offline. Single-file `.xlsx` format syncs cleanly with Google Drive, Dropbox, and iCloud.
 

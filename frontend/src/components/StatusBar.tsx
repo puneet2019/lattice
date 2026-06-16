@@ -11,6 +11,8 @@ export interface StatusBarProps {
   onZoomChange: (zoom: number) => void;
   filterSummary?: string;
   saveStatus?: SaveStatus;
+  /** Whether an MCP client (e.g. Claude in a parent window) is connected. */
+  mcpConnected?: boolean;
 }
 
 const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200];
@@ -130,6 +132,15 @@ const StatusBar: Component<StatusBarProps> = (props) => {
         </Show>
       </div>
       <div class="status-bar-right">
+        <Show when={props.mcpConnected}>
+          <span
+            class="mcp-status"
+            title="MCP client connected — an AI assistant in this browser session can read and modify this workbook"
+          >
+            <span class="mcp-status-dot" />
+            MCP
+          </span>
+        </Show>
         <Show when={props.saveStatus}>
           <span class={`save-status save-status-${props.saveStatus}`}>
             <span class="save-status-dot" />

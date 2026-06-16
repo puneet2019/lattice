@@ -28,6 +28,7 @@ vi.mock('lattice-wasm', () => ({
   save_xlsx: vi.fn(),
   export_csv_bytes: vi.fn(),
   export_tsv_bytes: vi.fn(),
+  mcp_request: vi.fn(),
 }));
 
 // Mock the Tauri core so the desktop branch is exercisable in node.

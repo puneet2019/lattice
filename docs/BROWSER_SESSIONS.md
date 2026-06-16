@@ -76,6 +76,94 @@ Milestones, each a small commit or two:
 
 Phase 1 ships with no MCP — it is human-first. The in-browser MCP transport (so browser AI can drive the local app over `postMessage`) is the immediate fast-follow, Phase 1.5.
 
+## Phase 1.5 — In-browser MCP bridge
+
+Once the web app runs, the same MCP catalog the desktop stdio server exposes (`read_cell`, `write_cell`, `list_sheets`, `create_chart`, conditional formats, named ranges, sparklines, …) becomes drivable by any browser AI client (ChatGPT Apps SDK, Claude.ai, Arc Max, Comet, Dia) over `postMessage`. The tool catalog and protocol version (`"2024-11-05"`) come straight from `lattice-mcp` via a single WASM entry point — there is no parallel implementation in JS.
+
+### Opt-in URL parameters
+
+The bridge is **off by default**. A parent page must explicitly ask for it:
+
+| Param | Effect |
+|-------|--------|
+| `?mcp=1` | Attach the bridge. Same-origin only. |
+| `?mcpOrigin=https://embed.example,https://other.example` | Add comma-separated origins to the allowlist (same-origin is always kept). |
+| `?mcpAllowAny=1` | Allow **any** origin (sets the allowlist to `*`). The visible opt-in name is deliberate — only use for testing. |
+| `?mcpDebug=1` | Log every accepted / rejected message to the console. |
+
+Without `?mcp=1`, no `message` listener is installed and the page behaves like the regular SPA.
+
+### Origin model
+
+Every incoming `MessageEvent` is matched against the allowlist before anything else happens:
+
+- Default = `[window.location.origin]` (same-origin iframes only).
+- `?mcpOrigin=` adds explicit origins via exact case-sensitive match.
+- `?mcpAllowAny=1` opens it to `*`; the literal `"null"` opaque origin is still rejected.
+- Mismatched messages are dropped silently (logged in `mcpDebug=1` mode).
+
+### Try it: the demo page
+
+After `make web` you get `frontend/dist/mcp-demo.html`. Serve `dist/` with any static server (`npx serve dist`, `python -m http.server`, `vite preview`) and open `/mcp-demo.html` — it embeds Lattice in an iframe with `?mcp=1` and gives you:
+
+- Buttons for `initialize`, `tools/list`, `ping`.
+- A searchable list of all tool names (came from the bridge, not hard-coded).
+- A hand-edit JSON box for `tools/call`.
+- A chronological message log.
+
+### Embedding from your own page
+
+```js
+// Minimal embedder.
+const iframe = document.createElement('iframe');
+iframe.src = 'https://lattice.app/?mcp=1';
+document.body.append(iframe);
+
+iframe.addEventListener('load', () => {
+  iframe.contentWindow.postMessage({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'my-client', version: '0.1.0' },
+    },
+  }, 'https://lattice.app');
+});
+
+window.addEventListener('message', (e) => {
+  if (e.source !== iframe.contentWindow) return;
+  if (e.data?.jsonrpc !== '2.0') return;
+  console.log('lattice →', e.data);
+});
+```
+
+### Cross-origin embedders
+
+A non-same-origin parent must be added explicitly. Two equivalent ways:
+
+```
+https://lattice.app/?mcp=1&mcpOrigin=https://your-host.example
+```
+
+Or, if you control the URL and have a real reason for it, `&mcpAllowAny=1`. Prefer the explicit list.
+
+### What's deferred to Phase 2
+
+- **Remote MCP transport (Streamable HTTP + OAuth 2.1)** for clients that want to drive a server-hosted workbook instead of one in a tab.
+- **Multiple concurrent embedders** with per-client capability scopes (the current bridge treats all callers as equally trusted).
+- **A "Connected to AI assistant" inline banner** with a one-click disconnect, beyond the small dot already in the status bar.
+
+### Code paths
+
+- `frontend/src/mcp/server.ts` — `LatticeMcpServer`, the `postMessage` adapter.
+- `frontend/src/mcp/origin.ts` — origin allowlist matching.
+- `frontend/src/App.tsx` — opt-in wiring (`?mcp=1`), allowlist construction, status-bar indicator.
+- `frontend/public/mcp-demo.html` — the developer demo page.
+- `frontend/tests/e2e-mcp.mjs` — Chromium round-trip test (`make mcp-verify`).
+- `crates/lattice-wasm/src/lib.rs` (`mcp_request`) — the WASM entry point that owns the catalog.
+
 ## Phase 2 — Logged-in backend
 
 Only the logged-in tier needs a server. It reuses the headless-server design from the earlier plan:

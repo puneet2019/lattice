@@ -3,7 +3,7 @@ export PATH := $(HOME)/.cargo/bin:$(PATH)
 # Detect Apple Developer identity for code signing (override via APPLE_SIGNING_IDENTITY env var)
 APPLE_SIGNING_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' || echo "")
 
-.PHONY: dev build wasm web web-dev wasm-smoke test test-mcp test-e2e lint fmt clean bench bundle sign notarize release docker-dev version-bump homebrew-sha
+.PHONY: dev build wasm web web-dev wasm-smoke mcp-verify test test-mcp test-e2e lint fmt clean bench bundle sign notarize release docker-dev version-bump homebrew-sha
 
 dev:
 	cargo tauri dev
@@ -33,6 +33,16 @@ web-dev: wasm
 wasm-smoke:
 	wasm-pack build --target nodejs --release --out-dir pkg-node crates/lattice-wasm
 	node crates/lattice-wasm/smoke_test.mjs
+
+# mcp-verify: Drive the in-browser MCP bridge end-to-end via system Chrome.
+# Builds the web SPA, serves it, loads /mcp-demo.html in a headless Chrome,
+# and round-trips initialize / tools/list / write_cell + read_cell through
+# the postMessage bridge.
+# Playwright is installed without saving to package.json — same pattern
+# the desktop browser_verify work uses.
+mcp-verify: web
+	cd frontend && [ -d node_modules/playwright ] || npm install --no-save --no-package-lock playwright@1.40.0
+	node frontend/tests/e2e-mcp.mjs
 
 test:
 	cargo test --workspace

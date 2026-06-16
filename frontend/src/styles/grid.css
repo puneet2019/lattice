@@ -931,6 +931,27 @@ body,
   background: #fbbc04;
 }
 
+/* MCP (Model Context Protocol) connection indicator */
+
+.mcp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 0 8px;
+  color: var(--header-text, #5f6368);
+  cursor: help;
+}
+
+.mcp-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1a73e8;
+  box-shadow: 0 0 4px rgba(26, 115, 232, 0.6);
+}
+
 /* Zoom preset dropdown */
 
 .status-zoom-dropdown {

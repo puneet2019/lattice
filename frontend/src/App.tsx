@@ -83,6 +83,7 @@ import type { FilterInfo, NamedRangeInfo, RecentFile, MergedRegionData, BandedRo
 import type { ChartInfo, ChartTypeStr } from './bridge/tauri';
 import { parse_cell_ref, col_to_letter } from './bridge/tauri_helpers';
 import { TOTAL_ROWS, TOTAL_COLS } from './components/Grid/constants';
+import { LatticeMcpServer, parseOriginList, type AllowedOrigins } from './mcp';
 import './styles/grid.css';
 
 /** Convert 0-based row, col to A1-style reference. */
@@ -174,6 +175,8 @@ const App: Component = () => {
 
   const [isDirty, setIsDirty] = createSignal(false);
   const [saveStatus, setSaveStatus] = createSignal<SaveStatus>('saved');
+  // MCP bridge — flips on when a browser AI client completes initialize.
+  const [mcpConnected, setMcpConnected] = createSignal(false);
   const [showGridlines, setShowGridlines] = createSignal(true);
   const [showFormulas, setShowFormulas] = createSignal(false);
   const [recentFiles, setRecentFilesState] = createSignal<RecentFile[]>([]);
@@ -662,6 +665,37 @@ const App: Component = () => {
       // Tauri event system not available (browser dev mode).
     }
 
+    // In-browser MCP bridge. Opt-in via `?mcp=1`. Same-origin only by
+    // default; embedders can widen with `?mcpOrigin=https://embed.example`
+    // (comma-separated) or `?mcpAllowAny=1` for `*`. WASM build only — the
+    // desktop app uses the native stdio / HTTP MCP server instead.
+    let mcpServer: LatticeMcpServer | undefined;
+    if (IS_WASM_BACKEND && typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mcp') === '1') {
+          const extra = parseOriginList(params.get('mcpOrigin'));
+          const allowAny = params.get('mcpAllowAny') === '1';
+          let allowed: AllowedOrigins;
+          if (allowAny) {
+            allowed = '*';
+          } else {
+            const origins = [window.location.origin, ...extra];
+            // De-duplicate while preserving order.
+            allowed = Array.from(new Set(origins));
+          }
+          mcpServer = new LatticeMcpServer({
+            allowedOrigins: allowed,
+            debug: params.get('mcpDebug') === '1',
+            onClientConnected: () => setMcpConnected(true),
+          });
+          mcpServer.attach();
+        }
+      } catch (e) {
+        console.warn('MCP bridge failed to start:', e);
+      }
+    }
+
     // Auto-save every 60 seconds if there are unsaved changes and a file path exists.
     const autoSaveInterval = setInterval(() => {
       if (isDirty() && currentFilePath()) {
@@ -683,6 +717,7 @@ const App: Component = () => {
       unlistenWorkbookChanged?.();
       clearInterval(autoSaveInterval);
       window.removeEventListener('beforeunload', beforeUnloadHandler);
+      mcpServer?.detach();
     });
   });
 
@@ -1934,6 +1969,7 @@ const App: Component = () => {
         onZoomChange={handleZoomChange}
         filterSummary={filterInfo() ? `${filterInfo()!.visible_rows} of ${filterInfo()!.total_rows} rows displayed` : undefined}
         saveStatus={saveStatus()}
+        mcpConnected={mcpConnected()}
       />
       </Show>
     </div>

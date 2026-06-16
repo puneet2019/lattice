@@ -66,6 +66,8 @@ let wasmReady: Promise<{
   save_xlsx: () => Uint8Array;
   export_csv_bytes: (sheet: string) => Uint8Array;
   export_tsv_bytes: (sheet: string) => Uint8Array;
+  /** MCP JSON-RPC 2.0 entry point used by `frontend/src/mcp/server.ts`. */
+  mcp_request: (request: string) => string | undefined;
 }> | null = null;
 
 /** Resolve (and memoize) the initialized WASM module. */

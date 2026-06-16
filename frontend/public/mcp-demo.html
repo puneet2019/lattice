@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lattice MCP Bridge — Demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 12px;
+        height: 100vh;
+        box-sizing: border-box;
+      }
+      header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 600;
+      }
+      .status {
+        font-size: 11px;
+        opacity: 0.7;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+      }
+      .panel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      button {
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 10px;
+        border: 1px solid #888;
+        border-radius: 4px;
+        background: transparent;
+        cursor: pointer;
+      }
+      button:hover { background: rgba(127, 127, 127, 0.1); }
+      label {
+        font-size: 11px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      textarea, input[type="text"], input[type="search"] {
+        font: inherit;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 11px;
+        padding: 4px;
+        border: 1px solid #888;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        box-sizing: border-box;
+        width: 100%;
+      }
+      textarea { resize: vertical; }
+      pre {
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 10.5px;
+        background: rgba(127, 127, 127, 0.08);
+        border: 1px solid rgba(127, 127, 127, 0.2);
+        border-radius: 4px;
+        padding: 6px;
+        margin: 0;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .log {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        border: 1px solid rgba(127, 127, 127, 0.3);
+        border-radius: 4px;
+        padding: 6px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 10.5px;
+        background: rgba(127, 127, 127, 0.04);
+      }
+      .log .row {
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+        border-bottom: 1px dashed rgba(127, 127, 127, 0.3);
+      }
+      .log .row:last-child { border-bottom: none; }
+      .log .dir-out { color: #1a73e8; }
+      .log .dir-in { color: #137333; }
+      .log .dir-err { color: #c5221f; }
+      .tools-list {
+        max-height: 200px;
+        overflow: auto;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 11px;
+        border: 1px solid rgba(127, 127, 127, 0.3);
+        border-radius: 4px;
+        padding: 6px;
+      }
+      .tools-list .tool { padding: 1px 0; }
+      .section { display: flex; flex-direction: column; gap: 4px; }
+      .section h2 { font-size: 11px; margin: 0; opacity: 0.6; text-transform: uppercase; font-weight: 600; letter-spacing: 0.04em; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Lattice MCP Bridge Demo</h1>
+      <span class="status" id="status">Not connected.</span>
+    </header>
+
+    <div class="panel">
+      <iframe id="lattice" src="/?mcp=1" title="Lattice"></iframe>
+    </div>
+
+    <div class="panel">
+      <div class="section">
+        <h2>1. Handshake</h2>
+        <div class="controls">
+          <button id="btn-init">initialize</button>
+          <button id="btn-tools">tools/list</button>
+          <button id="btn-ping">ping</button>
+        </div>
+        <pre id="server-info">(no serverInfo yet)</pre>
+      </div>
+
+      <div class="section">
+        <h2>2. Tools (<span id="tools-count">0</span>)</h2>
+        <input type="search" id="tool-filter" placeholder="filter tool names…" />
+        <div class="tools-list" id="tools-list"></div>
+      </div>
+
+      <div class="section">
+        <h2>3. Call a tool</h2>
+        <label>
+          Request JSON (tools/call params)
+          <textarea id="call-body" rows="6">{
+  "name": "write_cell",
+  "arguments": {
+    "sheet": "Sheet1",
+    "cell_ref": "A1",
+    "value": "Hello from demo!"
+  }
+}</textarea>
+        </label>
+        <div class="controls">
+          <button id="btn-call">Send tools/call</button>
+          <button id="btn-call-read">Quick: read A1</button>
+        </div>
+      </div>
+
+      <div class="section" style="flex: 1; min-height: 0;">
+        <h2>4. Message log</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <script>
+      // -------------------------------------------------------------------
+      // Tiny vanilla driver around the MCP bridge. Not framework-y on
+      // purpose — this is a developer tool, not a product.
+      // -------------------------------------------------------------------
+      const iframe = document.getElementById('lattice');
+      const logEl = document.getElementById('log');
+      const statusEl = document.getElementById('status');
+      const serverInfoEl = document.getElementById('server-info');
+      const toolsCountEl = document.getElementById('tools-count');
+      const toolsListEl = document.getElementById('tools-list');
+      const toolFilterEl = document.getElementById('tool-filter');
+      const callBodyEl = document.getElementById('call-body');
+
+      // Promise registry so we can await responses by id.
+      const pending = new Map();
+      let nextId = 1;
+
+      // All known tool definitions, kept across renders.
+      let toolDefs = [];
+
+      function logRow(direction, dirClass, label, payload) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const head = document.createElement('div');
+        head.className = dirClass;
+        head.textContent = `${direction} ${label}`;
+        const pre = document.createElement('pre');
+        pre.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+        row.appendChild(head);
+        row.appendChild(pre);
+        logEl.appendChild(row);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function send(method, params) {
+        const id = nextId++;
+        const msg = { jsonrpc: '2.0', id, method, params };
+        logRow('→', 'dir-out', `${method} (id=${id})`, msg);
+        const promise = new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          setTimeout(() => {
+            if (pending.has(id)) {
+              pending.delete(id);
+              reject(new Error(`Timeout waiting for ${method} (id=${id})`));
+            }
+          }, 15000);
+        });
+        iframe.contentWindow.postMessage(msg, location.origin);
+        return promise;
+      }
+
+      window.addEventListener('message', (e) => {
+        if (e.source !== iframe.contentWindow) return;
+        const data = e.data;
+        if (!data || typeof data !== 'object' || data.jsonrpc !== '2.0') return;
+        logRow('←', data.error ? 'dir-err' : 'dir-in', `response (id=${data.id ?? '—'})`, data);
+        if (data.id != null && pending.has(data.id)) {
+          const { resolve, reject } = pending.get(data.id);
+          pending.delete(data.id);
+          if (data.error) reject(new Error(data.error.message || 'MCP error'));
+          else resolve(data.result);
+        }
+      });
+
+      function refreshToolsList() {
+        const q = toolFilterEl.value.toLowerCase().trim();
+        const filtered = toolDefs.filter((t) => !q || t.name.toLowerCase().includes(q));
+        toolsListEl.innerHTML = '';
+        for (const t of filtered) {
+          const row = document.createElement('div');
+          row.className = 'tool';
+          row.textContent = t.name;
+          row.title = t.description || '';
+          toolsListEl.appendChild(row);
+        }
+      }
+      toolFilterEl.addEventListener('input', refreshToolsList);
+
+      document.getElementById('btn-init').addEventListener('click', async () => {
+        try {
+          const result = await send('initialize', {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'lattice-mcp-demo', version: '0.1.0' },
+          });
+          serverInfoEl.textContent = JSON.stringify(result, null, 2);
+          statusEl.textContent =
+            `Connected: ${result?.serverInfo?.name ?? 'unknown'} v${result?.serverInfo?.version ?? '?'} (protocol ${result?.protocolVersion ?? '?'})`;
+        } catch (e) {
+          statusEl.textContent = `initialize failed: ${e.message}`;
+        }
+      });
+
+      document.getElementById('btn-tools').addEventListener('click', async () => {
+        try {
+          const result = await send('tools/list', {});
+          toolDefs = Array.isArray(result?.tools) ? result.tools : [];
+          toolsCountEl.textContent = String(toolDefs.length);
+          refreshToolsList();
+        } catch (e) {
+          toolsCountEl.textContent = `error: ${e.message}`;
+        }
+      });
+
+      document.getElementById('btn-ping').addEventListener('click', async () => {
+        try { await send('ping', {}); } catch (e) { /* logged */ }
+      });
+
+      document.getElementById('btn-call').addEventListener('click', async () => {
+        let params;
+        try { params = JSON.parse(callBodyEl.value); }
+        catch (e) { alert('Invalid JSON: ' + e.message); return; }
+        try { await send('tools/call', params); } catch { /* logged */ }
+      });
+
+      document.getElementById('btn-call-read').addEventListener('click', async () => {
+        callBodyEl.value = JSON.stringify({
+          name: 'read_cell',
+          arguments: { sheet: 'Sheet1', cell_ref: 'A1' },
+        }, null, 2);
+        try { await send('tools/call', JSON.parse(callBodyEl.value)); } catch { /* logged */ }
+      });
+
+      // Auto-initialize once the iframe is ready (the WASM module takes a
+      // beat to instantiate — wait for load + a short grace period).
+      iframe.addEventListener('load', () => {
+        statusEl.textContent = 'Iframe loaded; waiting for WASM…';
+        setTimeout(() => {
+          document.getElementById('btn-init').click();
+          setTimeout(() => document.getElementById('btn-tools').click(), 500);
+        }, 1200);
+      });
+    </script>
+  </body>
+</html>
