@@ -2122,6 +2122,7 @@ name = "lattice-mcp"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "getrandom 0.3.4",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2146,6 +2147,7 @@ dependencies = [
  "lattice-charts",
  "lattice-core",
  "lattice-io",
+ "lattice-mcp",
  "serde",
  "serde_json",
  "uuid",

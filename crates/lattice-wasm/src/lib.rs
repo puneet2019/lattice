@@ -93,6 +93,44 @@ pub fn invoke(command: &str, args_json: &str) -> Result<String, JsError> {
     }
 }
 
+/// Handle a single MCP JSON-RPC 2.0 request and return the response.
+///
+/// `request` is a single JSON-RPC message as a string (`initialize`,
+/// `tools/list`, `tools/call`, `resources/list`, `resources/read`,
+/// `prompts/list`, `prompts/get`, `ping`). Returns the JSON-RPC response
+/// string, or `undefined` for notifications (which have no response).
+///
+/// This is the entry point the JS-side MCP server uses to bridge
+/// `postMessage` traffic from browser AI clients (ChatGPT Apps SDK,
+/// Claude.ai, Arc Max, …) into the engine. The full tool catalog
+/// (read_cell, write_cell, list_sheets, create_chart, …) is provided by
+/// `lattice-mcp` — the single source of truth shared with the desktop
+/// stdio/HTTP server.
+///
+/// [`init`] must have been called first.
+#[wasm_bindgen]
+pub fn mcp_request(request: &str) -> Result<Option<String>, JsError> {
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        // Split the borrow so `tool_registry` (immutable) and the rest
+        // (mutable) can coexist.
+        let AppState {
+            workbook,
+            conditional_formats,
+            mcp_initialized,
+            mcp_tools,
+            ..
+        } = &mut *state;
+        let mut mcp_state = lattice_mcp::McpState {
+            workbook,
+            conditional_formats,
+            initialized: mcp_initialized,
+            tool_registry: mcp_tools,
+        };
+        Ok(lattice_mcp::handle_request(&mut mcp_state, request))
+    })
+}
+
 /// Route a command name to its handler.
 ///
 /// Every command string the frontend's `bridge/tauri.ts` can pass to

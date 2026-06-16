@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use lattice_core::{AutoSaveConfig, ConditionalFormatStore, UndoStack, Workbook};
+use lattice_mcp::tools::ToolRegistry;
 
 use crate::chart_store::ChartStore;
 
@@ -39,6 +40,13 @@ pub struct AppState {
     /// Filters accumulate across columns and are ANDed together: a row is
     /// visible only if it passes every column filter.
     pub active_filters: HashMap<String, HashMap<u32, Vec<String>>>,
+    /// Whether the in-page MCP server has been initialized by a client.
+    /// Lives here (not as a function-local) so the MCP `initialize` handshake
+    /// is durable across `mcp_request()` calls.
+    pub mcp_initialized: bool,
+    /// MCP tool registry built once at startup; borrowed into every
+    /// `McpState` for `tools/list` and `tools/call` dispatch.
+    pub mcp_tools: ToolRegistry,
 }
 
 impl AppState {
@@ -53,6 +61,8 @@ impl AppState {
             conditional_formats: ConditionalFormatStore::new(),
             chart_stacked: HashMap::new(),
             active_filters: HashMap::new(),
+            mcp_initialized: false,
+            mcp_tools: ToolRegistry::default_registry(),
         }
     }
 

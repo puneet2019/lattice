@@ -83,5 +83,48 @@ check('xlsx round-trip preserves A1=100', a1rt && a1rt.value === '100', JSON.str
 const csv = wasm.export_csv_bytes(reopened.sheets[0]);
 check('export_csv_bytes produces bytes', csv instanceof Uint8Array && csv.length > 0, `len=${csv && csv.length}`);
 
+// --- MCP (the Phase 1.5 surface) ---
+const mcp = (msg) => {
+  const r = wasm.mcp_request(JSON.stringify(msg));
+  return r === undefined ? undefined : JSON.parse(r);
+};
+const initResp = mcp({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+check(
+  'mcp initialize returns serverInfo',
+  initResp?.result?.serverInfo?.name === 'lattice' && initResp.result.protocolVersion,
+  JSON.stringify(initResp),
+);
+mcp({ jsonrpc: '2.0', method: 'initialized' }); // notification (no response)
+const toolsList = mcp({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+const toolCount = toolsList?.result?.tools?.length ?? 0;
+check('mcp tools/list returns tools', toolCount > 30, `tools=${toolCount}`);
+check(
+  'mcp tools include read_cell + write_cell',
+  toolsList.result.tools.some((t) => t.name === 'read_cell')
+    && toolsList.result.tools.some((t) => t.name === 'write_cell'),
+);
+// Round-trip through MCP: write_cell then read_cell.
+const sheetName = reopened.sheets[0];
+mcp({
+  jsonrpc: '2.0', id: 3, method: 'tools/call',
+  params: { name: 'write_cell', arguments: { sheet: sheetName, cell_ref: 'C1', value: 777 } },
+});
+const readResp = mcp({
+  jsonrpc: '2.0', id: 4, method: 'tools/call',
+  params: { name: 'read_cell', arguments: { sheet: sheetName, cell_ref: 'C1' } },
+});
+// tools/call wraps the result in { content: [{type:'text', text: JSON.stringify(...)}] }
+// (MCP spec). Some servers return the raw value too. Accept either shape.
+const readPayload = readResp?.result?.content?.[0]?.text
+  ? JSON.parse(readResp.result.content[0].text)
+  : readResp?.result;
+check(
+  'mcp tools/call write+read_cell round-trip',
+  readPayload?.value === 777 || readPayload?.value === '777',
+  JSON.stringify(readResp),
+);
+const notifResp = mcp({ jsonrpc: '2.0', method: 'tools/list' }); // notification
+check('mcp notification returns no response', notifResp === undefined, JSON.stringify(notifResp));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

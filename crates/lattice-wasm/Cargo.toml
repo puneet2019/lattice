@@ -20,6 +20,11 @@ lattice-core = { path = "../lattice-core" }
 lattice-io = { path = "../lattice-io", default-features = false }
 lattice-charts = { path = "../lattice-charts" }
 lattice-analysis = { path = "../lattice-analysis" }
+# lattice-mcp without the native feature: only the sync `handle_request`
+# dispatcher (and the tool/resource/prompt catalogs) — no stdio/HTTP
+# transports, no tokio. The browser AI exposure is wired in `lib.rs` via
+# the `mcp_request()` export.
+lattice-mcp = { path = "../lattice-mcp", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = "0.2"
