@@ -1,6 +1,7 @@
 //! Formula operation tool handlers: evaluate_formula, get_formula, insert_formula,
 //! bulk_formula, import_range.
 
+#[cfg(feature = "native")]
 use std::path::Path;
 
 use serde::Deserialize;
@@ -310,6 +311,11 @@ pub struct ImportRangeArgs {
 ///
 /// The `range_string` must be in `SheetName!StartRef:EndRef` format, e.g.
 /// `"Sheet1!A1:C10"`.
+///
+/// Native-only: requires `lattice-io`'s path-based xlsx reader. On WASM the
+/// browser has no filesystem, so the tool returns a "not supported" error
+/// — host code is expected to surface that to the agent.
+#[cfg(feature = "native")]
 pub fn handle_import_range(args: Value) -> std::result::Result<Value, String> {
     let args: ImportRangeArgs =
         serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {}", e))?;
@@ -360,7 +366,22 @@ pub fn handle_import_range(args: Value) -> std::result::Result<Value, String> {
     }))
 }
 
+/// WASM stub for `import_range`. The browser has no filesystem, so the
+/// path-based reader the native implementation depends on is unavailable.
+/// The tool definition is still exposed in `tools/list` so agents see a
+/// uniform tool set across transports; calls always fail with a clear
+/// message.
+#[cfg(not(feature = "native"))]
+pub fn handle_import_range(_args: Value) -> std::result::Result<Value, String> {
+    Err("import_range is not supported in the browser build — \
+         it reads .xlsx files from the filesystem, which is unavailable in WASM."
+        .to_string())
+}
+
 /// Parse a range string like `"Sheet1!A1:C10"` into `(sheet_name, start_ref, end_ref)`.
+///
+/// Only used by the native `handle_import_range` (and its unit tests).
+#[cfg(any(feature = "native", test))]
 fn parse_import_range_string(s: &str) -> std::result::Result<(String, String, String), String> {
     let excl = s.find('!').ok_or_else(|| {
         format!(

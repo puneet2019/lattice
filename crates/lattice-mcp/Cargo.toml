@@ -3,17 +3,57 @@ name = "lattice-mcp"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["native"]
+# The `native` feature enables the desktop transports (stdio + Streamable
+# HTTP) and the tokio-backed `McpServer` struct that wraps the workbook in
+# `Arc<RwLock<...>>`. It is on by default for the desktop build.
+#
+# A WASM build (`--no-default-features`) omits the transports and the
+# async server wrapper, exposing only the sync JSON-RPC dispatcher
+# (`handle_request` + `McpState`) so a host (e.g. `lattice-wasm`) can drive
+# the MCP protocol directly without tokio.
+native = [
+    "dep:tokio",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:http-body-util",
+    "dep:bytes",
+    "dep:tokio-util",
+    "lattice-io/native",
+]
+
 [dependencies]
 lattice-core = { path = "../lattice-core" }
-lattice-io = { path = "../lattice-io" }
+# `default-features = false` so the WASM build of `lattice-mcp` does not
+# transitively pull in lattice-io's native filesystem code (notify, libc,
+# atomic-rename via `libc::EXDEV`, etc.). The `native` feature here forwards
+# to `lattice-io/native`, restoring full functionality for the desktop build.
+lattice-io = { path = "../lattice-io", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 uuid = { workspace = true }
 regex = "1"
-hyper = { version = "1", features = ["server", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio", "server-auto", "server-graceful"] }
-http-body-util = "0.1"
-bytes = "1"
-tokio-util = { version = "0.7", features = ["io"] }
+
+# Async/network deps used only by the native transports and the tokio
+# `McpServer`. Declared optional so a `--no-default-features` (WASM) build
+# does not pull them in (none of them target wasm32-unknown-unknown).
+tokio = { workspace = true, optional = true }
+hyper = { version = "1", features = ["server", "http1", "http2"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "server-graceful"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+tokio-util = { version = "0.7", features = ["io"], optional = true }
+
+# On wasm32 we need to surface the browser backends for two transitive deps:
+# - `getrandom 0.3`: needs the `wasm_js` cargo feature in addition to the
+#   `getrandom_backend="wasm_js"` cfg already set in `.cargo/config.toml`.
+# - `uuid`: needs the `js` feature so chart-id generation uses the browser
+#   randomness path (uuid pulls getrandom transitively).
+# `lattice-wasm` already enables these in its own deps when building the
+# downstream cdylib; declaring them here as well lets a standalone
+# `cargo build -p lattice-mcp --target wasm32-unknown-unknown` succeed.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+uuid = { version = "1", features = ["v4", "js"] }

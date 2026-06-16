@@ -1,27 +1,29 @@
-//! MCP server — handles JSON-RPC 2.0 messages and dispatches to tools.
+//! Native MCP server — async wrapper around the sync [`crate::dispatch`]
+//! pipeline.
+//!
+//! This file is `native`-only. The protocol dispatch itself is sync (see
+//! [`crate::dispatch::handle_request`]); `McpServer` exists so the
+//! desktop build can keep its `Arc<RwLock<Workbook>>` sharing model (so
+//! the GUI and the MCP server can mutate the same workbook concurrently)
+//! and so the stdio and HTTP transports continue to work unchanged.
 
 use std::sync::Arc;
 
-use serde_json::{Value, json};
 use tokio::sync::RwLock;
 
 use lattice_core::{ConditionalFormatStore, Workbook};
 
+use crate::dispatch::{self, McpState};
 use crate::tools::ToolRegistry;
-use crate::tools::{
-    analysis, cell_ops, chart_ops, conditional_format_ops, data_ops, file_ops, filter_view_ops,
-    find_replace_ops, format_ops, formula_ops, named_function_ops, named_range_ops, sheet_ops,
-    sparkline_ops, validation_ops,
-};
 
 /// The MCP protocol version we implement.
-const PROTOCOL_VERSION: &str = "2024-11-05";
+pub const PROTOCOL_VERSION: &str = dispatch::PROTOCOL_VERSION;
 
 /// The server name reported during initialization.
-const SERVER_NAME: &str = "lattice";
+pub const SERVER_NAME: &str = dispatch::SERVER_NAME;
 
 /// The server version reported during initialization.
-const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const SERVER_VERSION: &str = dispatch::SERVER_VERSION;
 
 /// MCP server that wraps a workbook and handles JSON-RPC 2.0 messages.
 pub struct McpServer {
@@ -98,439 +100,31 @@ impl McpServer {
 
     /// Handle an incoming JSON-RPC 2.0 message and return a response.
     ///
-    /// Parses the method, dispatches to the appropriate handler,
-    /// and wraps the result in a JSON-RPC response envelope.
+    /// Acquires write locks on the workbook and conditional-format store
+    /// for the duration of the request and delegates to the sync
+    /// [`crate::dispatch::handle_request`]. The locks are held for the
+    /// whole request — same semantics as before — so concurrent tool
+    /// calls serialize through `tokio::RwLock` just as they did when each
+    /// arm acquired its own guard.
     pub async fn handle_message(&mut self, message: &str) -> Option<String> {
-        let request: Value = match serde_json::from_str(message) {
-            Ok(v) => v,
-            Err(e) => {
-                return Some(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32700,
-                            "message": format!("Parse error: {}", e),
-                        },
-                        "id": null,
-                    })
-                    .to_string(),
-                );
-            }
+        let mut workbook = self.workbook.write().await;
+        let mut conditional_formats = self.conditional_formats.write().await;
+
+        let mut state = McpState {
+            workbook: &mut workbook,
+            conditional_formats: &mut conditional_formats,
+            initialized: &mut self.initialized,
+            tool_registry: &self.tool_registry,
         };
 
-        let method = request["method"].as_str().unwrap_or("");
-        let id = request.get("id").cloned();
-        let params = request.get("params").cloned().unwrap_or(json!({}));
-
-        // Notifications (no id) don't get responses.
-        let is_notification = id.is_none();
-
-        let result = match method {
-            "initialize" => self.handle_initialize(params),
-            "initialized" => {
-                // Notification — no response needed.
-                return None;
-            }
-            "ping" => Ok(json!({})),
-            "tools/list" => self.handle_tools_list(),
-            "tools/call" => self.handle_tools_call(params).await,
-            "resources/list" => crate::resources::handle_list_resources(),
-            "resources/read" => {
-                let wb = self.workbook.read().await;
-                crate::resources::handle_read_resource(params, &wb)
-            }
-            "prompts/list" => crate::prompts::handle_list_prompts(),
-            "prompts/get" => crate::prompts::handle_get_prompt(params),
-            "" => Err((-32600, "Invalid Request: missing method".to_string())),
-            _ => Err((-32601, format!("Method not found: {}", method))),
-        };
-
-        if is_notification {
-            return None;
-        }
-
-        let response = match result {
-            Ok(result_value) => {
-                json!({
-                    "jsonrpc": "2.0",
-                    "result": result_value,
-                    "id": id,
-                })
-            }
-            Err((code, message)) => {
-                json!({
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": code,
-                        "message": message,
-                    },
-                    "id": id,
-                })
-            }
-        };
-
-        Some(response.to_string())
-    }
-
-    /// Handle the `initialize` method.
-    fn handle_initialize(&mut self, _params: Value) -> Result<Value, (i32, String)> {
-        self.initialized = true;
-
-        Ok(json!({
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {
-                "tools": { "listChanged": false },
-                "resources": { "subscribe": false, "listChanged": false },
-                "prompts": { "listChanged": false },
-            },
-            "serverInfo": {
-                "name": SERVER_NAME,
-                "version": SERVER_VERSION,
-            },
-        }))
-    }
-
-    /// Handle the `tools/list` method.
-    fn handle_tools_list(&self) -> Result<Value, (i32, String)> {
-        let tools: Vec<Value> = self
-            .tool_registry
-            .list()
-            .iter()
-            .map(|t| {
-                json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "inputSchema": t.input_schema,
-                })
-            })
-            .collect();
-
-        Ok(json!({ "tools": tools }))
-    }
-
-    /// Handle the `tools/call` method.
-    async fn handle_tools_call(&self, params: Value) -> Result<Value, (i32, String)> {
-        let name = params["name"]
-            .as_str()
-            .ok_or((-32602, "Missing tool name".to_string()))?;
-
-        let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
-
-        // Check that the tool exists.
-        if self.tool_registry.get(name).is_none() {
-            return Err((-32602, format!("Unknown tool: {}", name)));
-        }
-
-        // Dispatch to the appropriate handler.
-        let result = match name {
-            // ── Cell operations ──────────────────────────────────────────
-            "read_cell" => {
-                let wb = self.workbook.read().await;
-                cell_ops::handle_read_cell(&wb, arguments)
-            }
-            "write_cell" => {
-                let mut wb = self.workbook.write().await;
-                cell_ops::handle_write_cell(&mut wb, arguments)
-            }
-            "read_range" => {
-                let wb = self.workbook.read().await;
-                cell_ops::handle_read_range(&wb, arguments)
-            }
-            "write_range" => {
-                let mut wb = self.workbook.write().await;
-                cell_ops::handle_write_range(&mut wb, arguments)
-            }
-
-            // ── Sheet operations ─────────────────────────────────────────
-            "list_sheets" => {
-                let wb = self.workbook.read().await;
-                sheet_ops::handle_list_sheets(&wb)
-            }
-            "create_sheet" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_create_sheet(&mut wb, arguments)
-            }
-            "rename_sheet" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_rename_sheet(&mut wb, arguments)
-            }
-            "delete_sheet" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_delete_sheet(&mut wb, arguments)
-            }
-            "hide_rows" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_hide_rows(&mut wb, arguments)
-            }
-            "unhide_rows" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_unhide_rows(&mut wb, arguments)
-            }
-            "hide_cols" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_hide_cols(&mut wb, arguments)
-            }
-            "unhide_cols" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_unhide_cols(&mut wb, arguments)
-            }
-            "protect_sheet" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_protect_sheet(&mut wb, arguments)
-            }
-            "unprotect_sheet" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_unprotect_sheet(&mut wb, arguments)
-            }
-            "set_sheet_tab_color" => {
-                let mut wb = self.workbook.write().await;
-                sheet_ops::handle_set_sheet_tab_color(&mut wb, arguments)
-            }
-
-            // ── Data operations ──────────────────────────────────────────
-            "clear_range" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_clear_range(&mut wb, arguments)
-            }
-            "find_replace" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_find_replace(&mut wb, arguments)
-            }
-            "sort_range" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_sort_range(&mut wb, arguments)
-            }
-            "deduplicate" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_deduplicate(&mut wb, arguments)
-            }
-            "transpose" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_transpose(&mut wb, arguments)
-            }
-            "auto_fill" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_auto_fill(&mut wb, arguments)
-            }
-            "generate_pivot" => {
-                let wb = self.workbook.read().await;
-                data_ops::handle_generate_pivot(&wb, arguments)
-            }
-            "remove_duplicates" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_remove_duplicates(&mut wb, arguments)
-            }
-            "text_to_columns" => {
-                let mut wb = self.workbook.write().await;
-                data_ops::handle_text_to_columns(&mut wb, arguments)
-            }
-
-            // ── Find/replace operations (core-backed) ───────────────────
-            "find_in_workbook" => {
-                let wb = self.workbook.read().await;
-                find_replace_ops::handle_find_in_workbook(&wb, arguments)
-            }
-            "replace_in_workbook" => {
-                let mut wb = self.workbook.write().await;
-                find_replace_ops::handle_replace_in_workbook(&mut wb, arguments)
-            }
-
-            // ── Named range operations ────────────────────────────────────
-            "add_named_range" => {
-                let mut wb = self.workbook.write().await;
-                named_range_ops::handle_add_named_range(&mut wb, arguments)
-            }
-            "remove_named_range" => {
-                let mut wb = self.workbook.write().await;
-                named_range_ops::handle_remove_named_range(&mut wb, arguments)
-            }
-            "list_named_ranges" => {
-                let wb = self.workbook.read().await;
-                named_range_ops::handle_list_named_ranges(&wb)
-            }
-            "resolve_named_range" => {
-                let wb = self.workbook.read().await;
-                named_range_ops::handle_resolve_named_range(&wb, arguments)
-            }
-
-            // ── Named function operations ────────────────────────────────
-            "add_named_function" => {
-                let mut wb = self.workbook.write().await;
-                named_function_ops::handle_add_named_function(&mut wb, arguments)
-            }
-            "remove_named_function" => {
-                let mut wb = self.workbook.write().await;
-                named_function_ops::handle_remove_named_function(&mut wb, arguments)
-            }
-            "list_named_functions" => {
-                let wb = self.workbook.read().await;
-                named_function_ops::handle_list_named_functions(&wb)
-            }
-
-            // ── Analysis operations ──────────────────────────────────────
-            "describe_data" => {
-                let wb = self.workbook.read().await;
-                analysis::handle_describe_data(&wb, arguments)
-            }
-            "correlate" => {
-                let wb = self.workbook.read().await;
-                analysis::handle_correlate(&wb, arguments)
-            }
-            "trend_analysis" => {
-                let wb = self.workbook.read().await;
-                analysis::handle_trend_analysis(&wb, arguments)
-            }
-
-            // ── Format operations ─────────────────────────────────────────
-            "get_cell_format" => {
-                let wb = self.workbook.read().await;
-                format_ops::handle_get_cell_format(&wb, arguments)
-            }
-            "set_cell_format" => {
-                let mut wb = self.workbook.write().await;
-                format_ops::handle_set_cell_format(&mut wb, arguments)
-            }
-            "merge_cells" => {
-                let mut wb = self.workbook.write().await;
-                format_ops::handle_merge_cells(&mut wb, arguments)
-            }
-            "unmerge_cells" => {
-                let mut wb = self.workbook.write().await;
-                format_ops::handle_unmerge_cells(&mut wb, arguments)
-            }
-
-            // ── Formula operations ────────────────────────────────────────
-            "evaluate_formula" => {
-                let wb = self.workbook.read().await;
-                formula_ops::handle_evaluate_formula(&wb, arguments)
-            }
-            "get_formula" => {
-                let wb = self.workbook.read().await;
-                formula_ops::handle_get_formula(&wb, arguments)
-            }
-            "insert_formula" => {
-                let mut wb = self.workbook.write().await;
-                formula_ops::handle_insert_formula(&mut wb, arguments)
-            }
-            "bulk_formula" => {
-                let mut wb = self.workbook.write().await;
-                formula_ops::handle_bulk_formula(&mut wb, arguments)
-            }
-            "import_range" => {
-                // No workbook lock needed — reads from an external file.
-                formula_ops::handle_import_range(arguments)
-            }
-
-            // ── Validation operations ─────────────────────────────────────
-            "set_validation" => {
-                let mut wb = self.workbook.write().await;
-                validation_ops::handle_set_validation(&mut wb, arguments)
-            }
-            "get_validation" => {
-                let wb = self.workbook.read().await;
-                validation_ops::handle_get_validation(&wb, arguments)
-            }
-            "remove_validation" => {
-                let mut wb = self.workbook.write().await;
-                validation_ops::handle_remove_validation(&mut wb, arguments)
-            }
-            "validate_cell" => {
-                let wb = self.workbook.read().await;
-                validation_ops::handle_validate_cell(&wb, arguments)
-            }
-
-            // ── Chart operations ─────────────────────────────────────────
-            "create_chart" => chart_ops::handle_create_chart(arguments),
-            "list_charts" => chart_ops::handle_list_charts(arguments),
-            "delete_chart" => chart_ops::handle_delete_chart(arguments),
-
-            // ── Conditional format operations ─────────────────────────────
-            "add_conditional_format" => {
-                let mut cf = self.conditional_formats.write().await;
-                conditional_format_ops::handle_add_conditional_format(&mut cf, arguments)
-            }
-            "list_conditional_formats" => {
-                let cf = self.conditional_formats.read().await;
-                conditional_format_ops::handle_list_conditional_formats(&cf, arguments)
-            }
-            "remove_conditional_format" => {
-                let mut cf = self.conditional_formats.write().await;
-                conditional_format_ops::handle_remove_conditional_format(&mut cf, arguments)
-            }
-
-            // ── Sparkline operations ──────────────────────────────────────
-            "add_sparkline" => {
-                let mut wb = self.workbook.write().await;
-                sparkline_ops::handle_add_sparkline(&mut wb, arguments)
-            }
-            "remove_sparkline" => {
-                let mut wb = self.workbook.write().await;
-                sparkline_ops::handle_remove_sparkline(&mut wb, arguments)
-            }
-            "list_sparklines" => {
-                let wb = self.workbook.read().await;
-                sparkline_ops::handle_list_sparklines(&wb, arguments)
-            }
-
-            // ── Filter view operations ────────────────────────────────────
-            "save_filter_view" => {
-                let mut wb = self.workbook.write().await;
-                filter_view_ops::handle_save_filter_view(&mut wb, arguments)
-            }
-            "list_filter_views" => {
-                let wb = self.workbook.read().await;
-                filter_view_ops::handle_list_filter_views(&wb)
-            }
-            "apply_filter_view" => {
-                let mut wb = self.workbook.write().await;
-                filter_view_ops::handle_apply_filter_view(&mut wb, arguments)
-            }
-            "delete_filter_view" => {
-                let mut wb = self.workbook.write().await;
-                filter_view_ops::handle_delete_filter_view(&mut wb, arguments)
-            }
-
-            // ── File operations ──────────────────────────────────────────
-            "get_workbook_info" => {
-                let wb = self.workbook.read().await;
-                file_ops::handle_get_workbook_info(&wb)
-            }
-            "export_json" => {
-                let wb = self.workbook.read().await;
-                file_ops::handle_export_json(&wb, arguments)
-            }
-            "export_csv" => {
-                let wb = self.workbook.read().await;
-                file_ops::handle_export_csv(&wb, arguments)
-            }
-
-            // Catch-all for registered but unimplemented tools.
-            _ => Err(format!("Tool '{}' is not yet implemented", name)),
-        };
-
-        match result {
-            Ok(value) => Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string_pretty(&value)
-                        .unwrap_or_else(|_| value.to_string()),
-                }],
-                "isError": false,
-            })),
-            Err(msg) => Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": msg,
-                }],
-                "isError": true,
-            })),
-        }
+        dispatch::handle_request(&mut state, message)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[tokio::test]
     async fn test_initialize() {
