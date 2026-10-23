@@ -1,9 +1,9 @@
 # Lattice dev container
-# Rust 1.84 on Debian Bookworm + Node 20 + Tauri Linux dependencies
+# Rust 1.84 on Debian Bookworm + Node 24 + Tauri Linux dependencies
 FROM rust:1.84-bookworm
 
-# Install Node 20 via NodeSource
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Install Node 24 via NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs
 
 # Tauri Linux dependencies (WebKit2GTK + build tools)
