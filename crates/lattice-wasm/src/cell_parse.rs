@@ -237,11 +237,10 @@ fn try_parse_currency(s: &str) -> Option<(CellValue, Option<String>)> {
     } else if let Some(r) = trimmed.strip_prefix('\u{00A3}') {
         // Pound sign
         (r, "\u{00A3}#,##0.00")
-    } else if let Some(r) = trimmed.strip_prefix('\u{00A5}') {
-        // Yen sign
-        (r, "\u{00A5}#,##0.00")
     } else {
-        return None;
+        // Yen sign
+        let r = trimmed.strip_prefix('\u{00A5}')?;
+        (r, "\u{00A5}#,##0.00")
     };
 
     let rest = rest.trim();
