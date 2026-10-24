@@ -23,7 +23,7 @@ jobs:
       - name: Setup Rust (stable, universal targets)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin,x86_64-apple-darwin,wasm32-unknown-unknown
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -44,6 +44,12 @@ jobs:
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version "^0.15" --locked
+
+      - name: Build WASM package
+        run: make wasm
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci
